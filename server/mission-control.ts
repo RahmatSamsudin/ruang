@@ -2,8 +2,17 @@ import { execFile as execFileCallback } from 'node:child_process'
 import { promisify } from 'node:util'
 
 const execFile = promisify(execFileCallback)
-const CACHE_MS = 10_000
-const INSIGHTS_CACHE_MS = 60_000
+
+export const RUNTIME_CACHE_MS = 5 * 60_000
+export const CALENDAR_CACHE_MS = 5 * 60_000
+export const KNOWLEDGE_CACHE_MS = 5 * 60_000
+export const CHANNEL_CACHE_MS = 60_000
+export const TASK_BOARD_CACHE_MS = 30_000
+export const ACTIVITY_CACHE_MS = 30_000
+export const AGENT_ACTIVITY_CACHE_MS = 60_000
+export const LOGS_CACHE_MS = 5_000
+export const INSIGHTS_CACHE_MS = 60_000
+export const FRESH_MAX_AGE_MS = 2_000
 const COMMAND_TIMEOUT_MS = 8_000
 const COMMAND_LOG_LIMIT = 100
 const LOG_TAIL_LINES = 200
@@ -550,10 +559,9 @@ export async function collectTaskBoard(run: Run = systemRun): Promise<TaskBoardS
  * `hermes profile list` is read with `hermes -p <profile> cron list --all` and its jobs are
  * tagged with the profile. If the profile list cannot be read, the active profile is read as before.
  */
-export async function collectCalendar(run: Run = systemRun): Promise<CalendarSnapshot> {
+export async function collectCalendar(run: Run = systemRun, profiles?: readonly string[]): Promise<CalendarSnapshot> {
   const fetchedAt = new Date().toISOString()
-  const profiles = await read(run, 'hermes', ['profile', 'list'], parseProfiles, [])
-  const names = profiles.availability === 'available' ? profiles.data.map((profile) => profile.name).filter((name) => PROFILE_NAME.test(name)) : []
+  const names = profiles ? profiles.filter((name) => PROFILE_NAME.test(name)) : []
   if (names.length === 0) return { jobs: await read(run, 'hermes', ['cron', 'list', '--all'], parseCronJobs, []), fetchedAt }
   const results = await Promise.all(names.map((name) => read(run, 'hermes', ['-p', name, 'cron', 'list', '--all'], parseCronJobs, [])))
   if (results.every((result) => result.availability !== 'available')) return { jobs: results[0], fetchedAt }
@@ -856,9 +864,9 @@ function collaborationState(sessions: Session[], aliases: readonly string[]): Of
   return sessions.some((session) => session.active === true && session.actor && aliases.includes(session.actor.trim().toLowerCase())) ? 'Collaborating' : 'Unknown'
 }
 
-function isFresh(fetchedAt: string, now: number): boolean {
+function isFresh(fetchedAt: string, now: number, maxAge = 30_000): boolean {
   const timestamp = Date.parse(fetchedAt)
-  return Number.isFinite(timestamp) && timestamp <= now + 1_000 && now - timestamp <= 30_000
+  return Number.isFinite(timestamp) && timestamp <= now + 1_000 && now - timestamp <= maxAge
 }
 
 function explicitState(agent: AgentSpec, states: ExplicitOfficeState[], now: number): OfficeState | undefined {
@@ -902,10 +910,10 @@ function liveState(agent: AgentSpec, snapshot: AgentActivitySnapshot | undefined
 export function buildOfficeSnapshot(runtime: RuntimeSnapshot, board: TaskBoardSnapshot, activity: ActivitySnapshot, options: OfficeBuildOptions = {}): OfficeSnapshot {
   const fetchedAt = new Date().toISOString()
   const now = typeof options.now === 'number' ? options.now : options.now ? Date.parse(options.now) : Date.now()
-  const freshRuntime = isFresh(runtime.fetchedAt, now)
-  const freshBoard = board.tasks.availability === 'available' && isFresh(board.fetchedAt, now)
-  const freshActivity = activity.sessions.availability === 'available' && isFresh(activity.fetchedAt, now)
-  const agentActivity = options.agentActivity && isFresh(options.agentActivity.fetchedAt, now) ? options.agentActivity : undefined
+  const freshRuntime = isFresh(runtime.fetchedAt, now, RUNTIME_CACHE_MS)
+  const freshBoard = board.tasks.availability === 'available' && isFresh(board.fetchedAt, now, TASK_BOARD_CACHE_MS)
+  const freshActivity = activity.sessions.availability === 'available' && isFresh(activity.fetchedAt, now, ACTIVITY_CACHE_MS)
+  const agentActivity = options.agentActivity && isFresh(options.agentActivity.fetchedAt, now, AGENT_ACTIVITY_CACHE_MS) ? options.agentActivity : undefined
   const explicitStates = options.explicitStates ?? []
   const stations = agentRoster(runtime).map((agent, index): OfficeStation => {
     const gateway = agent.gateway
@@ -979,13 +987,18 @@ export function buildDashboard(parts: { runtime: RuntimeSnapshot; board: TaskBoa
 // ---------------------------------------------------------------------------
 // Cached accessors. Concurrent callers share one in-flight read per source.
 
-function cachedSource<T>(collect: () => Promise<T>, ttl = CACHE_MS) {
-  let entry: { value: T; expires: number } | undefined
+export function cachedSource<T>(collect: (fresh?: boolean) => Promise<T>, ttl: number) {
+  let entry: { value: T; expires: number; fetchedAt: number } | undefined
   let inflight: Promise<T> | undefined
-  const get = (now = Date.now()): Promise<T> => {
-    if (entry && entry.expires > now) return Promise.resolve(entry.value)
-    inflight ??= collect().then((value) => {
-      entry = { value, expires: Date.now() + ttl }
+  const get = (fresh = false, now?: number): Promise<T> => {
+    const currentTime = now ?? Date.now()
+    if (entry) {
+      const freshEnough = fresh ? currentTime - entry.fetchedAt <= FRESH_MAX_AGE_MS : entry.expires > currentTime
+      if (freshEnough) return Promise.resolve(entry.value)
+    }
+    inflight ??= collect(fresh).then((value) => {
+      const timestamp = now ?? Date.now()
+      entry = { value, expires: timestamp + ttl, fetchedAt: timestamp }
       return value
     }).finally(() => { inflight = undefined })
     return inflight
@@ -993,49 +1006,52 @@ function cachedSource<T>(collect: () => Promise<T>, ttl = CACHE_MS) {
   return Object.assign(get, { clear: () => { entry = undefined } })
 }
 
-const runtimeSource = cachedSource(() => collectSnapshot())
-const taskBoardSource = cachedSource(() => collectTaskBoard())
-const calendarSource = cachedSource(() => collectCalendar())
-const activitySource = cachedSource(() => collectActivity())
-const knowledgeSource = cachedSource(() => collectKnowledge())
-const channelSource = cachedSource(() => collectChannels())
-const usageSources = new Map(USAGE_PERIODS.map((days) => [days, cachedSource(async () => collectUsage(days, (await getSnapshot()).profiles.data.map((profile) => profile.name)), INSIGHTS_CACHE_MS)]))
+const runtimeSource = cachedSource(() => collectSnapshot(), RUNTIME_CACHE_MS)
+const taskBoardSource = cachedSource(() => collectTaskBoard(), TASK_BOARD_CACHE_MS)
+const calendarSource = cachedSource(async (fresh) => {
+  const runtime = await getSnapshot(fresh)
+  const profiles = runtime.profiles.availability === 'available' ? runtime.profiles.data.map((profile) => profile.name) : []
+  return collectCalendar(systemRun, profiles)
+}, CALENDAR_CACHE_MS)
+const activitySource = cachedSource(() => collectActivity(), ACTIVITY_CACHE_MS)
+const knowledgeSource = cachedSource(() => collectKnowledge(), KNOWLEDGE_CACHE_MS)
+const channelSource = cachedSource(() => collectChannels(), CHANNEL_CACHE_MS)
+const usageSources = new Map(USAGE_PERIODS.map((days) => [days, cachedSource(async (fresh) => collectUsage(days, (await getSnapshot(fresh)).profiles.data.map((profile) => profile.name)), INSIGHTS_CACHE_MS)]))
 
 /** Token usage of every agent over 1, 7 or 30 days (anything else reads as 7). */
-export function getUsage(days: number, now = Date.now()): Promise<UsageSnapshot> {
-  return (usageSources.get(days as typeof USAGE_PERIODS[number]) ?? usageSources.get(INSIGHT_DAYS)!)(now)
+export function getUsage(days: number, fresh = false, now?: number): Promise<UsageSnapshot> {
+  return (usageSources.get(days as typeof USAGE_PERIODS[number]) ?? usageSources.get(INSIGHT_DAYS)!)(fresh, now)
 }
-const logsSource = cachedSource(() => collectLogs(), 5_000)
-const agentActivitySource = cachedSource(async () => {
-  const runtime = await getSnapshot()
+const logsSource = cachedSource(() => collectLogs(), LOGS_CACHE_MS)
+const agentActivitySource = cachedSource(async (fresh) => {
+  const runtime = await getSnapshot(fresh)
   return collectAgentActivity(runtime.profiles.availability === 'available' ? runtime.profiles.data.map((profile) => profile.name) : [])
-}, 15_000)
+}, AGENT_ACTIVITY_CACHE_MS)
 
-export function getSnapshot(now = Date.now()): Promise<RuntimeSnapshot> { return runtimeSource(now) }
+export function getSnapshot(fresh = false, now?: number): Promise<RuntimeSnapshot> { return runtimeSource(fresh, now) }
 export function clearSnapshotCache(): void { runtimeSource.clear() }
-export function getTaskBoard(now = Date.now()): Promise<TaskBoardSnapshot> { return taskBoardSource(now) }
-export function getCalendar(now = Date.now()): Promise<CalendarSnapshot> { return calendarSource(now) }
-export function getActivity(now = Date.now()): Promise<ActivitySnapshot> { return activitySource(now) }
-export function getKnowledge(now = Date.now()): Promise<KnowledgeSnapshot> { return knowledgeSource(now) }
-export function getChannels(now = Date.now()): Promise<ChannelSnapshot> { return channelSource(now) }
-export function getLogs(now = Date.now()): Promise<LogsSnapshot> { return logsSource(now) }
+export function getTaskBoard(fresh = false, now?: number): Promise<TaskBoardSnapshot> { return taskBoardSource(fresh, now) }
+export function getCalendar(fresh = false, now?: number): Promise<CalendarSnapshot> { return calendarSource(fresh, now) }
+export function getActivity(fresh = false, now?: number): Promise<ActivitySnapshot> { return activitySource(fresh, now) }
+export function getKnowledge(fresh = false, now?: number): Promise<KnowledgeSnapshot> { return knowledgeSource(fresh, now) }
+export function getChannels(fresh = false, now?: number): Promise<ChannelSnapshot> { return channelSource(fresh, now) }
+export function getLogs(fresh = false, now?: number): Promise<LogsSnapshot> { return logsSource(fresh, now) }
 
-/** Detail for a task on the current board; returns undefined for ids Hermes did not list. */
 /** Details of a task on the current board snapshot; `board` picks the board it lives on. */
-export async function getTaskDetail(id: string, now = Date.now(), board?: string): Promise<TaskDetailSnapshot | undefined> {
+export async function getTaskDetail(id: string, fresh = false, board?: string): Promise<TaskDetailSnapshot | undefined> {
   if (!TASK_ID.test(id) || (board !== undefined && !BOARD_SLUG.test(board))) return undefined
-  const snapshot = await getTaskBoard(now)
+  const snapshot = await getTaskBoard(fresh)
   if (snapshot.tasks.availability === 'available' && !snapshot.tasks.data.some((task) => task.id === id && task.board === board)) return undefined
   return collectTaskDetail(id, systemRun, board)
 }
 
-export async function getOffice(now = Date.now()): Promise<OfficeSnapshot> {
-  const [runtime, board, activity, agentActivity] = await Promise.all([getSnapshot(now), getTaskBoard(now), getActivity(now), agentActivitySource(now)])
+export async function getOffice(fresh = false): Promise<OfficeSnapshot> {
+  const [runtime, board, activity, agentActivity] = await Promise.all([getSnapshot(fresh), getTaskBoard(fresh), getActivity(fresh), agentActivitySource(fresh)])
   return buildOfficeSnapshot(runtime, board, activity, { agentActivity })
 }
 
-export async function getDashboard(now = Date.now()): Promise<DashboardSnapshot> {
-  const [runtime, board, calendar, activity, knowledge, channels, agentActivity] = await Promise.all([getSnapshot(now), getTaskBoard(now), getCalendar(now), getActivity(now), getKnowledge(now), getChannels(now), agentActivitySource(now)])
+export async function getDashboard(fresh = false): Promise<DashboardSnapshot> {
+  const [runtime, board, calendar, activity, knowledge, channels, agentActivity] = await Promise.all([getSnapshot(fresh), getTaskBoard(fresh), getCalendar(fresh), getActivity(fresh), getKnowledge(fresh), getChannels(fresh), agentActivitySource(fresh)])
   const office = buildOfficeSnapshot(runtime, board, activity, { agentActivity })
   return buildDashboard({ runtime, board, calendar, activity, knowledge, channels, office, commands: commandHealth() })
 }

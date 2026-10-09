@@ -37,38 +37,37 @@ installAccess(app)
 // Optional profile lock (off by default): a PIN withholds the private data of chosen agents.
 const privacyOf = installProfileLock(app)
 
-// `?fresh=1` (manual refresh) bypasses the 10s cache for anything older than 2s.
-const FRESH_WINDOW_MS = 8_000
 // Every snapshot is shared and cached; the private data of locked agents is withheld per request.
-const routes: Record<string, (now: number, privacy: Privacy) => Promise<unknown> | unknown> = {
-  '/api/runtime': getSnapshot,
-  '/api/dashboard': async (now, privacy) => redactDashboard(await getDashboard(now), privacy),
-  '/api/tasks': async (now, privacy) => redactTasks(await getTaskBoard(now), privacy),
-  '/api/calendar': async (now, privacy) => redactCalendar(await getCalendar(now), privacy),
-  '/api/activity': async (now, privacy) => redactActivity(await getActivity(now), privacy),
-  '/api/knowledge': getKnowledge,
-  '/api/office': async (now, privacy) => redactOffice(await getOffice(now), privacy),
-  '/api/channels': getChannels,
-  '/api/logs': async (now, privacy) => redactLogs(await getLogs(now), privacy),
+const routes: Record<string, (fresh: boolean, privacy: Privacy) => Promise<unknown> | unknown> = {
+  '/api/runtime': (fresh) => getSnapshot(fresh),
+  '/api/dashboard': async (fresh, privacy) => redactDashboard(await getDashboard(fresh), privacy),
+  '/api/tasks': async (fresh, privacy) => redactTasks(await getTaskBoard(fresh), privacy),
+  '/api/calendar': async (fresh, privacy) => redactCalendar(await getCalendar(fresh), privacy),
+  '/api/activity': async (fresh, privacy) => redactActivity(await getActivity(fresh), privacy),
+  '/api/knowledge': (fresh) => getKnowledge(fresh),
+  '/api/office': async (fresh, privacy) => redactOffice(await getOffice(fresh), privacy),
+  '/api/channels': (fresh) => getChannels(fresh),
+  '/api/logs': async (fresh, privacy) => redactLogs(await getLogs(fresh), privacy),
   '/api/command-log': () => getCommandLog(),
 }
 for (const [path, handler] of Object.entries(routes)) {
   app.get(path, async (request, response) => {
-    const now = Date.now() + (request.query.fresh === '1' ? FRESH_WINDOW_MS : 0)
-    response.json(await handler(now, await privacyOf(request)))
+    const fresh = request.query.fresh === '1'
+    response.json(await handler(fresh, await privacyOf(request)))
   })
 }
 const locked = (response: Response, agent: string) => response.status(423).json({ error: `🔒 ${agent} is locked. Enter the PIN to see it.`, locked: 'profile', agent })
 app.get('/api/usage', async (request, response) => {
-  const now = Date.now() + (request.query.fresh === '1' ? FRESH_WINDOW_MS : 0)
-  response.json(redactUsage(await getUsage(Number(request.query.days) || 7, now), await privacyOf(request)))
+  const fresh = request.query.fresh === '1'
+  response.json(redactUsage(await getUsage(Number(request.query.days) || 7, fresh), await privacyOf(request)))
 })
 app.get('/api/tasks/:id', async (request, response) => {
+  const fresh = request.query.fresh === '1'
   const board = typeof request.query.board === 'string' && request.query.board ? request.query.board : undefined
   const privacy = await privacyOf(request)
-  const listed = (await getTaskBoard()).tasks.data.find((task) => task.id === request.params.id && task.board === board)
+  const listed = (await getTaskBoard(fresh)).tasks.data.find((task) => task.id === request.params.id && task.board === board)
   if (listed && isHidden(privacy, listed.assignee)) { locked(response, listed.assignee!); return }
-  const detail = await getTaskDetail(String(request.params.id), Date.now(), board)
+  const detail = await getTaskDetail(String(request.params.id), fresh, board)
   if (!detail) { response.status(404).json({ error: 'Unknown task.' }); return }
   const assignee = detail.task.data?.assignee
   if (isHidden(privacy, assignee)) { locked(response, assignee!); return }

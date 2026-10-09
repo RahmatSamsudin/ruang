@@ -5,6 +5,7 @@ import {
   collectKnowledge,
   collectSnapshot,
   collectTaskBoard,
+  cachedSource,
   buildOfficeSnapshot,
   buildOfficeSummary,
   parseChannelStatus,
@@ -234,18 +235,16 @@ describe('Office snapshot', () => {
 })
 
 describe('calendar across profiles', () => {
-  const profileList = `\n Profile          Model                        Gateway      Alias        Distribution\n ───────────────    ───────────────────────────    ───────────    ───────────    ────────────────────\n ◆default         anthropic/claude-sonnet-4    running      —            —\n  coder    openai/gpt-5.5               running      le           —\n  research        —                            stopped      —            —\n`
   const cron = (id: string, name: string) => `  ${id} [active]\n    Name:      ${name}\n    Schedule:  0 8 * * *\n    Repeat:    ∞\n    Next run:  2026-09-28T08:00:00+07:00\n`
 
   it('reads every profile with -p and tags each job with its profile', async () => {
     const calls: string[][] = []
     const calendar = await collectCalendar(async (_file, args) => {
       calls.push(args)
-      if (args.join(' ') === 'profile list') return profileList
       if (args[1] === 'default') return cron('a1b2c3d4', 'Morning brief')
       if (args[1] === 'coder') return cron('b2c3d4e5', 'Nightly review')
       return 'No scheduled jobs.\n'
-    })
+    }, ['default', 'coder'])
     expect(calls).toContainEqual(['-p', 'coder', 'cron', 'list', '--all'])
     expect(calendar.jobs.availability).toBe('available')
     expect(calendar.jobs.data.map((job) => [job.agent, job.name])).toEqual([['default', 'Morning brief'], ['coder', 'Nightly review']])
@@ -254,10 +253,9 @@ describe('calendar across profiles', () => {
 
   it('keeps the other profiles when one cron list fails, and names the failed one', async () => {
     const calendar = await collectCalendar(async (_file, args) => {
-      if (args.join(' ') === 'profile list') return profileList
       if (args[1] === 'research') throw new Error('boom')
       return cron('a1b2c3d4', `Job of ${args[1]}`)
-    })
+    }, ['default', 'coder', 'research'])
     expect(calendar.jobs.data).toHaveLength(2)
     expect(calendar.failedProfiles).toEqual(['research'])
   })
@@ -266,9 +264,81 @@ describe('calendar across profiles', () => {
     const calls: string[][] = []
     await collectCalendar(async (_file, args) => {
       calls.push(args)
-      if (args.join(' ') === 'profile list') return profileList.replace('research        ', '--evil          ')
       return 'No scheduled jobs.\n'
-    })
+    }, ['default', '--evil'])
     expect(calls.flat()).not.toContain('--evil')
+  })
+
+  it('never calls profile list when given profiles', async () => {
+    const calls: string[][] = []
+    await collectCalendar(async (file, args) => {
+      calls.push([file, ...args])
+      return 'No scheduled jobs.\n'
+    }, ['default', 'coder'])
+    expect(calls.some((call) => call.includes('profile'))).toBe(false)
+    expect(calls).toContainEqual(['hermes', '-p', 'default', 'cron', 'list', '--all'])
+    expect(calls).toContainEqual(['hermes', '-p', 'coder', 'cron', 'list', '--all'])
+  })
+})
+
+describe('cachedSource', () => {
+  it('is not re-collected within its TTL and is re-collected after', async () => {
+    let count = 0
+    const source = cachedSource(async () => ++count, 30_000)
+    const base = 1_000_000
+    const first = await source(false, base)
+    expect(first).toBe(1)
+    expect(count).toBe(1)
+
+    // Within TTL (15s later)
+    const cached = await source(false, base + 15_000)
+    expect(cached).toBe(1)
+    expect(count).toBe(1)
+
+    // After TTL (35s later)
+    const refreshed = await source(false, base + 35_000)
+    expect(refreshed).toBe(2)
+    expect(count).toBe(2)
+  })
+
+  it('refetches an entry older than 2 s when fresh is requested, but not one younger than 2 s', async () => {
+    let count = 0
+    const source = cachedSource(async () => ++count, 300_000) // 5 min TTL
+    const base = 1_000_000
+    const first = await source(false, base)
+    expect(first).toBe(1)
+    expect(count).toBe(1)
+
+    // fresh=true, but entry is 1s old (younger than 2s) -> do not refetch
+    const young = await source(true, base + 1_000)
+    expect(young).toBe(1)
+    expect(count).toBe(1)
+
+    // fresh=true, entry is 2.5s old (older than 2s) -> refetch even though within 5m TTL
+    const old = await source(true, base + 2_500)
+    expect(old).toBe(2)
+    expect(count).toBe(2)
+  })
+
+  it('shares one in-flight collect across concurrent callers', async () => {
+    let count = 0
+    let resolveCollect: ((value: number) => void) | undefined
+    const source = cachedSource(() => {
+      count++
+      return new Promise<number>((resolve) => {
+        resolveCollect = resolve
+      })
+    }, 30_000)
+
+    const p1 = source()
+    const p2 = source()
+    const p3 = source(true)
+
+    expect(count).toBe(1)
+    resolveCollect!(42)
+
+    const results = await Promise.all([p1, p2, p3])
+    expect(results).toEqual([42, 42, 42])
+    expect(count).toBe(1)
   })
 })
