@@ -408,4 +408,158 @@ describe('SkinEditor component interactive tests', () => {
     expect(getPixel(pixelsAfterUndo, 5, 5)).toEqual(initialPixel)
     expect(ref.current!.isDirty()).toBe(false)
   })
+
+  it('preserves painted pixels and canUndo across parent re-renders with new onDirtyChange identity (paint path)', async () => {
+    const host = document.body.appendChild(document.createElement('div'))
+    const root = createRoot(host)
+    const ref = createRef<SkinEditorHandle>()
+
+    let onDirtyChange = vi.fn()
+
+    await act(async () => {
+      root.render(
+        <SkinEditor
+          ref={ref}
+          id="coder"
+          initialPng={null}
+          onSave={() => {}}
+          onReset={() => {}}
+          onDirtyChange={onDirtyChange}
+        />,
+      )
+    })
+
+    const canvas = host.querySelector<HTMLCanvasElement>('canvas')!
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({
+      left: 0,
+      top: 0,
+      width: 512,
+      height: 512,
+      right: 512,
+      bottom: 512,
+      x: 0,
+      y: 0,
+      toJSON: () => {},
+    })
+
+    // Paint a pixel at (5, 5)
+    await act(async () => {
+      canvas.dispatchEvent(
+        new PointerEvent('pointerdown', {
+          clientX: 40,
+          clientY: 40,
+          pointerId: 1,
+          bubbles: true,
+        }),
+      )
+      canvas.dispatchEvent(
+        new PointerEvent('pointerup', {
+          clientX: 40,
+          clientY: 40,
+          pointerId: 1,
+          bubbles: true,
+        }),
+      )
+    })
+
+    expect(ref.current?.isDirty()).toBe(true)
+    const paintedPixel = getPixel(ref.current!.getPixels(), 5, 5)
+    expect(paintedPixel).toEqual([0, 0, 0, 255])
+    const undoBtn = host.querySelector<HTMLButtonElement>('button[title*="Undo"]')!
+    expect(undoBtn.disabled).toBe(false)
+
+    // Simulate parent re-render with a NEW onDirtyChange callback reference
+    onDirtyChange = vi.fn()
+    await act(async () => {
+      root.render(
+        <SkinEditor
+          ref={ref}
+          id="coder"
+          initialPng={null}
+          onSave={() => {}}
+          onReset={() => {}}
+          onDirtyChange={onDirtyChange}
+        />,
+      )
+    })
+
+    // Assert: pixels remain unchanged, canUndo is still true, isDirty is still true
+    expect(getPixel(ref.current!.getPixels(), 5, 5)).toEqual([0, 0, 0, 255])
+    expect(ref.current?.isDirty()).toBe(true)
+    expect(undoBtn.disabled).toBe(false)
+
+    // Changing agent id MUST still reload the editor
+    await act(async () => {
+      root.render(
+        <SkinEditor
+          ref={ref}
+          id="designer"
+          initialPng={null}
+          onSave={() => {}}
+          onReset={() => {}}
+          onDirtyChange={onDirtyChange}
+        />,
+      )
+    })
+    expect(undoBtn.disabled).toBe(true)
+    expect(ref.current?.isDirty()).toBe(false)
+  })
+
+  it('preserves loadPixels across parent re-renders with new onDirtyChange identity (generator path)', async () => {
+    const host = document.body.appendChild(document.createElement('div'))
+    const root = createRoot(host)
+    const ref = createRef<SkinEditorHandle>()
+
+    let onDirtyChange = vi.fn()
+
+    await act(async () => {
+      root.render(
+        <SkinEditor
+          ref={ref}
+          id="coder"
+          initialPng={null}
+          onSave={() => {}}
+          onReset={() => {}}
+          onDirtyChange={onDirtyChange}
+        />,
+      )
+    })
+
+    // Simulate AI generator calling loadPixels with undoable: true
+    const newPixels = createTestSkinData()
+    newPixels[0] = 123
+    newPixels[1] = 234
+    newPixels[2] = 210
+    newPixels[3] = 255
+
+    await act(async () => {
+      ref.current?.loadPixels(newPixels, { undoable: true })
+    })
+
+    expect(ref.current?.isDirty()).toBe(true)
+    expect(ref.current?.getPixels()[0]).toBe(123)
+    const undoBtn = host.querySelector<HTMLButtonElement>('button[title*="Undo"]')!
+    expect(undoBtn.disabled).toBe(false)
+
+    // Simulate parent re-render with a NEW onDirtyChange callback reference
+    onDirtyChange = vi.fn()
+    await act(async () => {
+      root.render(
+        <SkinEditor
+          ref={ref}
+          id="coder"
+          initialPng={null}
+          onSave={() => {}}
+          onReset={() => {}}
+          onDirtyChange={onDirtyChange}
+        />,
+      )
+    })
+
+    // Assert: pixels remain unchanged, canUndo is still true, isDirty is still true
+    expect(ref.current?.getPixels()[0]).toBe(123)
+    expect(ref.current?.getPixels()[1]).toBe(234)
+    expect(ref.current?.isDirty()).toBe(true)
+    expect(undoBtn.disabled).toBe(false)
+  })
 })

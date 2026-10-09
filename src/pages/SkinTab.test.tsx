@@ -6,7 +6,7 @@ import { SkinTab } from './SkinTab'
 import { skinDraftStore } from './skin-draft'
 import { skinTextureManager } from '../scene3d/skin'
 import { createTestSkinPng } from '../dev-mock'
-import { BUFFER_LENGTH } from './skin-editor-state'
+import { BUFFER_LENGTH, decodePngBytes, getPixel } from './skin-editor-state'
 
 const testEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 testEnvironment.IS_REACT_ACT_ENVIRONMENT = true
@@ -260,6 +260,71 @@ describe('SkinTab component', () => {
 
     await act(async () => {
       root2.unmount()
+    })
+  })
+
+  it('preserves skin edits across parent re-renders and Save sends edited pixels in PUT body', async () => {
+    const host = document.body.appendChild(document.createElement('div'))
+    const root = createRoot(host)
+
+    await act(async () => {
+      root.render(<SkinTab agentId="developer" />)
+    })
+    await flush()
+
+    // Clear Head to dirty the editor
+    const clearHeadBtn = Array.from(document.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Head' && b.getAttribute('title')?.includes('Clear Head'),
+    )
+    expect(clearHeadBtn).toBeDefined()
+    await act(async () => {
+      clearHeadBtn?.click()
+    })
+    await flush()
+
+    const undoBtn = host.querySelector<HTMLButtonElement>('button[title*="Undo"]')!
+    expect(undoBtn.disabled).toBe(false)
+
+    // Simulate Office polling causing parent re-render of SkinTab
+    await act(async () => {
+      root.render(<SkinTab agentId="developer" />)
+    })
+    await flush()
+
+    // Undo should still be enabled (not wiped by re-render)
+    expect(undoBtn.disabled).toBe(false)
+
+    // Save should send PUT /api/skins/developer with the modified pixels
+    const saveBtn = Array.from(document.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Save',
+    )
+    expect(saveBtn?.disabled).toBe(false)
+
+    await act(async () => {
+      saveBtn?.click()
+    })
+    await flush()
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      '/api/skins/developer',
+      expect.objectContaining({ method: 'PUT' }),
+    )
+
+    // Assert on mocked fetch body contains cleared pixel at (12, 12)
+    const putCall = mockFetch.mock.calls.find(
+      (call) => call[0] === '/api/skins/developer' && call[1]?.method === 'PUT',
+    )
+    expect(putCall).toBeDefined()
+    const bodyBlob = putCall![1]?.body as Blob
+    expect(bodyBlob).toBeDefined()
+    const arrayBuffer = await bodyBlob.arrayBuffer()
+    const pngBytes = new Uint8Array(arrayBuffer)
+    const decoded = await decodePngBytes(pngBytes)
+    // Head center face pixel at (12, 12) was cleared to transparent [0, 0, 0, 0]
+    expect(getPixel(decoded, 12, 12)).toEqual([0, 0, 0, 0])
+
+    await act(async () => {
+      root.unmount()
     })
   })
 })

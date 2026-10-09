@@ -139,13 +139,16 @@ export const SkinEditor = forwardRef<SkinEditorHandle, SkinEditorProps>(function
     }
   }, [])
 
+  const onDirtyChangeRef = useRef(onDirtyChange)
+  onDirtyChangeRef.current = onDirtyChange
+
   const updateDirtyAndHistoryState = useCallback(() => {
     const dirty = !arePixelBuffersEqual(pixelsRef.current, savedSnapshotRef.current)
     setIsDirty(dirty)
-    onDirtyChange?.(dirty)
+    onDirtyChangeRef.current?.(dirty)
     setCanUndo(historyRef.current.canUndo())
     setCanRedo(historyRef.current.canRedo())
-  }, [onDirtyChange])
+  }, [])
 
   // Initial load
   useEffect(() => {
@@ -186,7 +189,7 @@ export const SkinEditor = forwardRef<SkinEditorHandle, SkinEditorProps>(function
       setCanRedo(false)
       const dirty = Boolean(initialDirty)
       setIsDirty(dirty)
-      onDirtyChange?.(dirty)
+      onDirtyChangeRef.current?.(dirty)
       setImportError(null)
       setSaveError(null)
     }
@@ -195,7 +198,7 @@ export const SkinEditor = forwardRef<SkinEditorHandle, SkinEditorProps>(function
     return () => {
       cancelled = true
     }
-  }, [id, initialPng, initialPixels, initialDirty, onDirtyChange, renderCanvas])
+  }, [id, initialPng, initialPixels, initialDirty, renderCanvas])
 
   const getEncodedPng = useCallback(() => {
     if (canvasRef.current && typeof canvasRef.current.toDataURL === 'function') {

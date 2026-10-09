@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { SkinEditor, type SkinEditorHandle } from './SkinEditor'
 import { SkinPromptPanel, type SkinPart } from './SkinPromptPanel'
 import { skinTextureManager, triggerSkinsRefresh } from '../scene3d/skin'
@@ -80,21 +80,24 @@ export function SkinTab({ agentId }: SkinTabProps) {
     }
   }, [agentId])
 
-  const handleDirtyChange = (dirty: boolean) => {
-    isDirtyRef.current = dirty
-    if (!dirty) {
-      skinDraftStore.delete(agentId)
-    } else if (editorRef.current) {
-      const pixels = editorRef.current.getPixels()
-      latestPixelsRef.current = new Uint8ClampedArray(pixels)
-      skinDraftStore.set(agentId, {
-        pixels,
-        isDirty: true,
-        prompt: promptRef.current,
-        part: partRef.current,
-      })
-    }
-  }
+  const handleDirtyChange = useCallback(
+    (dirty: boolean) => {
+      isDirtyRef.current = dirty
+      if (!dirty) {
+        skinDraftStore.delete(agentId)
+      } else if (editorRef.current) {
+        const pixels = editorRef.current.getPixels()
+        latestPixelsRef.current = new Uint8ClampedArray(pixels)
+        skinDraftStore.set(agentId, {
+          pixels,
+          isDirty: true,
+          prompt: promptRef.current,
+          part: partRef.current,
+        })
+      }
+    },
+    [agentId],
+  )
 
   const handleSave = async (png: Uint8Array) => {
     const res = await fetch(`/api/skins/${encodeURIComponent(agentId)}`, {
