@@ -3,10 +3,10 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, 
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { officeStateBadge } from '../office-state.ts'
-import { agentLook } from '../agents.ts'
 import { clampTarget, createLayout, FLOOR_HEIGHT, floorOf, GAME_ROOM, idlePlan, placementFor, walkPath3, type Floor, type OfficeLayout, type Placement, type Vec3 } from '../office3d-layout.ts'
 import { Environment } from '../scene3d/environment.tsx'
-import { RBox, WorkDesk } from '../scene3d/props.tsx'
+import { WorkDesk } from '../scene3d/props.tsx'
+import { createSkinBoxGeometry, useSkinTexture, useSkins } from '../scene3d/skin.ts'
 import type { OfficeStation } from '../types.ts'
 
 // 3D view of the same Office snapshot the 2D view renders. Positions come from each station's
@@ -21,17 +21,55 @@ function outdoors(x: number, z: number, layout: OfficeLayout): boolean {
   return x < minX || z > maxZ || (x > maxX && !inGameRoom)
 }
 
-function Character({ station, placement, layout, floor, onSelect, anchor }: { station: OfficeStation; placement: Placement; layout: OfficeLayout; floor: Floor; onSelect: (station: OfficeStation, trigger: HTMLElement | null) => void; anchor: (object: THREE.Object3D | null) => void }) {
+function Character({
+  station,
+  placement,
+  layout,
+  floor,
+  onSelect,
+  anchor,
+  skinVersion,
+}: {
+  station: OfficeStation
+  placement: Placement
+  layout: OfficeLayout
+  floor: Floor
+  onSelect: (station: OfficeStation, trigger: HTMLElement | null) => void
+  anchor: (object: THREE.Object3D | null) => void
+  skinVersion?: string
+}) {
   const root = useRef<THREE.Group>(null)
   const body = useRef<THREE.Group>(null)
   const leftLeg = useRef<THREE.Mesh>(null)
   const rightLeg = useRef<THREE.Mesh>(null)
   const leftArm = useRef<THREE.Mesh>(null)
   const rightArm = useRef<THREE.Mesh>(null)
-  const colors = agentLook(station.id)
   const offline = station.state === 'Offline'
   const unknown = station.state === 'Unknown'
-  const tint = (color: string) => offline ? '#7b7f7d' : color
+  const { texture, hasOverlay } = useSkinTexture(station.id, skinVersion)
+
+  const baseMaterial = useMemo(() => new THREE.MeshStandardMaterial({
+    map: texture,
+    roughness: 0.8,
+    color: offline ? '#7b7f7d' : '#ffffff',
+  }), [texture, offline])
+
+  const overlayMaterial = useMemo(() => new THREE.MeshStandardMaterial({
+    map: texture,
+    roughness: 0.8,
+    transparent: true,
+    alphaTest: 0.5,
+    side: THREE.FrontSide,
+    color: offline ? '#7b7f7d' : '#ffffff',
+  }), [texture, offline])
+
+  useEffect(() => {
+    return () => {
+      baseMaterial.dispose()
+      overlayMaterial.dispose()
+    }
+  }, [baseMaterial, overlayMaterial])
+
   // Only the first placement is applied as a prop; later changes are walked to via the aisle.
   const [start] = useState<Vec3>(() => placement.position)
   const path = useRef<THREE.Vector3[]>([])
@@ -96,26 +134,48 @@ function Character({ station, placement, layout, floor, onSelect, anchor }: { st
 
   return <group ref={root} position={start}>
     <group ref={body} onClick={(event) => { event.stopPropagation(); onSelect(station, null) }} onPointerOver={() => { document.body.style.cursor = 'pointer' }} onPointerOut={() => { document.body.style.cursor = '' }}>
-      <mesh ref={leftLeg} position={[-0.11, 0.66, 0]} castShadow geometry={legGeometry}><meshStandardMaterial color={tint(colors.pants)} roughness={0.8}/></mesh>
-      <mesh ref={rightLeg} position={[0.11, 0.66, 0]} castShadow geometry={legGeometry}><meshStandardMaterial color={tint(colors.pants)} roughness={0.8}/></mesh>
-      <RBox position={[0, 0.98, 0]} size={[0.48, 0.58, 0.3]} radius={0.07} color={tint(colors.shirt)} roughness={0.85}/>
-      <mesh ref={leftArm} position={[-0.31, 1.2, 0]} castShadow geometry={armGeometry}><meshStandardMaterial color={tint(colors.shirt)} roughness={0.85}/></mesh>
-      <mesh ref={rightArm} position={[0.31, 1.2, 0]} castShadow geometry={armGeometry}><meshStandardMaterial color={tint(colors.shirt)} roughness={0.85}/></mesh>
-      <RBox position={[0, 1.5, 0]} size={[0.4, 0.4, 0.37]} radius={0.08} color={tint(colors.skin)} roughness={0.7}/>
-      <RBox position={[0, 1.72, -0.02]} size={[0.43, 0.13, 0.41]} radius={0.05} color={tint(colors.hair)} roughness={0.9}/>
-      <RBox position={[0, 1.58, -0.19]} size={[0.43, 0.3, 0.06]} radius={0.03} color={tint(colors.hair)} roughness={0.9}/>
-      <RBox position={[-0.09, 1.52, 0.186]} size={[0.06, 0.07, 0.01]} radius={0.004} color="#17201e" shadow={false}/>
-      <RBox position={[0.09, 1.52, 0.186]} size={[0.06, 0.07, 0.01]} radius={0.004} color="#17201e" shadow={false}/>
-      <RBox position={[0, 1.4, 0.186]} size={[0.12, 0.025, 0.01]} radius={0.004} color="#9a5a44" shadow={false}/>
+      <mesh ref={leftLeg} position={[-0.11, 0.66, 0]} castShadow geometry={rightLegBaseGeometry} material={baseMaterial}>
+        {hasOverlay && <mesh geometry={rightLegOverlayGeometry} material={overlayMaterial}/>}
+      </mesh>
+      <mesh ref={rightLeg} position={[0.11, 0.66, 0]} castShadow geometry={leftLegBaseGeometry} material={baseMaterial}>
+        {hasOverlay && <mesh geometry={leftLegOverlayGeometry} material={overlayMaterial}/>}
+      </mesh>
+      <mesh position={[0, 0.98, 0]} castShadow geometry={bodyBaseGeometry} material={baseMaterial}>
+        {hasOverlay && <mesh geometry={bodyOverlayGeometry} material={overlayMaterial}/>}
+      </mesh>
+      <mesh ref={leftArm} position={[-0.31, 1.2, 0]} castShadow geometry={rightArmBaseGeometry} material={baseMaterial}>
+        {hasOverlay && <mesh geometry={rightArmOverlayGeometry} material={overlayMaterial}/>}
+      </mesh>
+      <mesh ref={rightArm} position={[0.31, 1.2, 0]} castShadow geometry={leftArmBaseGeometry} material={baseMaterial}>
+        {hasOverlay && <mesh geometry={leftArmOverlayGeometry} material={overlayMaterial}/>}
+      </mesh>
+      <mesh position={[0, 1.5, 0]} castShadow geometry={headBaseGeometry} material={baseMaterial}>
+        {hasOverlay && <mesh geometry={headOverlayGeometry} material={overlayMaterial}/>}
+      </mesh>
       {unknown && <mesh position={[0, 0.03, 0]} rotation={[-Math.PI / 2, 0, 0]}><ringGeometry args={[0.45, 0.55, 24]}/><meshBasicMaterial color="#e9c47b" transparent opacity={0.85}/></mesh>}
       <object3D ref={anchor} position={[0, 2.05, 0]}/>
     </group>
   </group>
 }
 
-// Legs and arms pivot at the hip / shoulder: translate the geometry so its top sits at the origin.
-const legGeometry = new THREE.BoxGeometry(0.17, 0.62, 0.2).translate(0, -0.31, 0)
-const armGeometry = new THREE.BoxGeometry(0.12, 0.52, 0.14).translate(0, -0.26, 0)
+const headBaseGeometry = createSkinBoxGeometry(0.4, 0.4, 0.4, 'head', 'base')
+const headOverlayGeometry = createSkinBoxGeometry(0.43, 0.43, 0.43, 'head', 'overlay')
+
+const bodyBaseGeometry = createSkinBoxGeometry(0.48, 0.58, 0.3, 'body', 'base')
+const bodyOverlayGeometry = createSkinBoxGeometry(0.51, 0.61, 0.33, 'body', 'overlay')
+
+// Legs and arms pivot at hip / shoulder: origin translated to top.
+const rightLegBaseGeometry = createSkinBoxGeometry(0.17, 0.62, 0.2, 'rightLeg', 'base', [0, -0.31, 0])
+const rightLegOverlayGeometry = createSkinBoxGeometry(0.19, 0.64, 0.22, 'rightLeg', 'overlay', [0, -0.31, 0])
+
+const leftLegBaseGeometry = createSkinBoxGeometry(0.17, 0.62, 0.2, 'leftLeg', 'base', [0, -0.31, 0])
+const leftLegOverlayGeometry = createSkinBoxGeometry(0.19, 0.64, 0.22, 'leftLeg', 'overlay', [0, -0.31, 0])
+
+const rightArmBaseGeometry = createSkinBoxGeometry(0.12, 0.52, 0.14, 'rightArm', 'base', [0, -0.26, 0])
+const rightArmOverlayGeometry = createSkinBoxGeometry(0.14, 0.54, 0.16, 'rightArm', 'overlay', [0, -0.26, 0])
+
+const leftArmBaseGeometry = createSkinBoxGeometry(0.12, 0.52, 0.14, 'leftArm', 'base', [0, -0.26, 0])
+const leftArmOverlayGeometry = createSkinBoxGeometry(0.14, 0.54, 0.16, 'leftArm', 'overlay', [0, -0.26, 0])
 
 /**
  * Screen-space labels: each frame, project every anchor into the canvas and move its DOM label
@@ -304,6 +364,8 @@ export default function Office3D({ stations, onSelect }: { stations: OfficeStati
   const [floor, setFloor] = useFloor()
   const [sleepMode, setSleepMode] = useStoredFlag(SLEEP_KEY)
   const now = useClock(2000)
+  const skinsRequest = useSkins()
+  const skins = skinsRequest.status === 'ready' ? skinsRequest.data.skins : undefined
   // One unlabeled desk per agent (hot desking); the building is sized for the crew.
   const layout = useMemo(() => createLayout(stations.length), [stations.length])
   // Idle agents wander between the lounge, the game room, the pantry, the street food and
@@ -324,7 +386,7 @@ export default function Office3D({ stations, onSelect }: { stations: OfficeStati
       <Lighting theme={theme}/>
       <Environment night={theme === 'dark'} layout={layout} floor={floor}/>
       {floor === 1 && layout.desks.map((position, index) => <WorkDesk key={index} position={position} active={occupiedSeats.has(index + 1)} withChair/>)}
-      {stations.map((station) => <Character key={station.id} station={station} placement={placement(station)} layout={layout} floor={floor} onSelect={onSelect} anchor={register(anchors, `agent-${station.id}`)}/>)}
+      {stations.map((station) => <Character key={station.id} station={station} placement={placement(station)} layout={layout} floor={floor} onSelect={onSelect} anchor={register(anchors, `agent-${station.id}`)} skinVersion={skins?.[station.id]?.version}/>)}
       <LabelProjector anchors={anchors} labels={labels}/>
       <Controls key={layout.deskCount} ref={view} panMode={panMode} keyTarget={keyTarget} layout={layout} elevation={floor === 2 ? FLOOR_HEIGHT : 0}/>
     </Canvas>
