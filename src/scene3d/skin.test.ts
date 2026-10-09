@@ -154,13 +154,53 @@ describe('Procedural fallback skin generator', () => {
     expect(hasOverlayPixels(empty)).toBe(false)
   })
 
-  it('creates crisp NearestFilter DataTexture with sRGB colorspace', () => {
+  it('creates crisp NearestFilter DataTexture with sRGB colorspace and flipY=true', () => {
     const data = paintDefaultSkin(lookDev)
     const texture = createSkinDataTexture(data)
     expect(texture.magFilter).toBe(THREE.NearestFilter)
     expect(texture.minFilter).toBe(THREE.NearestFilter)
     expect(texture.generateMipmaps).toBe(false)
     expect(texture.colorSpace).toBe(THREE.SRGBColorSpace)
+    expect(texture.flipY).toBe(true)
+  })
+
+  it('regression: DataTexture flipY=true samples head front face identically to CanvasTexture', () => {
+    const data = paintDefaultSkin(lookDev)
+    const dataTex = createSkinDataTexture(data)
+    expect(dataTex.flipY).toBe(true)
+
+    // Three.js CanvasTexture defaults to flipY = true
+    const canvasTex = new THREE.CanvasTexture({} as HTMLCanvasElement)
+    expect(canvasTex.flipY).toBe(true)
+    expect(dataTex.flipY).toBe(canvasTex.flipY)
+
+    // Map the front-face UV of the head to eye pixels of default skin
+    const hbFront = SKIN_RECTS.head.base.front
+    const eyeX = hbFront.x + 1 // 9
+    const eyeY = hbFront.y + 4 // 12
+
+    // UV formula from computeBoxUVs: v = 1 - y/64
+    const eyeU = (eyeX + 0.5) / SKIN_WIDTH
+    const eyeV = 1 - (eyeY + 0.5) / SKIN_HEIGHT
+
+    // With flipY=true in WebGL, sampling v maps to row Math.floor((1 - v) * height)
+    const sampleRow = Math.floor((1 - eyeV) * SKIN_HEIGHT)
+    const sampleCol = Math.floor(eyeU * SKIN_WIDTH)
+    expect(sampleRow).toBe(eyeY)
+    expect(sampleCol).toBe(eyeX)
+
+    const pixelIdx = (sampleRow * SKIN_WIDTH + sampleCol) * 4
+    // Eye white pixel is non-transparent [255, 255, 255, 255]
+    expect(data[pixelIdx + 3]).toBe(255)
+    expect(data[pixelIdx]).toBe(255)
+    expect(data[pixelIdx + 1]).toBe(255)
+    expect(data[pixelIdx + 2]).toBe(255)
+
+    // Without flipY (flipY=false), row would sample inverted row 51 which is transparent
+    const invertedRow = Math.floor(eyeV * SKIN_HEIGHT)
+    const invertedIdx = (invertedRow * SKIN_WIDTH + sampleCol) * 4
+    expect(invertedRow).toBe(51)
+    expect(data[invertedIdx + 3]).toBe(0)
   })
 })
 

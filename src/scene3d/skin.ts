@@ -434,6 +434,7 @@ export function paintDefaultSkin(look: AgentLook): Uint8ClampedArray {
 export function createSkinDataTexture(data: Uint8ClampedArray | Uint8Array): THREE.DataTexture {
   const clamped = data instanceof Uint8ClampedArray ? data : new Uint8ClampedArray(data.buffer, data.byteOffset, data.byteLength)
   const texture = new THREE.DataTexture(clamped, SKIN_WIDTH, SKIN_HEIGHT, THREE.RGBAFormat)
+  texture.flipY = true
   texture.magFilter = THREE.NearestFilter
   texture.minFilter = THREE.NearestFilter
   texture.generateMipmaps = false
