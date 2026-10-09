@@ -346,6 +346,44 @@ describe('SkinPromptPanel component and polling flow', () => {
     })
   })
 
+  it('handles 502 flow rejected request response', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'flow rejected request' }), { status: 502 }),
+    )
+
+    const { root } = await setupPanel()
+    await triggerGenerate()
+
+    const error = document.querySelector('.skin-generate-error')
+    expect(error?.textContent).toContain('Image generator rejected request')
+
+    await act(async () => {
+      root.unmount()
+    })
+  })
+
+  it('handles flow rejected request error during polling', async () => {
+    mockFetch
+      .mockResolvedValueOnce(new Response(JSON.stringify({ jobId: 'job-flow-rejected-poll' }), { status: 202 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: 'error', error: 'flow rejected request' }), { status: 200 }),
+      )
+
+    const { root } = await setupPanel()
+    await triggerGenerate()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000)
+    })
+
+    const error = document.querySelector('.skin-generate-error')
+    expect(error?.textContent).toContain('Image generator rejected request')
+
+    await act(async () => {
+      root.unmount()
+    })
+  })
+
   it('shows stage note when stage is present in poll response', async () => {
     mockFetch
       .mockResolvedValueOnce(new Response(JSON.stringify({ jobId: 'job-stages' }), { status: 202 }))

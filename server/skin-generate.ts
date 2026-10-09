@@ -541,6 +541,19 @@ async function runBlockPoller(
   flowPollIntervalMs = 200,
   blockPollIntervalMs = 200,
 ): Promise<void> {
+  const doCleanup = async () => {
+    if (job.cleanup) {
+      const fn = job.cleanup
+      job.cleanup = undefined
+      await fn()
+    }
+  }
+  const fail = async (error: string) => {
+    await doCleanup()
+    job.status = 'error'
+    job.error = error
+  }
+
   const flowPollUrl = `${flowJobsUrl}/${flowJobId}`
   const blockJobsUrl = `${blockUrl.replace(/\/+$/, '')}/jobs`
   const startTime = Date.now()
@@ -553,8 +566,7 @@ async function runBlockPoller(
     job.stage = 'preview'
     while (job.status === 'queued' || job.status === 'running') {
       if (Date.now() - startTime > totalTimeoutMs) {
-        job.status = 'error'
-        job.error = 'timeout'
+        await fail('timeout')
         return
       }
 
@@ -566,14 +578,12 @@ async function runBlockPoller(
           signal: AbortSignal.timeout(10_000),
         })
       } catch {
-        job.status = 'error'
-        job.error = 'flow offline'
+        await fail('flow offline')
         return
       }
 
       if (pollRes.status === 404 || pollRes.status === 503 || !pollRes.ok) {
-        job.status = 'error'
-        job.error = 'flow offline'
+        await fail('flow offline')
         return
       }
 
@@ -589,15 +599,13 @@ async function runBlockPoller(
       }
 
       if (flowData.status === 'error') {
-        job.status = 'error'
-        job.error = flowData.error || 'unusable output'
+        await fail(flowData.error || 'unusable output')
         return
       }
 
       if (flowData.status === 'done') {
         if (!flowData.file || typeof flowData.file !== 'string') {
-          job.status = 'error'
-          job.error = 'unusable output'
+          await fail('unusable output')
           return
         }
 
@@ -606,33 +614,30 @@ async function runBlockPoller(
           await fs.promises.mkdir(flowOutputDir, { recursive: true })
           const realOutputDir = await fs.promises.realpath(flowOutputDir)
           if (!realFile.startsWith(realOutputDir + path.sep) && realFile !== realOutputDir) {
-            job.status = 'error'
-            job.error = 'unusable output'
+            await fail('unusable output')
             return
           }
 
           const st = await fs.promises.stat(realFile)
           if (st.size > 20 * 1024 * 1024) {
-            job.status = 'error'
-            job.error = 'unusable output'
+            await fail('unusable output')
             return
           }
 
           flowOutputFile = realFile
         } catch {
-          job.status = 'error'
-          job.error = 'unusable output'
+          await fail('unusable output')
           return
         }
         break
       }
 
-      job.status = 'error'
-      job.error = 'unusable output'
+      await fail('unusable output')
       return
     }
 
     if (!flowOutputFile || (job.status !== 'queued' && job.status !== 'running')) {
+      await doCleanup()
       return
     }
 
@@ -647,14 +652,12 @@ async function runBlockPoller(
         signal: AbortSignal.timeout(10_000),
       })
     } catch {
-      job.status = 'error'
-      job.error = 'block offline'
+      await fail('block offline')
       return
     }
 
     if (!blockPostRes.ok) {
-      job.status = 'error'
-      job.error = 'block offline'
+      await fail('block offline')
       return
     }
 
@@ -666,8 +669,7 @@ async function runBlockPoller(
       }
       blockJobId = blockData.jobId
     } catch {
-      job.status = 'error'
-      job.error = 'block offline'
+      await fail('block offline')
       return
     }
 
@@ -675,8 +677,7 @@ async function runBlockPoller(
     const blockPollUrl = `${blockJobsUrl}/${blockJobId}`
     while (job.status === 'queued' || job.status === 'running') {
       if (Date.now() - startTime > totalTimeoutMs) {
-        job.status = 'error'
-        job.error = 'timeout'
+        await fail('timeout')
         return
       }
 
@@ -688,14 +689,12 @@ async function runBlockPoller(
           signal: AbortSignal.timeout(10_000),
         })
       } catch {
-        job.status = 'error'
-        job.error = 'block offline'
+        await fail('block offline')
         return
       }
 
       if (blockPollRes.status === 404 || blockPollRes.status === 503 || !blockPollRes.ok) {
-        job.status = 'error'
-        job.error = 'block offline'
+        await fail('block offline')
         return
       }
 
@@ -711,15 +710,13 @@ async function runBlockPoller(
       }
 
       if (blockData.status === 'error') {
-        job.status = 'error'
-        job.error = blockData.error || 'unusable output'
+        await fail(blockData.error || 'unusable output')
         return
       }
 
       if (blockData.status === 'done') {
         if (!blockData.file || typeof blockData.file !== 'string') {
-          job.status = 'error'
-          job.error = 'unusable output'
+          await fail('unusable output')
           return
         }
 
@@ -728,38 +725,32 @@ async function runBlockPoller(
           await fs.promises.mkdir(blockOutputDir, { recursive: true })
           const realBlockOutputDir = await fs.promises.realpath(blockOutputDir)
           if (!realFile.startsWith(realBlockOutputDir + path.sep) && realFile !== realBlockOutputDir) {
-            job.status = 'error'
-            job.error = 'unusable output'
+            await fail('unusable output')
             return
           }
 
           const st = await fs.promises.stat(realFile)
           if (st.size > 20 * 1024 * 1024) {
-            job.status = 'error'
-            job.error = 'unusable output'
+            await fail('unusable output')
             return
           }
 
           const rawBytes = await fs.promises.readFile(realFile)
           const processedPng = processBlockSkinImage(rawBytes, job.part, baseDecoded)
+          await doCleanup()
           job.png = processedPng.toString('base64')
           job.status = 'done'
         } catch {
-          job.status = 'error'
-          job.error = 'unusable output'
+          await fail('unusable output')
         }
         return
       }
 
-      job.status = 'error'
-      job.error = 'unusable output'
+      await fail('unusable output')
       return
     }
   } finally {
-    if (job.cleanup) {
-      await job.cleanup()
-      job.cleanup = undefined
-    }
+    await doCleanup()
   }
 }
 
@@ -962,6 +953,12 @@ export function createSkinGenerateRouter(options: SkinGenerateOptions = {}): Rou
         return
       }
 
+      if (flowPostRes.status === 400) {
+        await fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+        response.status(502).json({ error: 'flow rejected request' })
+        return
+      }
+
       if (flowPostRes.status === 503 || !flowPostRes.ok) {
         await fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
         response.status(503).json({ error: 'flow offline' })
@@ -1054,6 +1051,53 @@ export function createSkinGenerateRouter(options: SkinGenerateOptions = {}): Rou
     const blockRefLayoutPath =
       options.blockRefLayoutPath ?? (process.env.RUANG_BLOCK_REF_LAYOUT || defaultBlockRefLayout)
 
+    try {
+      await fs.promises.access(blockRefLayoutPath, fs.constants.R_OK)
+      const st = await fs.promises.stat(blockRefLayoutPath)
+      if (!st.isFile()) {
+        throw new Error('not a file')
+      }
+    } catch {
+      job.status = 'error'
+      job.error = 'block ref layout missing or unreadable'
+      job.updatedAt = Date.now()
+      response.status(500).json({ error: 'block ref layout missing or unreadable' })
+      return
+    }
+
+    let tmpDir: string
+    let copiedRefPath: string
+    try {
+      tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'ruang-flow-ref-'))
+      await fs.promises.chmod(tmpDir, 0o700)
+      copiedRefPath = path.join(tmpDir, path.basename(blockRefLayoutPath) || 'ref_layout.png')
+      await fs.promises.copyFile(blockRefLayoutPath, copiedRefPath)
+    } catch {
+      if (tmpDir!) {
+        await fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+      }
+      job.status = 'error'
+      job.error = 'block ref layout missing or unreadable'
+      job.updatedAt = Date.now()
+      response.status(500).json({ error: 'block ref layout missing or unreadable' })
+      return
+    }
+
+    job.cleanup = async () => {
+      await fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+    }
+
+    const failJob = async (status: number, error: string) => {
+      if (job.cleanup) {
+        await job.cleanup()
+        job.cleanup = undefined
+      }
+      job.status = 'error'
+      job.error = error
+      job.updatedAt = Date.now()
+      response.status(status).json({ error })
+    }
+
     const blockFlowPrompt = buildBlockFlowPrompt(prompt)
 
     let flowPostRes: globalThis.Response
@@ -1063,32 +1107,28 @@ export function createSkinGenerateRouter(options: SkinGenerateOptions = {}): Rou
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           prompt: blockFlowPrompt,
-          reference_paths: [blockRefLayoutPath],
+          reference_paths: [copiedRefPath],
           model: 'nano-banana-pro',
         }),
         signal: AbortSignal.timeout(10_000),
       })
     } catch {
-      job.status = 'error'
-      job.error = 'flow offline'
-      job.updatedAt = Date.now()
-      response.status(503).json({ error: 'flow offline' })
+      await failJob(503, 'flow offline')
       return
     }
 
     if (flowPostRes.status === 429) {
-      job.status = 'error'
-      job.error = 'daily cap'
-      job.updatedAt = Date.now()
-      response.status(429).json({ error: 'daily cap' })
+      await failJob(429, 'daily cap')
+      return
+    }
+
+    if (flowPostRes.status === 400) {
+      await failJob(502, 'flow rejected request')
       return
     }
 
     if (flowPostRes.status === 503 || !flowPostRes.ok) {
-      job.status = 'error'
-      job.error = 'flow offline'
-      job.updatedAt = Date.now()
-      response.status(503).json({ error: 'flow offline' })
+      await failJob(503, 'flow offline')
       return
     }
 
@@ -1100,10 +1140,7 @@ export function createSkinGenerateRouter(options: SkinGenerateOptions = {}): Rou
       }
       flowJobId = flowData.jobId
     } catch {
-      job.status = 'error'
-      job.error = 'flow offline'
-      job.updatedAt = Date.now()
-      response.status(503).json({ error: 'flow offline' })
+      await failJob(503, 'flow offline')
       return
     }
 

@@ -111,6 +111,10 @@ export function SkinPromptPanel({
           setError('Skin converter offline (BLOCK service not running)')
         } else if (data.error === 'daily cap') {
           setError('Daily generation limit reached')
+        } else if (data.error === 'flow rejected request') {
+          setError('Image generator rejected request')
+        } else if (data.error === 'block ref layout missing or unreadable') {
+          setError('Block reference layout missing or unreadable')
         } else {
           setError('Generator returned unusable output, try again/rephrase')
         }
@@ -225,7 +229,20 @@ export function SkinPromptPanel({
             : 'Too many generate requests, wait a minute',
         )
       } else if (res.status === 502) {
-        setError('Generator returned unusable output, try again/rephrase')
+        let isRejected = false
+        try {
+          const data = await res.json()
+          if (data && data.error === 'flow rejected request') {
+            isRejected = true
+          }
+        } catch {
+          /* ignore */
+        }
+        setError(
+          isRejected
+            ? 'Image generator rejected request'
+            : 'Generator returned unusable output, try again/rephrase',
+        )
       } else if (res.status === 503) {
         let isBlockOffline = false
         try {

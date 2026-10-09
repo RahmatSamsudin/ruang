@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import express from 'express'
 import http from 'node:http'
 import fs from 'node:fs/promises'
+import fsSync from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import zlib from 'node:zlib'
@@ -406,8 +407,41 @@ describe('F2 & F3 Flow Pipeline with Stub Flow Service', () => {
           }
 
           if (nextFlowStatus === 202) {
+            if (lastReceivedRefPaths && Array.isArray(lastReceivedRefPaths)) {
+              const canonicalTmp = fsSync.realpathSync(os.tmpdir())
+              for (const p of lastReceivedRefPaths) {
+                if (typeof p !== 'string' || !path.isAbsolute(p)) {
+                  res.writeHead(400, { 'Content-Type': 'application/json' })
+                  res.end(JSON.stringify({ error: 'bad input' }))
+                  return
+                }
+                let realP: string
+                try {
+                  realP = fsSync.realpathSync(p)
+                  const st = fsSync.statSync(realP)
+                  if (!st.isFile()) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' })
+                    res.end(JSON.stringify({ error: 'bad input' }))
+                    return
+                  }
+                } catch {
+                  res.writeHead(400, { 'Content-Type': 'application/json' })
+                  res.end(JSON.stringify({ error: 'bad input' }))
+                  return
+                }
+                const dir = path.dirname(realP)
+                if (path.dirname(dir) !== canonicalTmp || !path.basename(dir).startsWith('ruang-flow-ref-')) {
+                  res.writeHead(400, { 'Content-Type': 'application/json' })
+                  res.end(JSON.stringify({ error: 'bad input' }))
+                  return
+                }
+              }
+            }
             res.writeHead(202, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ jobId: 'flow-job-42' }))
+          } else if (nextFlowStatus === 400) {
+            res.writeHead(400, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'bad input' }))
           } else if (nextFlowStatus === 429) {
             res.writeHead(429, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ error: 'daily cap' }))
@@ -500,6 +534,19 @@ describe('F2 & F3 Flow Pipeline with Stub Flow Service', () => {
     expect(res.status).toBe(429)
     const json = (await res.json()) as { error: string }
     expect(json.error).toBe('daily cap')
+  })
+
+  it('POST returns 502 { error: "flow rejected request" } when Flow returns 400', async () => {
+    nextFlowStatus = 400
+    const res = await fetch(`${apiBase}/api/skins/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: apiBase },
+      body: JSON.stringify({ prompt: 'test' }),
+    })
+
+    expect(res.status).toBe(502)
+    const json = (await res.json()) as { error: string }
+    expect(json.error).toBe('flow rejected request')
   })
 
   it('cleans up temp directory (0700) after completion', async () => {

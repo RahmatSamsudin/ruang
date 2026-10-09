@@ -13,6 +13,34 @@ import {
 import { processBlockSkinImage } from './skin-flow.js'
 import { encodePng, decodePng } from './skin-compose.js'
 
+function validateFlowRefPaths(refPaths: unknown): { ok: boolean; status?: number; error?: string } {
+  if (refPaths === undefined) return { ok: true }
+  if (!Array.isArray(refPaths) || refPaths.length > 4) {
+    return { ok: false, status: 400, error: 'bad input' }
+  }
+  const canonicalTmp = fs.realpathSync(os.tmpdir())
+  for (const p of refPaths) {
+    if (typeof p !== 'string' || !path.isAbsolute(p)) {
+      return { ok: false, status: 400, error: 'bad input' }
+    }
+    let realP: string
+    try {
+      realP = fs.realpathSync(p)
+      const st = fs.statSync(realP)
+      if (!st.isFile()) {
+        return { ok: false, status: 400, error: 'bad input' }
+      }
+    } catch {
+      return { ok: false, status: 400, error: 'bad input' }
+    }
+    const dir = path.dirname(realP)
+    if (path.dirname(dir) !== canonicalTmp || !path.basename(dir).startsWith('ruang-flow-ref-')) {
+      return { ok: false, status: 400, error: 'bad input' }
+    }
+  }
+  return { ok: true }
+}
+
 describe('skin block provider', () => {
   let tmpDir: string
   let flowOutputDir: string
@@ -255,6 +283,11 @@ describe('skin block provider', () => {
           return new Response(JSON.stringify({ ok: true }), { status: 200 })
         }
         if (urlStr.includes(':8092') && init?.method === 'POST') {
+          const body = JSON.parse(init.body as string) as Record<string, unknown>
+          const validation = validateFlowRefPaths(body.reference_paths)
+          if (!validation.ok) {
+            return new Response(JSON.stringify({ error: validation.error }), { status: validation.status })
+          }
           flowPostCount++
           await flowWaitPromise
           return new Response(JSON.stringify({ jobId: 'flow-job-concurrent' }), { status: 200 })
@@ -329,6 +362,10 @@ describe('skin block provider', () => {
           if (urlStr.includes(':8092')) {
             const body = JSON.parse(init.body as string) as Record<string, unknown>
             flowPayloads.push(body)
+            const validation = validateFlowRefPaths(body.reference_paths)
+            if (!validation.ok) {
+              return new Response(JSON.stringify({ error: validation.error }), { status: validation.status })
+            }
             return new Response(JSON.stringify({ jobId: 'flow-job-1' }), { status: 200 })
           }
           if (urlStr.includes(':8093')) {
@@ -398,9 +435,14 @@ describe('skin block provider', () => {
         expect(decoded1.width).toBe(64)
         expect(decoded1.height).toBe(64)
 
-        // Verify Flow payload used model: nano-banana-pro and reference_paths: [refLayoutPath]
+        // Verify Flow payload used model: nano-banana-pro and reference_paths under tmpdir
         expect(flowPayloads[0].model).toBe('nano-banana-pro')
-        expect(flowPayloads[0].reference_paths).toEqual([refLayoutPath])
+        const refPaths1 = flowPayloads[0].reference_paths as string[]
+        expect(refPaths1).toHaveLength(1)
+        expect(path.basename(path.dirname(refPaths1[0]))).toMatch(/^ruang-flow-ref-/)
+        expect(path.basename(refPaths1[0])).toBe('ref_layout.png')
+        // Cleaned up after job completed
+        expect(fs.existsSync(path.dirname(refPaths1[0]))).toBe(false)
         expect(flowPayloads[0].prompt).toContain('Character to create: space explorer.')
         expect(flowPayloads[0].prompt).toContain('LAYOUT AND STYLE REFERENCE')
 
@@ -443,6 +485,10 @@ describe('skin block provider', () => {
         expect(decoded2.data[(8 * 64 + 8) * 4]).toBe(180)
         // Body region preserved from base (30)
         expect(decoded2.data[(20 * 64 + 20) * 4]).toBe(30)
+
+        const refPaths2 = flowPayloads[1].reference_paths as string[]
+        expect(refPaths2).toHaveLength(1)
+        expect(fs.existsSync(path.dirname(refPaths2[0]))).toBe(false)
       } finally {
         await new Promise((r) => server.close(r))
       }
@@ -461,7 +507,14 @@ describe('skin block provider', () => {
           return new Response(JSON.stringify({ ok: true }), { status: 200 })
         }
         if (urlStr.endsWith('/jobs') && init?.method === 'POST') {
-          if (urlStr.includes(':8092')) return new Response(JSON.stringify({ jobId: 'flow-stage' }), { status: 200 })
+          if (urlStr.includes(':8092')) {
+            const body = JSON.parse(init.body as string) as Record<string, unknown>
+            const validation = validateFlowRefPaths(body.reference_paths)
+            if (!validation.ok) {
+              return new Response(JSON.stringify({ error: validation.error }), { status: validation.status })
+            }
+            return new Response(JSON.stringify({ jobId: 'flow-stage' }), { status: 200 })
+          }
           if (urlStr.includes(':8093')) return new Response(JSON.stringify({ jobId: 'block-stage' }), { status: 200 })
         }
         if (urlStr.includes('/jobs/flow-stage')) {
@@ -529,13 +582,23 @@ describe('skin block provider', () => {
       const flowRenderFile = path.join(flowOutputDir, 'flow-err.png')
       await fs.promises.writeFile(flowRenderFile, 'fake flow image content')
 
+      let capturedRefPath: string | undefined
+
       const mockFetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
         const urlStr = url.toString()
         if (urlStr.endsWith('/health')) {
           return new Response(JSON.stringify({ ok: true }), { status: 200 })
         }
         if (urlStr.endsWith('/jobs') && init?.method === 'POST') {
-          if (urlStr.includes(':8092')) return new Response(JSON.stringify({ jobId: 'flow-err' }), { status: 200 })
+          if (urlStr.includes(':8092')) {
+            const body = JSON.parse(init.body as string) as Record<string, unknown>
+            capturedRefPath = (body.reference_paths as string[])?.[0]
+            const validation = validateFlowRefPaths(body.reference_paths)
+            if (!validation.ok) {
+              return new Response(JSON.stringify({ error: validation.error }), { status: validation.status })
+            }
+            return new Response(JSON.stringify({ jobId: 'flow-err' }), { status: 200 })
+          }
           if (urlStr.includes(':8093')) return new Response(JSON.stringify({ jobId: 'block-err' }), { status: 200 })
         }
         if (urlStr.includes('/jobs/flow-err')) {
@@ -586,6 +649,8 @@ describe('skin block provider', () => {
         }
 
         expect(errorMsg).toBe('converter crashed')
+        expect(capturedRefPath).toBeDefined()
+        expect(fs.existsSync(path.dirname(capturedRefPath!))).toBe(false)
       } finally {
         await new Promise((r) => server.close(r))
       }
@@ -604,7 +669,14 @@ describe('skin block provider', () => {
           return new Response(JSON.stringify({ ok: true }), { status: 200 })
         }
         if (urlStr.endsWith('/jobs') && init?.method === 'POST') {
-          if (urlStr.includes(':8092')) return new Response(JSON.stringify({ jobId: 'flow-esc' }), { status: 200 })
+          if (urlStr.includes(':8092')) {
+            const body = JSON.parse(init.body as string) as Record<string, unknown>
+            const validation = validateFlowRefPaths(body.reference_paths)
+            if (!validation.ok) {
+              return new Response(JSON.stringify({ error: validation.error }), { status: validation.status })
+            }
+            return new Response(JSON.stringify({ jobId: 'flow-esc' }), { status: 200 })
+          }
           if (urlStr.includes(':8093')) return new Response(JSON.stringify({ jobId: 'block-esc' }), { status: 200 })
         }
         if (urlStr.includes('/jobs/flow-esc')) {
@@ -742,6 +814,90 @@ describe('skin block provider', () => {
         expect(res.status).toBe(202)
       } finally {
         await new Promise((r) => serverLlm.close(r))
+      }
+    })
+
+    it('missing ref layout -> 500 block ref layout missing or unreadable and 0 Flow POSTs', async () => {
+      let flowPostCount = 0
+      const mockFetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        const urlStr = url.toString()
+        if (urlStr.endsWith('/health')) {
+          return new Response(JSON.stringify({ ok: true }), { status: 200 })
+        }
+        if (urlStr.includes(':8092') && init?.method === 'POST') {
+          flowPostCount++
+          return new Response(JSON.stringify({ jobId: 'should-not-reach' }), { status: 200 })
+        }
+        return new Response('Not found', { status: 404 })
+      })
+
+      const app = express()
+      app.use(express.json())
+      installSkinGenerate(app, {
+        fetchFn: mockFetch as unknown as typeof fetch,
+        blockRefLayoutPath: path.join(tmpDir, 'non-existent-ref-layout.png'),
+        rateLimiter: new GenerateRateLimiter(),
+      })
+
+      const server = app.listen(0, '127.0.0.1')
+      await new Promise((r) => server.once('listening', r))
+      const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+
+      try {
+        const res = await fetch(`${baseUrl}/api/skins/generate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Origin: baseUrl },
+          body: JSON.stringify({ prompt: 'test' }),
+        })
+        expect(res.status).toBe(500)
+        const data = (await res.json()) as { error: string }
+        expect(data.error).toBe('block ref layout missing or unreadable')
+        expect(flowPostCount).toBe(0)
+      } finally {
+        await new Promise((r) => server.close(r))
+      }
+    })
+
+    it('Flow 400 returns 502 flow rejected request and cleans up temp dir', async () => {
+      let capturedRefPath: string | undefined
+      const mockFetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        const urlStr = url.toString()
+        if (urlStr.endsWith('/health')) {
+          return new Response(JSON.stringify({ ok: true }), { status: 200 })
+        }
+        if (urlStr.includes(':8092') && init?.method === 'POST') {
+          const body = JSON.parse(init.body as string) as { reference_paths?: string[] }
+          capturedRefPath = body.reference_paths?.[0]
+          return new Response(JSON.stringify({ error: 'bad input' }), { status: 400 })
+        }
+        return new Response('Not found', { status: 404 })
+      })
+
+      const app = express()
+      app.use(express.json())
+      installSkinGenerate(app, {
+        fetchFn: mockFetch as unknown as typeof fetch,
+        blockRefLayoutPath: refLayoutPath,
+        rateLimiter: new GenerateRateLimiter(),
+      })
+
+      const server = app.listen(0, '127.0.0.1')
+      await new Promise((r) => server.once('listening', r))
+      const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+
+      try {
+        const res = await fetch(`${baseUrl}/api/skins/generate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Origin: baseUrl },
+          body: JSON.stringify({ prompt: 'test' }),
+        })
+        expect(res.status).toBe(502)
+        const data = (await res.json()) as { error: string }
+        expect(data.error).toBe('flow rejected request')
+        expect(capturedRefPath).toBeDefined()
+        expect(fs.existsSync(path.dirname(capturedRefPath!))).toBe(false)
+      } finally {
+        await new Promise((r) => server.close(r))
       }
     })
   })
