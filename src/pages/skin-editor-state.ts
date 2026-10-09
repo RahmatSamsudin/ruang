@@ -413,3 +413,71 @@ export function base64ToBytes(base64: string): Uint8Array {
   }
   return bytes
 }
+
+export async function computeSkinSha1Prefix(bytes: Uint8Array): Promise<string> {
+  if (typeof crypto !== 'undefined' && crypto.subtle?.digest) {
+    try {
+      const hash = await crypto.subtle.digest('SHA-1', bytes as unknown as ArrayBuffer)
+      return Array.from(new Uint8Array(hash).slice(0, 6))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('')
+    } catch {
+      return ''
+    }
+  }
+  return ''
+}
+
+/**
+ * Draws a composite front view of a Minecraft 64x64 skin onto a 2D canvas context.
+ * Standard UV layout:
+ * - Head front: (8, 8, 8, 8) + Hat overlay: (40, 8, 8, 8)
+ * - Body front: (20, 20, 8, 12) + Jacket overlay: (20, 36, 8, 12)
+ * - Right arm: (44, 20, 4, 12) + Right sleeve: (44, 36, 4, 12)
+ * - Left arm: (36, 52, 4, 12) + Left sleeve: (52, 52, 4, 12)
+ * - Right leg: (4, 20, 4, 12) + Right pant: (4, 36, 4, 12)
+ * - Left leg: (20, 52, 4, 12) + Left pant: (4, 52, 4, 12)
+ */
+export function renderSkinFrontView(
+  ctx: CanvasRenderingContext2D,
+  source: CanvasImageSource,
+  width = 32,
+  height = 64,
+) {
+  ctx.imageSmoothingEnabled = false
+  ctx.clearRect(0, 0, width, height)
+  const s = width / 16
+
+  // Base layers:
+  // Head front: (8, 8, 8, 8) -> dest: (4*s, 0, 8*s, 8*s)
+  ctx.drawImage(source, 8, 8, 8, 8, 4 * s, 0, 8 * s, 8 * s)
+  // Hat overlay front: (40, 8, 8, 8) -> dest: (4*s, 0, 8*s, 8*s)
+  ctx.drawImage(source, 40, 8, 8, 8, 4 * s, 0, 8 * s, 8 * s)
+
+  // Body front: (20, 20, 8, 12) -> dest: (4*s, 8*s, 8*s, 12*s)
+  ctx.drawImage(source, 20, 20, 8, 12, 4 * s, 8 * s, 8 * s, 12 * s)
+  // Jacket overlay: (20, 36, 8, 12) -> dest: (4*s, 8*s, 8*s, 12*s)
+  ctx.drawImage(source, 20, 36, 8, 12, 4 * s, 8 * s, 8 * s, 12 * s)
+
+  // Right arm (character right = viewer left): (44, 20, 4, 12) -> dest: (0, 8*s, 4*s, 12*s)
+  ctx.drawImage(source, 44, 20, 4, 12, 0, 8 * s, 4 * s, 12 * s)
+  // Right sleeve: (44, 36, 4, 12) -> dest: (0, 8*s, 4*s, 12*s)
+  ctx.drawImage(source, 44, 36, 4, 12, 0, 8 * s, 4 * s, 12 * s)
+
+  // Left arm (character left = viewer right): (36, 52, 4, 12) -> dest: (12*s, 8*s, 4*s, 12*s)
+  ctx.drawImage(source, 36, 52, 4, 12, 12 * s, 8 * s, 4 * s, 12 * s)
+  // Left sleeve: (52, 52, 4, 12) -> dest: (12*s, 8*s, 4*s, 12*s)
+  ctx.drawImage(source, 52, 52, 4, 12, 12 * s, 8 * s, 4 * s, 12 * s)
+
+  // Right leg (character right = viewer left): (4, 20, 4, 12) -> dest: (4*s, 20*s, 4*s, 12*s)
+  ctx.drawImage(source, 4, 20, 4, 12, 4 * s, 20 * s, 4 * s, 12 * s)
+  // Right pant: (4, 36, 4, 12) -> dest: (4*s, 20*s, 4*s, 12*s)
+  ctx.drawImage(source, 4, 36, 4, 12, 4 * s, 20 * s, 4 * s, 12 * s)
+
+  // Left leg (character left = viewer right): (20, 52, 4, 12) -> dest: (8*s, 20*s, 4*s, 12*s)
+  ctx.drawImage(source, 20, 52, 4, 12, 8 * s, 20 * s, 4 * s, 12 * s)
+  // Left pant: (4, 52, 4, 12) -> dest: (8*s, 20*s, 4*s, 12*s)
+  ctx.drawImage(source, 4, 52, 4, 12, 8 * s, 20 * s, 4 * s, 12 * s)
+}
+
+

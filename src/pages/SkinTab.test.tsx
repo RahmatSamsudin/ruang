@@ -55,6 +55,17 @@ describe('SkinTab component', () => {
     })
 
     mockFetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === '/api/skin-library') {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify([{ id: 'lib-1', name: 'Saved Knight', prompt: 'a brave knight' }]),
+            { status: 200 },
+          ),
+        )
+      }
+      if (url.startsWith('/api/skin-library/')) {
+        return Promise.resolve(new Response(new Uint8Array(createTestSkinPng()), { status: 200 }))
+      }
       if (url.startsWith('/api/skins/generate')) {
         return Promise.resolve(new Response(JSON.stringify({ jobId: 'job-123' }), { status: 200 }))
       }
@@ -327,4 +338,88 @@ describe('SkinTab component', () => {
       root.unmount()
     })
   })
+
+  it('renders skin library and clicking thumbnail loads into editor as unsaved', async () => {
+    const host = document.body.appendChild(document.createElement('div'))
+    const root = createRoot(host)
+
+    await act(async () => {
+      root.render(<SkinTab agentId="developer" />)
+    })
+    await flush()
+
+    expect(host.textContent).toContain('Saved Knight')
+    const thumbBtn = host.querySelector('button.skin-library-thumbnail') as HTMLButtonElement
+    expect(thumbBtn).not.toBeNull()
+
+    await act(async () => {
+      thumbBtn.click()
+    })
+    await flush()
+
+    // Assert fetch was made for the library skin PNG
+    expect(mockFetch).toHaveBeenCalledWith('/api/skin-library/lib-1.png')
+
+    // Undo should now be enabled because loading into editor was undoable
+    const undoBtn = host.querySelector<HTMLButtonElement>('button[title*="Undo"]')
+    expect(undoBtn?.disabled).toBe(false)
+
+    // Save button should now be enabled (dirty)
+    const saveBtn = Array.from(host.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Save',
+    )
+    expect(saveBtn?.disabled).toBe(false)
+
+    // No PUT call made just by clicking library thumbnail
+    const putCalls = mockFetch.mock.calls.filter(
+      (call) => (call[1] as RequestInit | undefined)?.method === 'PUT',
+    )
+    expect(putCalls).toHaveLength(0)
+
+    await act(async () => {
+      root.unmount()
+    })
+  })
+
+  it('refetches skin library on Save', async () => {
+    const host = document.body.appendChild(document.createElement('div'))
+    const root = createRoot(host)
+
+    await act(async () => {
+      root.render(<SkinTab agentId="developer" />)
+    })
+    await flush()
+
+    const initialLibraryFetchCount = mockFetch.mock.calls.filter(
+      (c) => c[0] === '/api/skin-library',
+    ).length
+    expect(initialLibraryFetchCount).toBe(1)
+
+    // Clear head center face pixel
+    const clearHeadBtn = Array.from(host.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Clear head',
+    )
+    await act(async () => {
+      clearHeadBtn?.click()
+    })
+    await flush()
+
+    const saveBtn = Array.from(host.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Save',
+    )
+    await act(async () => {
+      saveBtn?.click()
+    })
+    await flush()
+
+    const postSaveLibraryFetchCount = mockFetch.mock.calls.filter(
+      (c) => c[0] === '/api/skin-library',
+    ).length
+    expect(postSaveLibraryFetchCount).toBeGreaterThan(initialLibraryFetchCount)
+
+    await act(async () => {
+      root.unmount()
+    })
+  })
 })
+

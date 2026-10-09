@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { SkinEditor, type SkinEditorHandle } from './SkinEditor'
 import { SkinPromptPanel, type SkinPart } from './SkinPromptPanel'
+import { SkinLibrary } from './SkinLibrary'
 import { skinTextureManager, triggerSkinsRefresh } from '../scene3d/skin'
 import { skinDraftStore } from './skin-draft'
+import { computeSkinSha1Prefix } from './skin-editor-state'
 
 export interface SkinTabProps {
   agentId: string
@@ -13,6 +15,8 @@ export function SkinTab({ agentId }: SkinTabProps) {
   const [initialPng, setInitialPng] = useState<Uint8Array | null>(null)
   const [initialPixels, setInitialPixels] = useState<Uint8ClampedArray | null>(null)
   const [initialDirty, setInitialDirty] = useState(false)
+  const [activeSkinId, setActiveSkinId] = useState<string | undefined>(undefined)
+  const [libraryRefresh, setLibraryRefresh] = useState(0)
 
   const editorRef = useRef<SkinEditorHandle | null>(null)
   const promptRef = useRef<string>('')
@@ -42,12 +46,15 @@ export function SkinTab({ agentId }: SkinTabProps) {
         if (res.ok) {
           const buf = new Uint8Array(await res.arrayBuffer())
           setInitialPng(buf)
+          void computeSkinSha1Prefix(buf).then(setActiveSkinId)
         } else {
           setInitialPng(null)
+          setActiveSkinId(undefined)
         }
       } catch {
         if (!cancelled) {
           setInitialPng(null)
+          setActiveSkinId(undefined)
         }
       } finally {
         if (!cancelled) {
@@ -123,6 +130,8 @@ export function SkinTab({ agentId }: SkinTabProps) {
     skinDraftStore.delete(agentId)
     skinTextureManager.disposeAgent(agentId)
     triggerSkinsRefresh()
+    void computeSkinSha1Prefix(png).then(setActiveSkinId)
+    setLibraryRefresh((v) => v + 1)
   }
 
   const handleReset = async () => {
@@ -145,6 +154,8 @@ export function SkinTab({ agentId }: SkinTabProps) {
     skinDraftStore.delete(agentId)
     skinTextureManager.disposeAgent(agentId)
     triggerSkinsRefresh()
+    setActiveSkinId(undefined)
+    setLibraryRefresh((v) => v + 1)
   }
 
   if (loading) {
@@ -174,6 +185,14 @@ export function SkinTab({ agentId }: SkinTabProps) {
           onPartChange={(pt) => {
             partRef.current = pt
           }}
+          onGenerated={() => {
+            setLibraryRefresh((v) => v + 1)
+          }}
+        />
+        <SkinLibrary
+          editorRef={editorRef}
+          activeSkinId={activeSkinId}
+          refreshTrigger={libraryRefresh}
         />
       </SkinEditor>
     </div>
