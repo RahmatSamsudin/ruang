@@ -135,7 +135,9 @@ export function decodePng(buffer: Buffer): { width: number; height: number; data
 
   let uncompressed: Buffer
   try {
-    uncompressed = inflateSync(Buffer.concat(idatChunks))
+    uncompressed = inflateSync(Buffer.concat(idatChunks), {
+      maxOutputLength: 64 * (1 + 256),
+    })
   } catch {
     throw new ComposeError('Invalid PNG: corrupted compressed data.', 400)
   }

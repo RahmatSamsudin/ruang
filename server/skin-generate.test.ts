@@ -1,9 +1,11 @@
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
+import zlib from 'node:zlib'
 import express from 'express'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   composeSkinFromJson,
+  crc32,
   decodePng,
   encodePng,
   parsePalette,
@@ -47,6 +49,43 @@ describe('skin-compose unit tests', () => {
     expect(() => decodePng(Buffer.alloc(10))).toThrow(/invalid signature/)
     const garbage = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0])
     expect(() => decodePng(garbage)).toThrow(/Invalid PNG/)
+  })
+
+  it('rejects inflate-bomb PNG exceeding maxOutputLength in decodePng', () => {
+    // 64x64 RGBA expects 64 * (1 + 256) = 16448 bytes uncompressed
+    const bombPayload = zlib.deflateSync(Buffer.alloc(100_000))
+
+    const ihdrData = Buffer.alloc(13)
+    ihdrData.writeUInt32BE(64, 0)
+    ihdrData.writeUInt32BE(64, 4)
+    ihdrData[8] = 8 // bit depth
+    ihdrData[9] = 6 // color type RGBA
+    ihdrData[10] = 0 // compression
+    ihdrData[11] = 0 // filter
+    ihdrData[12] = 0 // interlace
+
+    const ihdrChunk = Buffer.alloc(12 + 13)
+    ihdrChunk.writeUInt32BE(13, 0)
+    ihdrChunk.write('IHDR', 4, 4, 'ascii')
+    ihdrData.copy(ihdrChunk, 8)
+    ihdrChunk.writeUInt32BE(crc32(ihdrChunk.subarray(4, 21)), 21)
+
+    const idatChunk = Buffer.alloc(12 + bombPayload.length)
+    idatChunk.writeUInt32BE(bombPayload.length, 0)
+    idatChunk.write('IDAT', 4, 4, 'ascii')
+    bombPayload.copy(idatChunk, 8)
+    idatChunk.writeUInt32BE(crc32(idatChunk.subarray(4, 8 + bombPayload.length)), 8 + bombPayload.length)
+
+    const iendChunk = Buffer.from([0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82])
+
+    const png = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      ihdrChunk,
+      idatChunk,
+      iendChunk,
+    ])
+
+    expect(() => decodePng(png)).toThrow(/corrupted compressed data/)
   })
 
   it('parses valid palettes and rejects invalid ones', () => {
@@ -287,6 +326,53 @@ describe('skin-generate API and LLM handling', () => {
     expect((stubFetchCalls[0].headers as Record<string, string>)['Authorization']).toBe('Bearer test-secret-key-12345')
   })
 
+  it('GET /api/skins/generate/:jobId returns status: running immediately without awaiting slow LLM provider', async () => {
+    stubLlmResponses.push({
+      status: 200,
+      delay: 60,
+      body: {
+        choices: [
+          {
+            message: {
+              content: JSON.stringify(sampleValidLlmJson),
+            },
+          },
+        ],
+      },
+    })
+
+    const postRes = await fetch(`${base}/api/skins/generate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: base,
+      },
+      body: JSON.stringify({ prompt: 'slow cyberpunk warrior' }),
+    })
+
+    expect(postRes.status).toBe(202)
+    const { jobId } = (await postRes.json()) as { jobId: string }
+
+    const start = Date.now()
+    const getRes = await fetch(`${base}/api/skins/generate/${jobId}`)
+    const duration = Date.now() - start
+    expect(getRes.status).toBe(200)
+    const json = (await getRes.json()) as { status: string }
+    expect(json.status).toBe('running')
+    expect(duration).toBeLessThan(100)
+
+    // Wait for LLM delay to complete and verify done
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setTimeout(r, 20))
+      const poll = await fetch(`${base}/api/skins/generate/${jobId}`)
+      const pollJson = (await poll.json()) as { status: string }
+      if (pollJson.status === 'done') break
+    }
+    const finalRes = await fetch(`${base}/api/skins/generate/${jobId}`)
+    const finalJson = (await finalRes.json()) as { status: string }
+    expect(finalJson.status).toBe('done')
+  })
+
   it('strips markdown code fences from LLM response', async () => {
     stubLlmResponses.push({
       status: 200,
@@ -428,9 +514,21 @@ describe('skin-generate API and LLM handling', () => {
     expect(postRes.status).toBe(202)
     const { jobId } = (await postRes.json()) as { jobId: string }
 
-    const getRes = await fetch(`${base}/api/skins/generate/${jobId}`)
-    expect(getRes.status).toBe(200)
-    const data = (await getRes.json()) as { status: string; error: string }
+    // First check: GET returns { status: 'running' } immediately without waiting
+    const getImmediate = await fetch(`${base}/api/skins/generate/${jobId}`)
+    expect(getImmediate.status).toBe(200)
+    const immediateData = (await getImmediate.json()) as { status: string }
+    expect(immediateData.status).toBe('running')
+
+    // Poll until timeout completes (timeoutMs is 200ms)
+    let data = immediateData as { status: string; error?: string }
+    for (let i = 0; i < 30; i++) {
+      await new Promise((r) => setTimeout(r, 20))
+      const getRes = await fetch(`${base}/api/skins/generate/${jobId}`)
+      expect(getRes.status).toBe(200)
+      data = (await getRes.json()) as { status: string; error?: string }
+      if (data.status !== 'running') break
+    }
     expect(data.status).toBe('error')
     expect(data.error).toMatch(/timeout/i)
     // Timeouts do not trigger retry

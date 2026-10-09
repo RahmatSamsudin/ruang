@@ -742,10 +742,7 @@ export function createSkinGenerateRouter(options: SkinGenerateOptions = {}): Rou
       return
     }
 
-    // For LLM provider, wait for result so first GET completes
-    if (job.provider === 'llm' && job.promise) {
-      await job.promise
-    }
+    // LLM provider returns immediately with { status: 'running' } while job is in progress
 
     if (job.status === 'done') {
       response.status(200).json({
