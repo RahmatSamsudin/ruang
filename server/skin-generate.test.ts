@@ -220,6 +220,7 @@ describe('skin-generate API and LLM handling', () => {
     app.disable('x-powered-by')
 
     installSkinGenerate(app, {
+      provider: 'llm',
       rateLimiter,
       fetchFn: mockFetch as unknown as typeof fetch,
       timeoutMs: 200, // Short timeout for tests
@@ -254,7 +255,7 @@ describe('skin-generate API and LLM handling', () => {
       },
     })
 
-    const res = await fetch(`${base}/api/skins/generate`, {
+    const postRes = await fetch(`${base}/api/skins/generate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -263,8 +264,14 @@ describe('skin-generate API and LLM handling', () => {
       body: JSON.stringify({ prompt: 'cyberpunk warrior' }),
     })
 
-    expect(res.status).toBe(200)
-    const json = (await res.json()) as { png: string; notes?: string }
+    expect(postRes.status).toBe(202)
+    const { jobId } = (await postRes.json()) as { jobId: string }
+    expect(jobId).toBeDefined()
+
+    const getRes = await fetch(`${base}/api/skins/generate/${jobId}`)
+    expect(getRes.status).toBe(200)
+    const json = (await getRes.json()) as { status: string; png: string; notes?: string }
+    expect(json.status).toBe('done')
     expect(json.notes).toBe('A cool red and green warrior')
     expect(typeof json.png).toBe('string')
 
@@ -294,7 +301,7 @@ describe('skin-generate API and LLM handling', () => {
       },
     })
 
-    const res = await fetch(`${base}/api/skins/generate`, {
+    const postRes = await fetch(`${base}/api/skins/generate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -303,8 +310,13 @@ describe('skin-generate API and LLM handling', () => {
       body: JSON.stringify({ prompt: 'fenced json test' }),
     })
 
-    expect(res.status).toBe(200)
-    const json = (await res.json()) as { png: string }
+    expect(postRes.status).toBe(202)
+    const { jobId } = (await postRes.json()) as { jobId: string }
+
+    const getRes = await fetch(`${base}/api/skins/generate/${jobId}`)
+    expect(getRes.status).toBe(200)
+    const json = (await getRes.json()) as { status: string; png: string }
+    expect(json.status).toBe('done')
     const decoded = decodePng(Buffer.from(json.png, 'base64'))
     expect(decoded.width).toBe(64)
   })
@@ -321,7 +333,7 @@ describe('skin-generate API and LLM handling', () => {
       body: { choices: [{ message: { content: JSON.stringify(sampleValidLlmJson) } }] },
     })
 
-    const res = await fetch(`${base}/api/skins/generate`, {
+    const postRes = await fetch(`${base}/api/skins/generate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -330,7 +342,13 @@ describe('skin-generate API and LLM handling', () => {
       body: JSON.stringify({ prompt: 'retry test' }),
     })
 
-    expect(res.status).toBe(200)
+    expect(postRes.status).toBe(202)
+    const { jobId } = (await postRes.json()) as { jobId: string }
+
+    const getRes = await fetch(`${base}/api/skins/generate/${jobId}`)
+    expect(getRes.status).toBe(200)
+    const json = (await getRes.json()) as { status: string; png: string }
+    expect(json.status).toBe('done')
     expect(stubFetchCalls.length).toBe(2)
   })
 
@@ -346,7 +364,7 @@ describe('skin-generate API and LLM handling', () => {
       body: { choices: [{ message: { content: 'broken' } }] },
     })
 
-    const res = await fetch(`${base}/api/skins/generate`, {
+    const postRes = await fetch(`${base}/api/skins/generate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -355,8 +373,13 @@ describe('skin-generate API and LLM handling', () => {
       body: JSON.stringify({ prompt: 'retry fail test' }),
     })
 
-    expect(res.status).toBe(502)
-    const body = (await res.json()) as { error: string }
+    expect(postRes.status).toBe(202)
+    const { jobId } = (await postRes.json()) as { jobId: string }
+
+    const getRes = await fetch(`${base}/api/skins/generate/${jobId}`)
+    expect(getRes.status).toBe(200)
+    const body = (await getRes.json()) as { status: string; error: string }
+    expect(body.status).toBe('error')
     expect(body.error).toBeDefined()
     expect(stubFetchCalls.length).toBe(2)
   })
@@ -374,13 +397,19 @@ describe('skin-generate API and LLM handling', () => {
       { status: 200, body: { choices: [{ message: { content: JSON.stringify(badDimsJson) } }] } },
     )
 
-    const res = await fetch(`${base}/api/skins/generate`, {
+    const postRes = await fetch(`${base}/api/skins/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Origin: base },
       body: JSON.stringify({ prompt: 'bad dimensions' }),
     })
 
-    expect(res.status).toBe(502)
+    expect(postRes.status).toBe(202)
+    const { jobId } = (await postRes.json()) as { jobId: string }
+
+    const getRes = await fetch(`${base}/api/skins/generate/${jobId}`)
+    expect(getRes.status).toBe(200)
+    const body = (await getRes.json()) as { status: string; error: string }
+    expect(body.status).toBe('error')
   })
 
   it('fails with 504 on timeout without retrying', async () => {
@@ -390,14 +419,19 @@ describe('skin-generate API and LLM handling', () => {
       body: { choices: [{ message: { content: JSON.stringify(sampleValidLlmJson) } }] },
     })
 
-    const res = await fetch(`${base}/api/skins/generate`, {
+    const postRes = await fetch(`${base}/api/skins/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Origin: base },
       body: JSON.stringify({ prompt: 'slow prompt' }),
     })
 
-    expect(res.status).toBe(504)
-    const data = (await res.json()) as { error: string }
+    expect(postRes.status).toBe(202)
+    const { jobId } = (await postRes.json()) as { jobId: string }
+
+    const getRes = await fetch(`${base}/api/skins/generate/${jobId}`)
+    expect(getRes.status).toBe(200)
+    const data = (await getRes.json()) as { status: string; error: string }
+    expect(data.status).toBe('error')
     expect(data.error).toMatch(/timeout/i)
     // Timeouts do not trigger retry
     expect(stubFetchCalls.length).toBe(1)
@@ -409,12 +443,15 @@ describe('skin-generate API and LLM handling', () => {
         status: 200,
         body: { choices: [{ message: { content: JSON.stringify(sampleValidLlmJson) } }] },
       })
-      const res = await fetch(`${base}/api/skins/generate`, {
+      const postRes = await fetch(`${base}/api/skins/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Origin: base },
         body: JSON.stringify({ prompt: `call ${i}` }),
       })
-      expect(res.status).toBe(200)
+      expect(postRes.status).toBe(202)
+      const { jobId } = (await postRes.json()) as { jobId: string }
+      // Await job completion so job is no longer active
+      await fetch(`${base}/api/skins/generate/${jobId}`)
     }
 
     // 7th call triggers 429
@@ -426,7 +463,7 @@ describe('skin-generate API and LLM handling', () => {
 
     expect(res7.status).toBe(429)
     const data = (await res7.json()) as { error: string }
-    expect(data.error).toMatch(/Rate limit exceeded/)
+    expect(data.error).toBe('busy')
   })
 
   it('validates input prompt: empty or > 300 chars returns 400', async () => {
@@ -501,6 +538,7 @@ describe('skin-generate API and LLM handling', () => {
 
     const appLeak = express()
     installSkinGenerate(appLeak, {
+      provider: 'llm',
       rateLimiter: new GenerateRateLimiter(),
       fetchFn: mockErrorFetch as unknown as typeof fetch,
       apiKey: 'test-secret-key-12345',
@@ -510,13 +548,18 @@ describe('skin-generate API and LLM handling', () => {
     await new Promise((resolve) => serverLeak.once('listening', resolve))
     const baseLeak = `http://127.0.0.1:${(serverLeak.address() as AddressInfo).port}`
 
-    const res = await fetch(`${baseLeak}/api/skins/generate`, {
+    const postRes = await fetch(`${baseLeak}/api/skins/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Origin: baseLeak },
       body: JSON.stringify({ prompt: 'test' }),
     })
+    expect(postRes.status).toBe(202)
+    const { jobId } = (await postRes.json()) as { jobId: string }
 
-    const text = await res.text()
+    const getRes = await fetch(`${baseLeak}/api/skins/generate/${jobId}`)
+    expect(getRes.status).toBe(200)
+
+    const text = await getRes.text()
     expect(text).not.toContain('test-secret-key-12345')
     expect(text).toContain('[REDACTED]')
 
