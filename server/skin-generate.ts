@@ -1,7 +1,7 @@
 /**
  * Skin Generate API (F2):
  *
- * Provider: env RUANG_SKIN_PROVIDER=flow|llm (default flow).
+ * Provider: env RUANG_SKIN_PROVIDER=block|flow|llm (default block).
  *
  * POST /api/skins/generate
  *   Headers: Origin matching Host (403 Forbidden if mismatched)
@@ -20,17 +20,18 @@
  *     423 { error: string, locked: "profile", agent: string } (profile locked)
  *     429 { error: "busy" } (>6 calls/min rate limit hit)
  *     429 { error: "daily cap" } (Flow service daily credit cap hit)
+ *     503 { error: "block offline" } (BLOCK service unreachable / 503 / health not ok)
  *     503 { error: "flow offline" } (Flow service unreachable / 503)
  *
  * GET /api/skins/generate/:jobId
  *   Responses:
- *     200 { status: "queued" | "running" | "done" | "error", png?: string, error?: string, notes?: string }
+ *     200 { status: "queued" | "running" | "done" | "error", stage?: "preview" | "convert", png?: string, error?: string, notes?: string }
  *     404 { error: "Job not found." } (unknown or expired > 10 min)
  *
  * Memory lifecycle:
  *   - Jobs kept in memory up to 10 min after creation then dropped.
  *   - Bounded map, max 50 entries, oldest evicted.
- *   - Max wait 5 min -> status becomes error "timeout".
+ *   - Max wait 5 min (8 min for block provider) -> status becomes error "timeout".
  *   - Generate NEVER saves to disk / skins DB.
  */
 
@@ -45,7 +46,7 @@ import {
   decodePng,
   type SkinPart,
 } from './skin-compose.js'
-import { buildFlowPrompt, processFlowSkinImage } from './skin-flow.js'
+import { buildFlowPrompt, processBlockSkinImage, processFlowSkinImage } from './skin-flow.js'
 import { createTemplatePng, upscale64To1024Png } from './skin-template.js'
 import { matchOriginHost, MAX_SKIN_BYTES } from './skins.js'
 
@@ -77,7 +78,16 @@ export class GenerateRateLimiter {
 }
 
 export type SkinJobStatus = 'queued' | 'running' | 'done' | 'error'
-export type SkinProvider = 'flow' | 'llm'
+export type SkinProvider = 'block' | 'flow' | 'llm'
+
+export function resolveSkinProvider(envVal?: string, optVal?: SkinProvider): SkinProvider {
+  if (optVal === 'llm' || optVal === 'flow' || optVal === 'block') {
+    return optVal
+  }
+  if (envVal === 'llm') return 'llm'
+  if (envVal === 'flow') return 'flow'
+  return 'block'
+}
 
 export interface SkinJob {
   id: string
@@ -85,6 +95,7 @@ export interface SkinJob {
   createdAt: number
   updatedAt: number
   provider: SkinProvider
+  stage?: 'preview' | 'convert'
   prompt: string
   part: SkinPart
   png?: string
@@ -100,12 +111,16 @@ export class SkinJobManager {
   private readonly ttlMs = 10 * 60 * 1000 // 10 minutes
   private readonly timeoutMs = 5 * 60 * 1000 // 5 minutes
 
+  private getJobTimeoutMs(job: SkinJob): number {
+    return job.provider === 'block' ? 8 * 60 * 1000 : this.timeoutMs
+  }
+
   getActiveJob(): SkinJob | undefined {
     const now = Date.now()
     this.purgeExpired(now)
     for (const job of this.jobs.values()) {
       if (job.status === 'queued' || job.status === 'running') {
-        if (now - job.createdAt > this.timeoutMs) {
+        if (now - job.createdAt > this.getJobTimeoutMs(job)) {
           job.status = 'error'
           job.error = 'timeout'
           job.updatedAt = now
@@ -120,7 +135,12 @@ export class SkinJobManager {
     return undefined
   }
 
-  createJob(provider: SkinProvider, prompt: string, part: SkinPart): SkinJob {
+  createJob(
+    provider: SkinProvider,
+    prompt: string,
+    part: SkinPart,
+    stage?: 'preview' | 'convert',
+  ): SkinJob {
     const active = this.getActiveJob()
     if (active) {
       throw new SkinGenerateError('busy', 409)
@@ -146,6 +166,7 @@ export class SkinJobManager {
       createdAt: now,
       updatedAt: now,
       provider,
+      ...(stage ? { stage } : {}),
       prompt,
       part,
     }
@@ -160,7 +181,10 @@ export class SkinJobManager {
     const job = this.jobs.get(id)
     if (!job) return undefined
 
-    if ((job.status === 'queued' || job.status === 'running') && now - job.createdAt > this.timeoutMs) {
+    if (
+      (job.status === 'queued' || job.status === 'running') &&
+      now - job.createdAt > this.getJobTimeoutMs(job)
+    ) {
       job.status = 'error'
       job.error = 'timeout'
       job.updatedAt = now
@@ -246,6 +270,15 @@ export function extractJsonFromLlmResponse(raw: string): unknown {
   }
 }
 
+export const BLOCK_PROMPT_TEMPLATE =
+  'You are a Minecraft skin creator. The attached image [B] is a LAYOUT AND STYLE REFERENCE: copy its exact framing, camera angle (front panel about 24 degree yaw, 30 degree downward tilt, near-orthographic), blocky cuboid body, pixel granularity and shading style, but NOT its character. Character to create: <CHAR>. Hold nothing in the hands (no weapon). OUTPUT exactly ONE image: pure white background, two panels side by side, left = FRONT view, right = BACK view, same character in both. Minecraft default standing pose, arms straight down, legs parallel, feet on same baseline, full body visible, no text, no watermark. True pixel art, hard square pixel blocks, no anti-aliasing, no blur, no gradients, max 2-3 tones per material, hair as blocky masses.'
+
+export function buildBlockFlowPrompt(userPrompt: string): string {
+  // eslint-disable-next-line no-control-regex
+  const sanitized = userPrompt.replace(/[\x00-\x1F\x7F]/g, ' ').trim().slice(0, 300)
+  return BLOCK_PROMPT_TEMPLATE.replace('<CHAR>', sanitized)
+}
+
 export interface SkinGenerateOptions {
   privacyOf?: (request: Request) => Promise<Privacy>
   rateLimiter?: GenerateRateLimiter
@@ -259,6 +292,10 @@ export interface SkinGenerateOptions {
   flowUrl?: string
   flowOutputDir?: string
   flowPollIntervalMs?: number
+  blockUrl?: string
+  blockOutputDir?: string
+  blockPollIntervalMs?: number
+  blockRefLayoutPath?: string
 }
 
 function sanitizeMessage(msg: string, secret?: string): string {
@@ -492,6 +529,240 @@ async function runFlowPoller(
   }
 }
 
+async function runBlockPoller(
+  job: SkinJob,
+  flowJobsUrl: string,
+  flowJobId: string,
+  flowOutputDir: string,
+  blockUrl: string,
+  blockOutputDir: string,
+  baseDecoded: { width: number; height: number; data: Buffer } | null,
+  fetchFn: typeof fetch,
+  flowPollIntervalMs = 200,
+  blockPollIntervalMs = 200,
+): Promise<void> {
+  const flowPollUrl = `${flowJobsUrl}/${flowJobId}`
+  const blockJobsUrl = `${blockUrl.replace(/\/+$/, '')}/jobs`
+  const startTime = Date.now()
+  const totalTimeoutMs = 8 * 60 * 1000
+
+  try {
+    let flowOutputFile: string | null = null
+
+    // Stage 1: Polling Flow for preview
+    job.stage = 'preview'
+    while (job.status === 'queued' || job.status === 'running') {
+      if (Date.now() - startTime > totalTimeoutMs) {
+        job.status = 'error'
+        job.error = 'timeout'
+        return
+      }
+
+      await new Promise((r) => setTimeout(r, flowPollIntervalMs))
+
+      let pollRes: globalThis.Response
+      try {
+        pollRes = await fetchFn(flowPollUrl, {
+          signal: AbortSignal.timeout(10_000),
+        })
+      } catch {
+        job.status = 'error'
+        job.error = 'flow offline'
+        return
+      }
+
+      if (pollRes.status === 404 || pollRes.status === 503 || !pollRes.ok) {
+        job.status = 'error'
+        job.error = 'flow offline'
+        return
+      }
+
+      const flowData = (await pollRes.json()) as {
+        status?: string
+        file?: string
+        error?: string
+      }
+
+      if (flowData.status === 'queued' || flowData.status === 'running') {
+        job.status = flowData.status
+        continue
+      }
+
+      if (flowData.status === 'error') {
+        job.status = 'error'
+        job.error = flowData.error || 'unusable output'
+        return
+      }
+
+      if (flowData.status === 'done') {
+        if (!flowData.file || typeof flowData.file !== 'string') {
+          job.status = 'error'
+          job.error = 'unusable output'
+          return
+        }
+
+        try {
+          const realFile = await fs.promises.realpath(flowData.file)
+          await fs.promises.mkdir(flowOutputDir, { recursive: true })
+          const realOutputDir = await fs.promises.realpath(flowOutputDir)
+          if (!realFile.startsWith(realOutputDir + path.sep) && realFile !== realOutputDir) {
+            job.status = 'error'
+            job.error = 'unusable output'
+            return
+          }
+
+          const st = await fs.promises.stat(realFile)
+          if (st.size > 20 * 1024 * 1024) {
+            job.status = 'error'
+            job.error = 'unusable output'
+            return
+          }
+
+          flowOutputFile = realFile
+        } catch {
+          job.status = 'error'
+          job.error = 'unusable output'
+          return
+        }
+        break
+      }
+
+      job.status = 'error'
+      job.error = 'unusable output'
+      return
+    }
+
+    if (!flowOutputFile || (job.status !== 'queued' && job.status !== 'running')) {
+      return
+    }
+
+    // Stage 2: POST to BLOCK service
+    job.stage = 'convert'
+    let blockPostRes: globalThis.Response
+    try {
+      blockPostRes = await fetchFn(blockJobsUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preview_path: flowOutputFile }),
+        signal: AbortSignal.timeout(10_000),
+      })
+    } catch {
+      job.status = 'error'
+      job.error = 'block offline'
+      return
+    }
+
+    if (!blockPostRes.ok) {
+      job.status = 'error'
+      job.error = 'block offline'
+      return
+    }
+
+    let blockJobId: string
+    try {
+      const blockData = (await blockPostRes.json()) as { jobId?: string }
+      if (!blockData.jobId) {
+        throw new Error('missing jobId')
+      }
+      blockJobId = blockData.jobId
+    } catch {
+      job.status = 'error'
+      job.error = 'block offline'
+      return
+    }
+
+    // Stage 3: Polling BLOCK service
+    const blockPollUrl = `${blockJobsUrl}/${blockJobId}`
+    while (job.status === 'queued' || job.status === 'running') {
+      if (Date.now() - startTime > totalTimeoutMs) {
+        job.status = 'error'
+        job.error = 'timeout'
+        return
+      }
+
+      await new Promise((r) => setTimeout(r, blockPollIntervalMs))
+
+      let blockPollRes: globalThis.Response
+      try {
+        blockPollRes = await fetchFn(blockPollUrl, {
+          signal: AbortSignal.timeout(10_000),
+        })
+      } catch {
+        job.status = 'error'
+        job.error = 'block offline'
+        return
+      }
+
+      if (blockPollRes.status === 404 || blockPollRes.status === 503 || !blockPollRes.ok) {
+        job.status = 'error'
+        job.error = 'block offline'
+        return
+      }
+
+      const blockData = (await blockPollRes.json()) as {
+        status?: string
+        file?: string
+        error?: string
+      }
+
+      if (blockData.status === 'queued' || blockData.status === 'running') {
+        job.status = blockData.status
+        continue
+      }
+
+      if (blockData.status === 'error') {
+        job.status = 'error'
+        job.error = blockData.error || 'unusable output'
+        return
+      }
+
+      if (blockData.status === 'done') {
+        if (!blockData.file || typeof blockData.file !== 'string') {
+          job.status = 'error'
+          job.error = 'unusable output'
+          return
+        }
+
+        try {
+          const realFile = await fs.promises.realpath(blockData.file)
+          await fs.promises.mkdir(blockOutputDir, { recursive: true })
+          const realBlockOutputDir = await fs.promises.realpath(blockOutputDir)
+          if (!realFile.startsWith(realBlockOutputDir + path.sep) && realFile !== realBlockOutputDir) {
+            job.status = 'error'
+            job.error = 'unusable output'
+            return
+          }
+
+          const st = await fs.promises.stat(realFile)
+          if (st.size > 20 * 1024 * 1024) {
+            job.status = 'error'
+            job.error = 'unusable output'
+            return
+          }
+
+          const rawBytes = await fs.promises.readFile(realFile)
+          const processedPng = processBlockSkinImage(rawBytes, job.part, baseDecoded)
+          job.png = processedPng.toString('base64')
+          job.status = 'done'
+        } catch {
+          job.status = 'error'
+          job.error = 'unusable output'
+        }
+        return
+      }
+
+      job.status = 'error'
+      job.error = 'unusable output'
+      return
+    }
+  } finally {
+    if (job.cleanup) {
+      await job.cleanup()
+      job.cleanup = undefined
+    }
+  }
+}
+
 export function createSkinGenerateRouter(options: SkinGenerateOptions = {}): Router {
   const router = Router()
   const limiter = options.rateLimiter ?? new GenerateRateLimiter()
@@ -515,6 +786,7 @@ export function createSkinGenerateRouter(options: SkinGenerateOptions = {}): Rou
 
   // POST /api/skins/generate -> 202 {jobId}
   router.post('/', async (request: Request, response: Response): Promise<void> => {
+    try {
     // 1. Origin header check
     if (!matchOriginHost(request.headers.origin, request.headers.host)) {
       response.status(403).json({ error: 'Forbidden.' })
@@ -608,7 +880,7 @@ export function createSkinGenerateRouter(options: SkinGenerateOptions = {}): Rou
       return
     }
 
-    const provider: SkinProvider = options.provider ?? (process.env.RUANG_SKIN_PROVIDER === 'llm' ? 'llm' : 'flow')
+    const provider: SkinProvider = resolveSkinProvider(process.env.RUANG_SKIN_PROVIDER, options.provider)
     const fetchFn = options.fetchFn ?? globalThis.fetch
 
     if (provider === 'llm') {
@@ -634,63 +906,188 @@ export function createSkinGenerateRouter(options: SkinGenerateOptions = {}): Rou
       return
     }
 
-    // Flow provider
+    if (provider === 'flow') {
+      // Flow provider
+      const flowUrl = options.flowUrl ?? (process.env.RUANG_FLOW_URL || 'http://127.0.0.1:8092')
+      const flowCleanUrl = `${flowUrl.replace(/\/+$/, '')}/jobs`
+      const defaultFlowOutputDir = path.join(os.homedir(), '.hermes/cache/ruang-skins-flow')
+      const flowOutputDir = options.flowOutputDir ?? (process.env.RUANG_FLOW_OUTPUT_DIR || defaultFlowOutputDir)
+
+      let tmpDir: string
+      try {
+        tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'ruang-flow-ref-'))
+        await fs.promises.chmod(tmpDir, 0o700)
+      } catch {
+        response.status(503).json({ error: 'flow offline' })
+        return
+      }
+
+      const refPaths: string[] = []
+      try {
+        const templatePng = createTemplatePng()
+        const templatePath = path.join(tmpDir, 'template.png')
+        await fs.promises.writeFile(templatePath, templatePng)
+        refPaths.push(templatePath)
+
+        if (baseDecoded && part !== 'all') {
+          const baseUpscaled = upscale64To1024Png(baseDecoded.data)
+          const basePath = path.join(tmpDir, 'base.png')
+          await fs.promises.writeFile(basePath, baseUpscaled)
+          refPaths.push(basePath)
+        }
+      } catch {
+        await fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+        response.status(503).json({ error: 'flow offline' })
+        return
+      }
+
+      const flowPrompt = buildFlowPrompt(prompt)
+      let flowPostRes: globalThis.Response
+      try {
+        flowPostRes = await fetchFn(flowCleanUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: flowPrompt, reference_paths: refPaths }),
+          signal: AbortSignal.timeout(10_000),
+        })
+      } catch {
+        await fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+        response.status(503).json({ error: 'flow offline' })
+        return
+      }
+
+      if (flowPostRes.status === 429) {
+        await fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+        response.status(429).json({ error: 'daily cap' })
+        return
+      }
+
+      if (flowPostRes.status === 503 || !flowPostRes.ok) {
+        await fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+        response.status(503).json({ error: 'flow offline' })
+        return
+      }
+
+      let flowJobId: string
+      try {
+        const flowData = (await flowPostRes.json()) as { jobId?: string }
+        if (!flowData.jobId) {
+          throw new Error('missing jobId')
+        }
+        flowJobId = flowData.jobId
+      } catch {
+        await fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+        response.status(503).json({ error: 'flow offline' })
+        return
+      }
+
+      const job = jobManager.createJob('flow', prompt, part)
+      job.status = 'running'
+      job.cleanup = async () => {
+        await fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+      }
+
+      void runFlowPoller(
+        job,
+        flowCleanUrl,
+        flowJobId,
+        flowOutputDir,
+        baseDecoded,
+        fetchFn,
+        options.flowPollIntervalMs ?? 200,
+      )
+
+      response.status(202).json({ jobId: job.id })
+      return
+    }
+
+    // Block provider (Flow preview -> BLOCK converter)
+    const job = jobManager.createJob('block', prompt, part, 'preview')
+    job.status = 'running'
+
+    const blockUrl = options.blockUrl ?? (process.env.RUANG_BLOCK_URL || 'http://127.0.0.1:8093')
+    const blockHealthUrl = `${blockUrl.replace(/\/+$/, '')}/health`
+
+    let healthRes: globalThis.Response
+    try {
+      healthRes = await fetchFn(blockHealthUrl, {
+        signal: AbortSignal.timeout(2000),
+      })
+    } catch {
+      job.status = 'error'
+      job.error = 'block offline'
+      job.updatedAt = Date.now()
+      response.status(503).json({ error: 'block offline' })
+      return
+    }
+
+    if (!healthRes.ok) {
+      job.status = 'error'
+      job.error = 'block offline'
+      job.updatedAt = Date.now()
+      response.status(503).json({ error: 'block offline' })
+      return
+    }
+
+    try {
+      const healthData = (await healthRes.json()) as { ok?: boolean }
+      if (healthData.ok !== true) {
+        job.status = 'error'
+        job.error = 'block offline'
+        job.updatedAt = Date.now()
+        response.status(503).json({ error: 'block offline' })
+        return
+      }
+    } catch {
+      job.status = 'error'
+      job.error = 'block offline'
+      job.updatedAt = Date.now()
+      response.status(503).json({ error: 'block offline' })
+      return
+    }
+
     const flowUrl = options.flowUrl ?? (process.env.RUANG_FLOW_URL || 'http://127.0.0.1:8092')
     const flowCleanUrl = `${flowUrl.replace(/\/+$/, '')}/jobs`
     const defaultFlowOutputDir = path.join(os.homedir(), '.hermes/cache/ruang-skins-flow')
     const flowOutputDir = options.flowOutputDir ?? (process.env.RUANG_FLOW_OUTPUT_DIR || defaultFlowOutputDir)
+    const defaultBlockRefLayout = path.join(os.homedir(), 'block-skin', 'ref_layout.png')
+    const blockRefLayoutPath =
+      options.blockRefLayoutPath ?? (process.env.RUANG_BLOCK_REF_LAYOUT || defaultBlockRefLayout)
 
-    let tmpDir: string
-    try {
-      tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'ruang-flow-ref-'))
-      await fs.promises.chmod(tmpDir, 0o700)
-    } catch {
-      response.status(503).json({ error: 'flow offline' })
-      return
-    }
+    const blockFlowPrompt = buildBlockFlowPrompt(prompt)
 
-    const refPaths: string[] = []
-    try {
-      const templatePng = createTemplatePng()
-      const templatePath = path.join(tmpDir, 'template.png')
-      await fs.promises.writeFile(templatePath, templatePng)
-      refPaths.push(templatePath)
-
-      if (baseDecoded && part !== 'all') {
-        const baseUpscaled = upscale64To1024Png(baseDecoded.data)
-        const basePath = path.join(tmpDir, 'base.png')
-        await fs.promises.writeFile(basePath, baseUpscaled)
-        refPaths.push(basePath)
-      }
-    } catch {
-      await fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
-      response.status(503).json({ error: 'flow offline' })
-      return
-    }
-
-    const flowPrompt = buildFlowPrompt(prompt)
     let flowPostRes: globalThis.Response
     try {
       flowPostRes = await fetchFn(flowCleanUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: flowPrompt, reference_paths: refPaths }),
+        body: JSON.stringify({
+          prompt: blockFlowPrompt,
+          reference_paths: [blockRefLayoutPath],
+          model: 'nano-banana-pro',
+        }),
         signal: AbortSignal.timeout(10_000),
       })
     } catch {
-      await fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+      job.status = 'error'
+      job.error = 'flow offline'
+      job.updatedAt = Date.now()
       response.status(503).json({ error: 'flow offline' })
       return
     }
 
     if (flowPostRes.status === 429) {
-      await fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+      job.status = 'error'
+      job.error = 'daily cap'
+      job.updatedAt = Date.now()
       response.status(429).json({ error: 'daily cap' })
       return
     }
 
     if (flowPostRes.status === 503 || !flowPostRes.ok) {
-      await fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+      job.status = 'error'
+      job.error = 'flow offline'
+      job.updatedAt = Date.now()
       response.status(503).json({ error: 'flow offline' })
       return
     }
@@ -703,28 +1100,37 @@ export function createSkinGenerateRouter(options: SkinGenerateOptions = {}): Rou
       }
       flowJobId = flowData.jobId
     } catch {
-      await fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+      job.status = 'error'
+      job.error = 'flow offline'
+      job.updatedAt = Date.now()
       response.status(503).json({ error: 'flow offline' })
       return
     }
 
-    const job = jobManager.createJob('flow', prompt, part)
-    job.status = 'running'
-    job.cleanup = async () => {
-      await fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
-    }
+    const defaultBlockOutputDir = path.join(os.homedir(), '.hermes/cache/ruang-skins-block')
+    const blockOutputDir = options.blockOutputDir ?? (process.env.RUANG_BLOCK_OUTPUT_DIR || defaultBlockOutputDir)
 
-    void runFlowPoller(
+    job.promise = runBlockPoller(
       job,
       flowCleanUrl,
       flowJobId,
       flowOutputDir,
+      blockUrl,
+      blockOutputDir,
       baseDecoded,
       fetchFn,
       options.flowPollIntervalMs ?? 200,
+      options.blockPollIntervalMs ?? 200,
     )
 
     response.status(202).json({ jobId: job.id })
+    } catch (err: unknown) {
+      if (err instanceof SkinGenerateError) {
+        response.status(err.status).json({ error: err.message })
+        return
+      }
+      throw err
+    }
   })
 
   // GET /api/skins/generate/:jobId -> 200 {status, png?, error?, notes?}; 404
@@ -761,12 +1167,24 @@ export function createSkinGenerateRouter(options: SkinGenerateOptions = {}): Rou
       return
     }
 
-    response.status(200).json({ status: job.status })
+    response.status(200).json({
+      status: job.status,
+      ...(job.stage ? { stage: job.stage } : {}),
+    })
   })
 
   // Reject unsupported methods on /generate
   router.all('/', (_req: Request, res: Response) => {
     res.status(405).json({ error: 'Method not allowed.' })
+  })
+
+  // Error handling middleware: SkinGenerateError must never surface as 500
+  router.use((err: unknown, _req: Request, res: Response, next: NextFunction): void => {
+    if (err instanceof SkinGenerateError) {
+      res.status(err.status).json({ error: err.message })
+      return
+    }
+    next(err)
   })
 
   return router

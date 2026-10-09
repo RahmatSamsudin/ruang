@@ -30,6 +30,7 @@ export function SkinPromptPanel({
   const [prompt, setPrompt] = useState(initialPrompt)
   const [part, setPart] = useState<SkinPart>(initialPart)
   const [isGenerating, setIsGenerating] = useState(false)
+  const [stage, setStage] = useState<'preview' | 'convert' | null>(null)
   const [elapsed, setElapsed] = useState(0)
   const [error, setError] = useState<string | null>(null)
 
@@ -48,6 +49,7 @@ export function SkinPromptPanel({
     }
     if (isMountedRef.current) {
       setIsGenerating(false)
+      setStage(null)
     }
   }
 
@@ -93,6 +95,9 @@ export function SkinPromptPanel({
       if (!isMountedRef.current) return
 
       if (data.status === 'queued' || data.status === 'running') {
+        if (data.stage === 'preview' || data.stage === 'convert') {
+          setStage(data.stage)
+        }
         return
       }
 
@@ -102,6 +107,8 @@ export function SkinPromptPanel({
           setError('Generator timed out')
         } else if (data.error === 'flow offline') {
           setError('Image generator offline')
+        } else if (data.error === 'block offline') {
+          setError('Skin converter offline (BLOCK service not running)')
         } else if (data.error === 'daily cap') {
           setError('Daily generation limit reached')
         } else {
@@ -140,6 +147,7 @@ export function SkinPromptPanel({
 
     setError(null)
     setIsGenerating(true)
+    setStage(null)
     setElapsed(0)
 
     try {
@@ -219,7 +227,20 @@ export function SkinPromptPanel({
       } else if (res.status === 502) {
         setError('Generator returned unusable output, try again/rephrase')
       } else if (res.status === 503) {
-        setError('Image generator offline')
+        let isBlockOffline = false
+        try {
+          const data = await res.json()
+          if (data && data.error === 'block offline') {
+            isBlockOffline = true
+          }
+        } catch {
+          /* ignore */
+        }
+        setError(
+          isBlockOffline
+            ? 'Skin converter offline (BLOCK service not running)'
+            : 'Image generator offline',
+        )
       } else if (res.status === 504) {
         setError('Generator timed out')
       } else {
@@ -281,7 +302,11 @@ export function SkinPromptPanel({
                 ⏳
               </span>
               <span>
-                {elapsed}s · Generating via Google Flow (can take 1-3 min)
+                {stage === 'preview'
+                  ? `${elapsed}s · Rendering preview…`
+                  : stage === 'convert'
+                    ? `${elapsed}s · Converting to skin…`
+                    : `${elapsed}s · Generating via Google Flow (can take 1-3 min)`}
               </span>
               <button
                 type="button"

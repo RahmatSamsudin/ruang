@@ -307,4 +307,74 @@ describe('SkinPromptPanel component and polling flow', () => {
       root.unmount()
     })
   })
+
+  it('handles 503 block offline response', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'block offline' }), { status: 503 }),
+    )
+
+    const { root } = await setupPanel()
+    await triggerGenerate()
+
+    const error = document.querySelector('.skin-generate-error')
+    expect(error?.textContent).toContain('Skin converter offline (BLOCK service not running)')
+
+    await act(async () => {
+      root.unmount()
+    })
+  })
+
+  it('handles block offline error during polling', async () => {
+    mockFetch
+      .mockResolvedValueOnce(new Response(JSON.stringify({ jobId: 'job-block-poll-err' }), { status: 202 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: 'error', error: 'block offline' }), { status: 200 }),
+      )
+
+    const { root } = await setupPanel()
+    await triggerGenerate()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000)
+    })
+
+    const error = document.querySelector('.skin-generate-error')
+    expect(error?.textContent).toContain('Skin converter offline (BLOCK service not running)')
+
+    await act(async () => {
+      root.unmount()
+    })
+  })
+
+  it('shows stage note when stage is present in poll response', async () => {
+    mockFetch
+      .mockResolvedValueOnce(new Response(JSON.stringify({ jobId: 'job-stages' }), { status: 202 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: 'running', stage: 'preview' }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: 'running', stage: 'convert' }), { status: 200 }),
+      )
+
+    const { root } = await setupPanel()
+    await triggerGenerate()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000)
+    })
+
+    let status = document.querySelector('.skin-prompt-status')
+    expect(status?.textContent).toContain('Rendering preview…')
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000)
+    })
+
+    status = document.querySelector('.skin-prompt-status')
+    expect(status?.textContent).toContain('Converting to skin…')
+
+    await act(async () => {
+      root.unmount()
+    })
+  })
 })

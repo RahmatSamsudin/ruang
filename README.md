@@ -165,11 +165,21 @@ Agents in the 3D office render with classic 3D character models using standard M
 
 ### Skin generation providers
 
-Ruang supports two backend skin generation providers:
+Ruang supports three backend skin generation providers:
 
-1. **Google Flow provider (`flow`, default):**
-   - High-fidelity generation powered by Google Flow / Nano Banana through a local HTTP image service (`http://127.0.0.1:8092`).
-   - The service passes reference layout templates to Google Flow to generate high-resolution textures, which the Ruang server post-processes into deterministic 64x64 Minecraft RGBA layouts.
+1. **BLOCK provider (`block`, default):**
+   - High-fidelity two-stage pipeline combining Google Flow / Nano Banana Pro and a local BLOCK skin converter service (`http://127.0.0.1:8093`).
+   - Stage 1 (`preview`): Prompts Google Flow with the dual-panel reference layout (`~/block-skin/ref_layout.png`) and model `nano-banana-pro` to render front and back Minecraft character views on pure white background.
+   - Stage 2 (`convert`): Submits the rendered preview to the BLOCK service converter, which generates a 64x64 RGBA texture and merges selected body parts.
+   - Requires both Google Flow service (`http://127.0.0.1:8092`) and BLOCK service (`http://127.0.0.1:8093`) running.
+   - **Service startup:**
+     ```bash
+     ~/google-flow-mcp/flow-up.sh              # ensure Google Flow session
+     ~/google-flow-mcp/image-service.sh start  # start Flow image service (port 8092)
+     ~/block-skin/block-service.sh start       # start BLOCK converter service (port 8093)
+     ```
+2. **Google Flow direct provider (`flow`):**
+   - Direct generation powered by Google Flow / Nano Banana through a local HTTP image service (`http://127.0.0.1:8092`) with uv-template rendering.
    - **Credits warning:** Each real generation spends Google Flow credits. Generation runs sequentially (1 job at a time server-wide) and typically takes 1–3 minutes.
    - **Service startup:** The Flow image service does not start automatically with Ruang. Start it manually before use:
      ```bash
@@ -178,7 +188,7 @@ Ruang supports two backend skin generation providers:
      ~/google-flow-mcp/image-service.sh stop     # stop service
      ```
      Requires an active Google Flow session logged in via `flow-up.sh`.
-2. **LLM provider (`llm`, fallback):**
+3. **LLM provider (`llm`, fallback):**
    - Fallback provider that prompts an OpenAI-compatible LLM to output structured JSON pixel coordinates and colors, which the server renders into a 64x64 PNG.
    - Enabled by setting `RUANG_SKIN_PROVIDER=llm`.
 
@@ -193,7 +203,10 @@ Ruang supports two backend skin generation providers:
 | Variable | Default | Description |
 |---|---|---|
 | `RUANG_DATA_DIR` | `~/.local/share/ruang` | Base data directory; custom skins are stored under `$RUANG_DATA_DIR/skins`. |
-| `RUANG_SKIN_PROVIDER` | `flow` | Generation provider: `flow` (Google Flow / Nano Banana) or `llm` (LLM pixel fallback). |
+| `RUANG_SKIN_PROVIDER` | `block` | Generation provider: `block` (BLOCK converter + Flow preview), `flow` (Google Flow direct), or `llm` (LLM pixel fallback). |
+| `RUANG_BLOCK_URL` | `http://127.0.0.1:8093` | URL of the local BLOCK skin converter service. |
+| `RUANG_BLOCK_REF_LAYOUT` | `~/block-skin/ref_layout.png` | Reference image path passed to Flow for character framing and style layout. |
+| `RUANG_BLOCK_OUTPUT_DIR` | `~/.hermes/cache/ruang-skins-block` | Directory where the BLOCK converter writes generated 64x64 skins. |
 | `RUANG_FLOW_URL` | `http://127.0.0.1:8092` | URL of the local Google Flow image service. |
 | `RUANG_FLOW_OUTPUT_DIR` | `~/.hermes/cache/ruang-skins-flow` | Directory where the Flow image service writes generated images. |
 | `RUANG_LLM_BASE_URL` | `http://127.0.0.1:20128/v1` | Base URL for OpenAI-compatible LLM endpoint (when using `llm` provider). |

@@ -516,3 +516,34 @@ export function processFlowSkinImage(
   validatePng(finalPng)
   return finalPng
 }
+
+/**
+ * Process BLOCK service 64x64 PNG output:
+ * 1. decode 64x64 PNG (reject invalid or non-64x64)
+ * 2. part-replace into baseDecoded if part !== 'all'
+ * 3. encode to 64x64 RGBA PNG and validate
+ */
+export function processBlockSkinImage(
+  rawBytes: Buffer,
+  part: SkinPart = 'all',
+  baseDecoded: { width: number; height: number; data: Buffer } | null = null,
+): Buffer {
+  let decoded: { width: number; height: number; data: Buffer }
+  try {
+    decoded = decodeFlowPng(rawBytes)
+  } catch (err) {
+    throw new Error('unusable output', { cause: err })
+  }
+  if (decoded.width !== SKIN_WIDTH || decoded.height !== SKIN_HEIGHT) {
+    throw new Error('unusable output')
+  }
+
+  let final64 = decoded.data
+  if (part !== 'all' && baseDecoded) {
+    final64 = replacePart(final64, baseDecoded.data, part)
+  }
+
+  const finalPng = encodePng(final64, SKIN_WIDTH, SKIN_HEIGHT)
+  validatePng(finalPng)
+  return finalPng
+}
