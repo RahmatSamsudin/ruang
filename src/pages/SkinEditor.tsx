@@ -43,9 +43,11 @@ export interface SkinEditorHandle {
 
 export interface SkinEditorProps {
   id: string
-  initialPng: Uint8Array | null
-  onSave: (png: Uint8Array) => void
-  onReset: () => void
+  initialPng?: Uint8Array | null
+  initialPixels?: Uint8ClampedArray | null
+  initialDirty?: boolean
+  onSave: (png: Uint8Array) => void | Promise<void>
+  onReset: () => void | Promise<void>
   onDirtyChange?: (isDirty: boolean) => void
   children?: React.ReactNode
 }
@@ -73,7 +75,16 @@ function getPartLabelAt(x: number, y: number): string {
 }
 
 export const SkinEditor = forwardRef<SkinEditorHandle, SkinEditorProps>(function SkinEditor(
-  { id, initialPng, onSave, onReset, onDirtyChange, children },
+  {
+    id,
+    initialPng,
+    initialPixels,
+    initialDirty,
+    onSave,
+    onReset,
+    onDirtyChange,
+    children,
+  },
   ref,
 ) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -93,6 +104,8 @@ export const SkinEditor = forwardRef<SkinEditorHandle, SkinEditorProps>(function
   const [isDirty, setIsDirty] = useState<boolean>(false)
   const [canUndo, setCanUndo] = useState<boolean>(false)
   const [canRedo, setCanRedo] = useState<boolean>(false)
+  const [isSaving, setIsSaving] = useState<boolean>(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
   const [hoverCoord, setHoverCoord] = useState<Coord | null>(null)
 
@@ -140,7 +153,9 @@ export const SkinEditor = forwardRef<SkinEditorHandle, SkinEditorProps>(function
 
     const loadInitial = async () => {
       let buffer: Uint8ClampedArray
-      if (initialPng && initialPng.length > 0) {
+      if (initialPixels) {
+        buffer = new Uint8ClampedArray(initialPixels)
+      } else if (initialPng && initialPng.length > 0) {
         try {
           buffer = await decodePngBytes(initialPng)
         } catch {
@@ -152,21 +167,53 @@ export const SkinEditor = forwardRef<SkinEditorHandle, SkinEditorProps>(function
 
       if (cancelled) return
       pixelsRef.current = new Uint8ClampedArray(buffer)
-      savedSnapshotRef.current = new Uint8ClampedArray(buffer)
+      if (initialDirty) {
+        if (initialPng && initialPng.length > 0) {
+          try {
+            savedSnapshotRef.current = await decodePngBytes(initialPng)
+          } catch {
+            savedSnapshotRef.current = paintDefaultSkin(agentLook(id))
+          }
+        } else {
+          savedSnapshotRef.current = paintDefaultSkin(agentLook(id))
+        }
+      } else {
+        savedSnapshotRef.current = new Uint8ClampedArray(buffer)
+      }
       historyRef.current.reset(buffer)
       renderCanvas()
       setCanUndo(false)
       setCanRedo(false)
-      setIsDirty(false)
-      onDirtyChange?.(false)
+      const dirty = Boolean(initialDirty)
+      setIsDirty(dirty)
+      onDirtyChange?.(dirty)
       setImportError(null)
+      setSaveError(null)
     }
 
-    loadInitial()
+    void loadInitial()
     return () => {
       cancelled = true
     }
-  }, [id, initialPng, onDirtyChange, renderCanvas])
+  }, [id, initialPng, initialPixels, initialDirty, onDirtyChange, renderCanvas])
+
+  const getEncodedPng = useCallback(() => {
+    if (canvasRef.current && typeof canvasRef.current.toDataURL === 'function') {
+      try {
+        const dataUrl = canvasRef.current.toDataURL('image/png')
+        const b64 = dataUrl.split(',')[1]
+        if (b64) {
+          const bin = atob(b64)
+          const u8 = new Uint8Array(bin.length)
+          for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i)
+          return u8
+        }
+      } catch {
+        // fallback
+      }
+    }
+    return encodeRgbaToPng(SKIN_WIDTH, SKIN_HEIGHT, pixelsRef.current)
+  }, [])
 
   // Imperative handle for C5 / external controllers
   useImperativeHandle(
@@ -188,14 +235,12 @@ export const SkinEditor = forwardRef<SkinEditorHandle, SkinEditorProps>(function
       getPixels() {
         return new Uint8ClampedArray(pixelsRef.current)
       },
-      getPng() {
-        return encodeRgbaToPng(SKIN_WIDTH, SKIN_HEIGHT, pixelsRef.current)
-      },
+      getPng: getEncodedPng,
       isDirty() {
         return !arePixelBuffersEqual(pixelsRef.current, savedSnapshotRef.current)
       },
     }),
-    [renderCanvas, updateDirtyAndHistoryState],
+    [getEncodedPng, renderCanvas, updateDirtyAndHistoryState],
   )
 
   const handleColorChange = (hex: string) => {
@@ -371,26 +416,42 @@ export const SkinEditor = forwardRef<SkinEditorHandle, SkinEditorProps>(function
     }
   }
 
-  const handleResetToDefault = () => {
-    const defaultData = paintDefaultSkin(agentLook(id))
-    historyRef.current.push(defaultData)
-    pixelsRef.current = defaultData
-    savedSnapshotRef.current = new Uint8ClampedArray(defaultData)
-    renderCanvas()
-    updateDirtyAndHistoryState()
-    setImportError(null)
-    onReset()
+  const handleResetToDefault = async () => {
+    setIsSaving(true)
+    setSaveError(null)
+    try {
+      await onReset()
+      const defaultData = paintDefaultSkin(agentLook(id))
+      historyRef.current.push(defaultData)
+      pixelsRef.current = defaultData
+      savedSnapshotRef.current = new Uint8ClampedArray(defaultData)
+      renderCanvas()
+      updateDirtyAndHistoryState()
+      setImportError(null)
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to reset skin')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
-  const handleSave = () => {
-    const png = encodeRgbaToPng(SKIN_WIDTH, SKIN_HEIGHT, pixelsRef.current)
-    savedSnapshotRef.current = new Uint8ClampedArray(pixelsRef.current)
-    updateDirtyAndHistoryState()
-    onSave(png)
+  const handleSave = async () => {
+    const png = getEncodedPng()
+    setIsSaving(true)
+    setSaveError(null)
+    try {
+      await onSave(png)
+      savedSnapshotRef.current = new Uint8ClampedArray(pixelsRef.current)
+      updateDirtyAndHistoryState()
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to save skin')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const handleExport = () => {
-    const png = encodeRgbaToPng(SKIN_WIDTH, SKIN_HEIGHT, pixelsRef.current)
+    const png = getEncodedPng()
     const blob = new Blob([png as unknown as BlobPart], { type: 'image/png' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -468,6 +529,7 @@ export const SkinEditor = forwardRef<SkinEditorHandle, SkinEditorProps>(function
               type="button"
               className="refresh-button"
               onClick={handleResetToDefault}
+              disabled={isSaving}
               title="Reset skin to default appearance derived from agent id"
             >
               Reset to default
@@ -476,20 +538,24 @@ export const SkinEditor = forwardRef<SkinEditorHandle, SkinEditorProps>(function
               type="button"
               className="primary-button"
               onClick={handleSave}
+              disabled={isSaving}
               title="Save skin changes"
             >
-              Save
+              {isSaving ? 'Saving...' : 'Save'}
             </button>
           </div>
         </div>
 
-        {importError && (
+        {(importError || saveError) && (
           <div className="skin-import-error" role="alert">
-            <span>⚠ {importError}</span>
+            <span>⚠ {importError || saveError}</span>
             <button
               type="button"
               className="icon-button"
-              onClick={() => setImportError(null)}
+              onClick={() => {
+                setImportError(null)
+                setSaveError(null)
+              }}
               aria-label="Dismiss error"
             >
               ✕

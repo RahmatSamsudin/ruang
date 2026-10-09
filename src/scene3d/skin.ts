@@ -1,7 +1,6 @@
 import * as THREE from 'three'
 import { agentLook, type AgentLook } from '../agents'
-import { usePolling } from '../polling'
-import type { RequestState } from '../request-state'
+import { usePolling, type Polled } from '../polling'
 import { useEffect, useState } from 'react'
 
 export const SKIN_WIDTH = 64
@@ -586,9 +585,29 @@ export function useSkinTexture(id: string, version?: string): { texture: THREE.T
   return entry
 }
 
-/** Poll /api/skins snapshot every 15s. */
-export function useSkins(): RequestState<SkinsSnapshot> {
-  return usePolling<SkinsSnapshot>('/api/skins', 15_000)
+const SKINS_REFRESH_EVENT = 'ruang:skins-refresh'
+
+export function triggerSkinsRefresh(): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(SKINS_REFRESH_EVENT))
+  }
+}
+
+/** Poll /api/skins snapshot every 15s. Refreshes immediately on ruang:skins-refresh. */
+export function useSkins(): Polled<SkinsSnapshot> {
+  const polled = usePolling<SkinsSnapshot>('/api/skins', 15_000)
+  const refresh = polled.refresh
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const onRefresh = () => {
+      refresh()
+    }
+    window.addEventListener(SKINS_REFRESH_EVENT, onRefresh)
+    return () => {
+      window.removeEventListener(SKINS_REFRESH_EVENT, onRefresh)
+    }
+  }, [refresh])
+  return polled
 }
 
 // Lightweight dependency-free PNG encoder (RFC 1950 / RFC 1951 uncompressed DEFLATE):
