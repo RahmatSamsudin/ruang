@@ -801,3 +801,50 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
 .lock-agent { border: 1px solid var(--c-3a463c); border-radius: 4px; cursor: pointer; font-size: 13px; padding: 6px 10px; }
 .lock-agent.active { border-color: var(--accent); color: var(--text); }
 .lock-agent input { accent-color: var(--accent); }
+
+/* Skin Editor: Minecraft 64x64 pixel editor */
+.skin-editor { display: flex; flex-direction: column; gap: 16px; width: 100%; }
+.skin-editor-header { display: flex; flex-direction: column; gap: 8px; }
+.skin-editor-title-row { align-items: center; display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; }
+.skin-editor-agent { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }
+.skin-editor-agent-label { color: var(--text-muted); font: 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: 0.08em; }
+.skin-editor-agent-id { font-size: 14px; }
+.skin-editor-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }
+.skin-import-error { align-items: center; background: rgba(201, 107, 93, 0.15); border: 1px solid var(--c-c96b5d, #c96b5d); border-radius: 4px; color: var(--c-d9695a, #d9695a); display: flex; font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; justify-content: space-between; padding: 6px 10px; }
+.skin-editor-main { display: flex; flex-direction: row; gap: 20px; align-items: flex-start; }
+.skin-canvas-container { display: flex; flex-direction: column; gap: 8px; flex: none; }
+.skin-canvas-wrapper { background-color: #121815; background-image: linear-gradient(45deg, #1c2622 25%, transparent 25%), linear-gradient(-45deg, #1c2622 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #1c2622 75%), linear-gradient(-45deg, transparent 75%, #1c2622 75%); background-size: 16px 16px; background-position: 0 0, 0 8px, 8px -8px, -8px 0px; border: 1px solid var(--border-strong, #3a463c); border-radius: 4px; cursor: crosshair; height: 512px; overflow: hidden; position: relative; width: 512px; }
+.skin-canvas { height: 100%; image-rendering: pixelated; image-rendering: crisp-edges; width: 100%; }
+.skin-canvas-svg { height: 100%; left: 0; pointer-events: none; position: absolute; top: 0; width: 100%; }
+.skin-canvas-footer { align-items: center; color: var(--text-muted); display: flex; font: 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; justify-content: space-between; width: 100%; }
+.skin-coords-display { letter-spacing: 0.04em; }
+.skin-view-options { align-items: center; display: flex; gap: 12px; }
+.skin-checkbox-label { align-items: center; cursor: pointer; display: inline-flex; gap: 5px; user-select: none; }
+.skin-checkbox-label input { accent-color: var(--accent); cursor: pointer; }
+.skin-sidebar { display: flex; flex: 1; flex-direction: column; gap: 16px; min-width: 220px; }
+.skin-section { display: flex; flex-direction: column; gap: 6px; }
+.skin-section-title { color: var(--text-muted); font: 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: 0.07em; }
+.skin-tools-grid, .skin-clear-grid { display: grid; gap: 6px; grid-template-columns: 1fr 1fr; }
+.skin-history-row { display: grid; gap: 6px; grid-template-columns: 1fr 1fr; }
+.skin-tool-button { background: var(--surface-2, #18201c); border: 1px solid var(--border, #2a342c); border-radius: 4px; color: var(--text, #f4efe6); cursor: pointer; font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 7px 10px; text-align: center; transition: border-color 0.15s, background-color 0.15s; }
+.skin-tool-button:hover:not(:disabled) { border-color: var(--accent); }
+.skin-tool-button.active { background: var(--active-bg, #20423d); border-color: var(--accent, #79d6bd); color: var(--active-text, #d9fff2); font-weight: 500; }
+.skin-tool-button:disabled { cursor: not-allowed; opacity: 0.45; }
+.skin-color-header { align-items: center; display: flex; justify-content: space-between; }
+.skin-hex-value { color: var(--text-muted); font: 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.skin-picker-container { align-items: center; display: flex; gap: 8px; }
+.skin-color-input { background: transparent; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; height: 36px; padding: 2px; width: 50px; }
+.skin-swatch-current { border: 1px solid var(--border-strong); border-radius: 4px; flex: 1; height: 36px; }
+.skin-palette-grid { display: grid; gap: 4px; grid-template-columns: repeat(8, 1fr); margin-top: 4px; }
+.skin-palette-item { border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 3px; cursor: pointer; height: 24px; padding: 0; width: 100%; }
+.skin-palette-item:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
+.skin-palette-item.active { outline: 2px solid var(--accent); outline-offset: 1px; }
+.skin-editor-bottom { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 12px; width: 100%; }
+
+@media (max-width: 820px) {
+  .skin-editor-main { flex-direction: column; }
+  .skin-canvas-container { width: 100%; }
+  .skin-canvas-wrapper { height: auto; max-width: 100%; width: 100%; aspect-ratio: 1 / 1; }
+  .skin-sidebar { width: 100%; }
+}
+
