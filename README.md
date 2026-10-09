@@ -1,6 +1,6 @@
 # Ruang · Hermes 3D Virtual Office
 
-*Ruang* is Indonesian for "room" or "space". It is a 3D virtual office and read-only mission control for your local [Hermes Agent](https://hermes-agent.nousresearch.com) and OpenCode crew. See who is working and what they are doing, plus the Kanban board, cron jobs, sessions, memory, folders and logs, all in one place. Everything is read through the `hermes` CLI, and nothing is ever changed.
+*Ruang* is Indonesian for "room" or "space". It is a 3D virtual office and mission control for your local [Hermes Agent](https://hermes-agent.nousresearch.com) and OpenCode crew. See who is working and what they are doing, plus the Kanban board, cron jobs, sessions, memory, folders and logs, all in one place. Everything is read through the `hermes` CLI; Ruang is read-only toward Hermes and never changes anything in Hermes profiles (custom agent skins are stored separately in Ruang's own data directory).
 
 ![The 3D office: an agent at work at its desk, and idle agents playing ping-pong and console games in the game room](docs/screenshots/office.png)
 
@@ -70,10 +70,10 @@ Checks: `npm run lint`, `npm test`, `npm run build`.
   - the Merah Putih flag at the corner of the grounds
   - in the alley beside the building, out of the main view: a bakso (meatball soup) cart and a kopi keliling (coffee bike), each with its vendor
 
-  It follows the theme: day in light mode, evening in dark mode, when the office lights, street lamps and cart lamps light up. Only procedural textures are used, with no image or model files. Drag to rotate, scroll to zoom, and pan with right-drag, two fingers, the arrow keys, or the **Geser** button (which makes a plain drag pan). Panning stays within the grounds, and **Reset view** returns to the starting view.
+  It follows the theme: day in light mode, evening in dark mode, when the office lights, street lamps and cart lamps light up. The office building, rooms and furniture use procedural textures with no external 3D model files, while agent characters render with classic 3D character skins (procedural defaults or custom 64x64 PNG textures; see *Agent skins*). Drag to rotate, scroll to zoom, and pan with right-drag, two fingers, the arrow keys, or the **Geser** button (which makes a plain drag pan). Panning stays within the grounds, and **Reset view** returns to the starting view.
 
   The building has two floors; the buttons at the top left of the 3D view (or Page Up / Page Down) switch between them, each showing how many agents are on it. **Lantai 1** is the office. **Lantai 2**, up the stairs by the entrance, has a dorm bedroom with one bed per agent, a lesehan corner, a bathroom, and a ruko-style balcony with rattan chairs, a hammock, a clothes line and string lights; the lower floor turns into a closed building below it, and agents outside on the ground stay in view. Idle agents also go upstairs to sleep, nap in the hammock or sit on the balcony; the **💤 Tidur** button sends every idle agent to bed (remembered per browser, like the floor). Sleeping is decorative only, like the rest of the idle wandering.
-  Each agent has its own desk. An agent replying to a chat walks to the meeting table; one running a cron job, tools or a Kanban task sits at its desk with a speech bubble saying what it is doing. Agents walk along the aisle and use the entrance, never through furniture or walls. Idle agents do not just sit: every 32 seconds each one moves on to another stop, such as relaxing in the lounge, ping-pong, arcade games or the console in the game room, getting water from the galon, the kitchen, bakso on the cart's stools, coffee at the bike, or a stroll to the flag or the bookshelf. A dashed bubble says where they are. This wandering is decorative only (the same clock-based route for everyone), and the Idle state itself comes from the server. Click an agent for its detail dialog, with three tabs: **Overview** (state, task, provenance, freshness), **Folder** (that agent's own folder, read-only, as on the Folders page) and **Memory** (its SOUL.md, MEMORY.md, USER.md and context files).
+  Each agent has its own desk. An agent replying to a chat walks to the meeting table; one running a cron job, tools or a Kanban task sits at its desk with a speech bubble saying what it is doing. Agents walk along the aisle and use the entrance, never through furniture or walls. Idle agents do not just sit: every 32 seconds each one moves on to another stop, such as relaxing in the lounge, ping-pong, arcade games or the console in the game room, getting water from the galon, the kitchen, bakso on the cart's stools, coffee at the bike, or a stroll to the flag or the bookshelf. A dashed bubble says where they are. This wandering is decorative only (the same clock-based route for everyone), and the Idle state itself comes from the server. Click an agent for its detail dialog, with four tabs: **Overview** (state, task, provenance, freshness), **Folder** (that agent's own folder, read-only, as on the Folders page), **Memory** (its SOUL.md, MEMORY.md, USER.md and context files) and **Skin** (custom 3D character skin, 64x64 pixel editor, PNG import/export, save/reset, and AI prompt generation; see *Agent skins* below).
 - **Task Board**: Hermes Kanban in board order (triage → todo → scheduled → ready → running → blocked → review → done) with search, assignee filter and priority. Tasks from every Kanban board are shown (not only the current one), with a board filter when there is more than one. Each column is at most as tall as the screen and scrolls on its own, so the board's sideways scrollbar stays in view; the strip above the board scrolls it (‹ ›) or jumps to a column by its status chip. Click a card for its full detail from `hermes kanban show <id> --json`: description, result or latest summary, workspace, branch, skills, model, timestamps, dependencies (clickable), runs, comments and activity. Free text is secret-redacted; only ids on the board snapshot can be opened.
 - **Calendar**: a month calendar of the cron runs of every agent (each job is labelled with its agent, and the calendar can be filtered by agent) (upcoming runs from today, repeating jobs, overdue runs and last-run outcomes, read from 5-field cron expressions and `every …` intervals, in the Hermes host's local time), plus the list of jobs with status, next run, overdue and last-run outcome. Paused jobs only show their last run.
 - **Activity**: the 20 most recent sessions with search.
@@ -122,7 +122,7 @@ How it is protected:
 - Sessions use an `HttpOnly`, `SameSite=Strict` cookie. Changes need a same-page request header, so other sites cannot make them.
 - After 5 wrong codes, each further try from the same address waits longer (1 s, doubling, up to 5 minutes).
 - A damaged `access.json` keeps Ruang locked rather than open; `ruang access-code off` clears it.
-- This is Ruang's only write, and it touches Ruang's own config, never Hermes.
+- This write touches Ruang's own config, never Hermes.
 
 Ruang listens on `127.0.0.1`, so the code matters when you reach it from other devices, for example through an SSH tunnel, Tailscale or a reverse proxy. Over plain HTTP the code crosses the network unencrypted; use an HTTPS tunnel or Tailscale for that.
 
@@ -147,7 +147,80 @@ Unlocking one agent does not unlock the others, and **🔒 Lock again** closes i
 - A damaged lock file keeps every agent locked. Lost the PIN? On the machine: `ruang profile-lock off` (and `ruang profile-lock status`).
 - The lock covers what Ruang shows. Anyone with a shell on the machine can still read `~/.hermes` directly, and Hermes itself is unchanged.
 
-## Data and safety
+## Agent skins
+
+Agents in the 3D office render with classic 3D character models using standard Minecraft 64x64 RGBA PNG skins (with optional second-layer overlays for hats, jackets, sleeves and pants, and classic 4px arms).
+
+- **Default appearance:** When an agent has no saved skin, a unique appearance is painted client-side from `agentLook(id)` based on the agent's name. Nothing is saved to disk by default.
+- **Skin tab & editor:** Clicking an agent in the Office opens its detail dialog. The **Skin** tab provides a live 3D character preview alongside an interactive 64x64 pixel canvas:
+  - **Tools:** Pencil, Eraser, Fill bucket, and Eyedropper (color sampler).
+  - **Color controls:** Color picker, palette swatches, and recent color history.
+  - **Canvas helpers:** Undo and Redo (60-step history), Clear part (head, body, arms, legs, or all), Grid overlay toggle, and Outlines/Overlay toggle.
+  - **Import & Export:** **Import PNG** loads any standard 64x64 RGBA PNG (validated up to 16 KiB); **Export PNG** downloads the current skin as `<id>.png`.
+  - **Save & Reset:** **Save** writes the skin to Ruang's skin store (`PUT /api/skins/:id`); **Reset** deletes the saved skin (`DELETE /api/skins/:id`) and reverts immediately to the procedural default look.
+- **Prompt generation:** An integrated prompt panel allows generating skins or partial outfits via text prompts (1 to 300 characters):
+  - Choose a target part (`all`, `head`, `body`, `arms`, `legs`) to update the full skin or modify specific parts while preserving the rest of the existing skin.
+  - Generation runs asynchronously: the panel displays an elapsed timer and job status (`queued`, `running`, `done`, `error`). The generated 64x64 texture loads directly into the editor for review and refinement before saving. Prompt generation never saves to disk automatically.
+  - Rate-limited to 6 requests per minute per IP. Concurrency is limited to 1 active generation job server-wide (returns HTTP 409 busy if another job is in progress).
+
+### Skin generation providers
+
+Ruang supports two backend skin generation providers:
+
+1. **Google Flow provider (`flow`, default):**
+   - High-fidelity generation powered by Google Flow / Nano Banana through a local HTTP image service (`http://127.0.0.1:8092`).
+   - The service passes reference layout templates to Google Flow to generate high-resolution textures, which the Ruang server post-processes into deterministic 64x64 Minecraft RGBA layouts.
+   - **Credits warning:** Each real generation spends Google Flow credits. Generation runs sequentially (1 job at a time server-wide) and typically takes 1–3 minutes.
+   - **Service startup:** The Flow image service does not start automatically with Ruang. Start it manually before use:
+     ```bash
+     ~/google-flow-mcp/image-service.sh start
+     ~/google-flow-mcp/image-service.sh status   # check health
+     ~/google-flow-mcp/image-service.sh stop     # stop service
+     ```
+     Requires an active Google Flow session logged in via `flow-up.sh`.
+2. **LLM provider (`llm`, fallback):**
+   - Fallback provider that prompts an OpenAI-compatible LLM to output structured JSON pixel coordinates and colors, which the server renders into a 64x64 PNG.
+   - Enabled by setting `RUANG_SKIN_PROVIDER=llm`.
+
+### Skin storage and safety
+
+- **Storage path:** Custom skins are stored as single PNG files named `<id>.png` under `$RUANG_DATA_DIR/skins` if `RUANG_DATA_DIR` is set, or `~/.local/share/ruang/skins` by default. Directory permissions are set to `0700` and file permissions to `0600`.
+- **Atomic writes:** Files are written to temporary files and atomically renamed to prevent corruption and support shared multi-device access.
+- **Read-only boundary:** Custom skin storage is Ruang's only data-write operation. Ruang stays strictly read-only toward Hermes and never writes into `~/.hermes` or profile directories.
+
+### Environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `RUANG_DATA_DIR` | `~/.local/share/ruang` | Base data directory; custom skins are stored under `$RUANG_DATA_DIR/skins`. |
+| `RUANG_SKIN_PROVIDER` | `flow` | Generation provider: `flow` (Google Flow / Nano Banana) or `llm` (LLM pixel fallback). |
+| `RUANG_FLOW_URL` | `http://127.0.0.1:8092` | URL of the local Google Flow image service. |
+| `RUANG_FLOW_OUTPUT_DIR` | `~/.hermes/cache/ruang-skins-flow` | Directory where the Flow image service writes generated images. |
+| `RUANG_LLM_BASE_URL` | `http://127.0.0.1:20128/v1` | Base URL for OpenAI-compatible LLM endpoint (when using `llm` provider). |
+| `RUANG_LLM_API_KEY` | *(empty)* | Optional API key for LLM endpoint. |
+| `RUANG_LLM_MODEL` | `ag/gemini-3.8-flash-medium` | Model name for LLM pixel generation. |
+| `RUANG_LLM_TIMEOUT_MS` | `90000` | Request timeout in milliseconds for LLM generation (90 seconds). |
+
+Flow image service environment variables (configured for `image-service.mjs` / `image-service.sh`):
+
+| Variable | Default | Description |
+|---|---|---|
+| `FLOW_IMAGE_MODEL` | `nano-banana-2-lite` | Google Flow image model (`nano-banana-pro`, `nano-banana-2`, `nano-banana-2-lite`). |
+| `FLOW_IMAGE_DAILY_CAP` | `30` | Daily limit on real image generations to protect credits. |
+| `FLOW_DRY_RUN` | `0` | Set to `1` to run test generations without consuming Google Flow credits. |
+
+### Skin API
+
+All skin routes are protected by the Access Code when enabled. Mutating endpoints (`PUT`, `DELETE`, `POST`) enforce same-origin validation (`Origin` header matching `Host`). Profiles locked via Profile Lock return HTTP 423 until unlocked.
+
+| Method & Route | Description |
+|---|---|
+| `GET /api/skins` | Returns a JSON array of saved skins: `[{ id, version, updatedAt }]`. |
+| `GET /api/skins/:id.png` | Returns the raw 64x64 PNG binary (`Content-Type: image/png`, `Cache-Control: no-store`) or 404 if not found. |
+| `PUT /api/skins/:id` | Uploads and saves a 64x64 RGBA PNG (raw body, `Content-Type: image/png`, max 16 KiB); returns `{ id, version, updatedAt }`. |
+| `DELETE /api/skins/:id` | Deletes the saved skin and resets the agent to its procedural default look; returns `{ ok: true }`. |
+| `POST /api/skins/generate` | Starts async skin generation: body `{ prompt: string, part?: "all"\|"head"\|"body"\|"arms"\|"legs", base?: string }` (prompt 1..300 chars, optional base64 PNG). Returns `202 Accepted` with `{ jobId }`. Rate-limited to 6/min; returns `409` if another job is running. |
+| `GET /api/skins/generate/:jobId` | Polls generation status; returns `{ status: "queued"\|"running"\|"done"\|"error", png?: string, notes?: string, error?: string }`. |
 
 The server uses only these fixed, read-only commands:
 - `hermes profile list` (the agents and their gateway states), `opencode --version`
@@ -180,7 +253,7 @@ Otherwise, raw CLI output, process details, paths, configuration, credentials, a
 - Activity is limited to session-list metadata and does not synthesize events.
 - Knowledge is a curated catalog of enabled skills recognized from Hermes's Rich table.
 
-Empty source results remain available and show truthful empty states; unparseable output and command failures are shown as `Not Available`. Hermes write actions are intentionally not implemented. The only things Ruang ever writes are its own optional access code and profile lock files (see *Access code* and *Profile lock*).
+Empty source results remain available and show truthful empty states; unparseable output and command failures are shown as `Not Available`. Hermes write actions are intentionally not implemented. The only things Ruang ever writes are its own optional access code, profile lock files (see *Access code* and *Profile lock*), and saved agent skins in its own data directory (see *Agent skins*). Ruang never writes to Hermes profiles or folders.
 
 ## Office
 
