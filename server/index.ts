@@ -7,6 +7,7 @@ import { installAccess } from './access.js'
 import { redactActivity, redactCalendar, redactDashboard, redactLogs, redactMemory, redactOffice, redactTasks, redactUsage } from './privacy.js'
 import { installProfileLock, isHidden, type Privacy } from './profile-lock.js'
 import { installSkinGenerate } from './skin-generate.js'
+import { installSkinLibrary, SkinLibraryStore } from './skin-library.js'
 import { installSkins } from './skins.js'
 import { API_VERSION } from './api-version.js'
 import { collectMemory } from './memory.js'
@@ -15,7 +16,7 @@ import { getActivity, getCalendar, getChannels, getCommandLog, getDashboard, get
 // RUANG_HOST: comma-separated extra bind addresses, e.g. 172.17.0.1 so a Docker sidecar can reach it.
 const HOSTS = ['127.0.0.1', ...(process.env.RUANG_HOST?.split(',').map((host) => host.trim()).filter(Boolean) ?? [])]
 // MISSION_CONTROL_PORT is the pre-rename name, still honoured.
-const PORT = Number(process.env.RUANG_PORT ?? process.env.MISSION_CONTROL_PORT) || 3001
+const PORT = Number(process.env.RUANG_PORT ?? process.env.PORT ?? process.env.MISSION_CONTROL_PORT) || 3001
 // The built UI sits next to the server: ../dist from server/*.ts (development, npm start)
 // and ../../dist from build/server/*.js (the installed package).
 const distDirectory = [new URL('../dist', import.meta.url), new URL('../../dist', import.meta.url)].map((url) => fileURLToPath(url)).find((path) => existsSync(join(path, 'index.html'))) ?? fileURLToPath(new URL('../dist', import.meta.url))
@@ -113,8 +114,13 @@ app.get('/api/folders/:profile/file', folderRoute(async (request) => {
   return readFolderFile(folder, request.query.path, excluded)
 }))
 
-installSkinGenerate(app, { privacyOf })
-installSkins(app, privacyOf)
+const skinLibStore = new SkinLibraryStore()
+installSkinGenerate(app, { privacyOf, libraryStore: skinLibStore })
+installSkins(app, privacyOf, undefined, skinLibStore)
+installSkinLibrary(app, privacyOf, skinLibStore)
+void skinLibStore.seed().catch((err) => {
+  console.error('Skin library seed failed:', err)
+})
 
 app.use('/api', (_request, response) => { response.status(404).json({ error: 'Not found' }) })
 

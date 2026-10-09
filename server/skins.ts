@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import express, { type Express, type Request, type Response, type Router } from 'express'
 import { isHidden, type Privacy } from './profile-lock.js'
+import { SkinLibraryStore } from './skin-library.js'
 
 export const SKIN_ID_REGEX = /^[A-Za-z0-9._-]{1,64}$/
 export const MAX_SKIN_BYTES = 16 * 1024 // 16 KiB
@@ -223,8 +224,10 @@ export class SkinStore {
 export function createSkinsRouter(
   privacyOf: (request: Request) => Promise<Privacy>,
   store: SkinStore = new SkinStore(),
+  libraryStore?: SkinLibraryStore,
 ): Router {
   const router = express.Router()
+  const libStore = libraryStore ?? new SkinLibraryStore(join(store.dir, 'library'))
 
   const locked = (response: Response, agent: string) =>
     response.status(423).json({ error: `🔒 ${agent} is locked. Enter the PIN to see it.`, locked: 'profile', agent })
@@ -313,6 +316,15 @@ export function createSkinsRouter(
       const buffer = await readSkinBody(request)
       validatePng(buffer)
       const saved = await store.save(id, buffer)
+      try {
+        await libStore.archive({
+          bytes: buffer,
+          source: 'saved',
+          agentId: id,
+        })
+      } catch (archiveError) {
+        console.error('Skin library auto-archive failed:', archiveError)
+      }
       response.json(saved)
     } catch (error) {
       if (error instanceof SkinError) {
@@ -355,8 +367,9 @@ export function installSkins(
   app: Express,
   privacyOf: (request: Request) => Promise<Privacy>,
   store: SkinStore = new SkinStore(),
+  libraryStore?: SkinLibraryStore,
 ): Router {
-  const router = createSkinsRouter(privacyOf, store)
+  const router = createSkinsRouter(privacyOf, store, libraryStore)
   app.use('/api/skins', router)
   return router
 }

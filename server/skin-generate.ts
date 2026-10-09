@@ -49,6 +49,7 @@ import {
 import { buildFlowPrompt, processBlockSkinImage, processFlowSkinImage } from './skin-flow.js'
 import { createTemplatePng, upscale64To1024Png } from './skin-template.js'
 import { matchOriginHost, MAX_SKIN_BYTES } from './skins.js'
+import { SkinLibraryStore } from './skin-library.js'
 
 export class SkinGenerateError extends Error {
   constructor(message: string, readonly status: number) {
@@ -98,6 +99,7 @@ export interface SkinJob {
   stage?: 'preview' | 'convert'
   prompt: string
   part: SkinPart
+  agent?: string
   png?: string
   error?: string
   notes?: string
@@ -140,6 +142,7 @@ export class SkinJobManager {
     prompt: string,
     part: SkinPart,
     stage?: 'preview' | 'convert',
+    agent?: string,
   ): SkinJob {
     const active = this.getActiveJob()
     if (active) {
@@ -169,6 +172,7 @@ export class SkinJobManager {
       ...(stage ? { stage } : {}),
       prompt,
       part,
+      ...(agent ? { agent } : {}),
     }
 
     this.jobs.set(id, job)
@@ -283,6 +287,7 @@ export interface SkinGenerateOptions {
   privacyOf?: (request: Request) => Promise<Privacy>
   rateLimiter?: GenerateRateLimiter
   jobManager?: SkinJobManager
+  libraryStore?: SkinLibraryStore
   fetchFn?: typeof fetch
   timeoutMs?: number
   baseUrl?: string
@@ -296,6 +301,25 @@ export interface SkinGenerateOptions {
   blockOutputDir?: string
   blockPollIntervalMs?: number
   blockRefLayoutPath?: string
+}
+
+export async function archiveGeneratedJob(job: SkinJob, libraryStore?: SkinLibraryStore): Promise<void> {
+  if (!job.png) return
+  if (!libraryStore && process.env.NODE_ENV === 'test' && !process.env.RUANG_DATA_DIR) {
+    return
+  }
+  try {
+    const store = libraryStore ?? new SkinLibraryStore()
+    const bytes = Buffer.from(job.png, 'base64')
+    await store.archive({
+      bytes,
+      source: 'generated',
+      prompt: job.prompt,
+      agentId: job.agent,
+    })
+  } catch (error) {
+    console.error('Skin library auto-archive failed:', error)
+  }
 }
 
 function sanitizeMessage(msg: string, secret?: string): string {
@@ -413,6 +437,7 @@ async function runFlowPoller(
   baseDecoded: { width: number; height: number; data: Buffer } | null,
   fetchFn: typeof fetch,
   pollIntervalMs = 200,
+  libraryStore?: SkinLibraryStore,
 ): Promise<void> {
   const pollUrl = `${flowJobsUrl}/${flowJobId}`
   const startTime = Date.now()
@@ -506,6 +531,7 @@ async function runFlowPoller(
           }
           job.png = processedPng.toString('base64')
           job.status = 'done'
+          await archiveGeneratedJob(job, libraryStore)
         } catch {
           if (job.cleanup) {
             await job.cleanup()
@@ -540,6 +566,7 @@ async function runBlockPoller(
   fetchFn: typeof fetch,
   flowPollIntervalMs = 200,
   blockPollIntervalMs = 200,
+  libraryStore?: SkinLibraryStore,
 ): Promise<void> {
   const doCleanup = async () => {
     if (job.cleanup) {
@@ -740,6 +767,7 @@ async function runBlockPoller(
           await doCleanup()
           job.png = processedPng.toString('base64')
           job.status = 'done'
+          await archiveGeneratedJob(job, libraryStore)
         } catch {
           await fail('unusable output')
         }
@@ -875,14 +903,15 @@ export function createSkinGenerateRouter(options: SkinGenerateOptions = {}): Rou
     const fetchFn = options.fetchFn ?? globalThis.fetch
 
     if (provider === 'llm') {
-      const job = jobManager.createJob('llm', prompt, part)
+      const job = jobManager.createJob('llm', prompt, part, undefined, agent)
       job.status = 'running'
       job.promise = (async () => {
         try {
           const result = await generateSkin(prompt, part, baseDecoded, options)
-          job.status = 'done'
           job.png = result.png
           job.notes = result.notes
+          job.status = 'done'
+          await archiveGeneratedJob(job, options.libraryStore)
         } catch (err: unknown) {
           job.status = 'error'
           if (err instanceof SkinGenerateError) {
@@ -978,7 +1007,7 @@ export function createSkinGenerateRouter(options: SkinGenerateOptions = {}): Rou
         return
       }
 
-      const job = jobManager.createJob('flow', prompt, part)
+      const job = jobManager.createJob('flow', prompt, part, undefined, agent)
       job.status = 'running'
       job.cleanup = async () => {
         await fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
@@ -992,6 +1021,7 @@ export function createSkinGenerateRouter(options: SkinGenerateOptions = {}): Rou
         baseDecoded,
         fetchFn,
         options.flowPollIntervalMs ?? 200,
+        options.libraryStore,
       )
 
       response.status(202).json({ jobId: job.id })
@@ -999,7 +1029,7 @@ export function createSkinGenerateRouter(options: SkinGenerateOptions = {}): Rou
     }
 
     // Block provider (Flow preview -> BLOCK converter)
-    const job = jobManager.createJob('block', prompt, part, 'preview')
+    const job = jobManager.createJob('block', prompt, part, 'preview', agent)
     job.status = 'running'
 
     const blockUrl = options.blockUrl ?? (process.env.RUANG_BLOCK_URL || 'http://127.0.0.1:8093')
@@ -1158,6 +1188,7 @@ export function createSkinGenerateRouter(options: SkinGenerateOptions = {}): Rou
       fetchFn,
       options.flowPollIntervalMs ?? 200,
       options.blockPollIntervalMs ?? 200,
+      options.libraryStore,
     )
 
     response.status(202).json({ jobId: job.id })
