@@ -14,3 +14,10 @@ coverage
 *.sqlite3
 *.log
 .DS_Store
+
+# Local agent/tooling state (never tracked)
+.serena/
+.agents/
+.agent/
+CLAUDE.md
+graphify-out/

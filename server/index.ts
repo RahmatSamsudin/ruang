@@ -12,7 +12,8 @@ import { API_VERSION } from './api-version.js'
 import { collectMemory } from './memory.js'
 import { getActivity, getCalendar, getChannels, getCommandLog, getDashboard, getKnowledge, getLogs, getOffice, getSnapshot, getTaskBoard, getTaskDetail, getUsage } from './mission-control.js'
 
-const HOST = '127.0.0.1'
+// RUANG_HOST: comma-separated extra bind addresses, e.g. 172.17.0.1 so a Docker sidecar can reach it.
+const HOSTS = ['127.0.0.1', ...(process.env.RUANG_HOST?.split(',').map((host) => host.trim()).filter(Boolean) ?? [])]
 // MISSION_CONTROL_PORT is the pre-rename name, still honoured.
 const PORT = Number(process.env.RUANG_PORT ?? process.env.MISSION_CONTROL_PORT) || 3001
 // The built UI sits next to the server: ../dist from server/*.ts (development, npm start)
@@ -128,4 +129,5 @@ app.use((error: unknown, _request: Request, response: Response, _next: NextFunct
   response.status(500).json({ error: 'Internal error' })
 })
 
-app.listen(PORT, HOST, () => console.log(`Ruang listening on http://${HOST}:${PORT}${existsSync(distDirectory) ? ' (serving built UI)' : ' (API only; run the Vite dev server for the UI)'}`))
+const ui = existsSync(distDirectory) ? ' (serving built UI)' : ' (API only; run the Vite dev server for the UI)'
+for (const host of new Set(HOSTS)) app.listen(PORT, host, () => console.log(`Ruang listening on http://${host}:${PORT}${ui}`))
