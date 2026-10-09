@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import * as THREE from 'three'
 import {
   SKIN_WIDTH,
@@ -14,6 +14,7 @@ import {
   paintDefaultSkin,
   createSkinDataTexture,
   skinTextureManager,
+  loadSkinImage,
   encodeRgbaToPng,
 } from './skin'
 import { createTestSkinData, createTestSkinPng } from '../dev-mock'
@@ -93,6 +94,48 @@ describe('Procedural fallback skin generator', () => {
     expect(data.length).toBe(SKIN_WIDTH * SKIN_HEIGHT * 4)
   })
 
+  it('paints eyes in head-front region and applies body colors from agentLook', () => {
+    const data = paintDefaultSkin(lookDev)
+
+    const getPixel = (x: number, y: number): [number, number, number, number] => {
+      const idx = (y * SKIN_WIDTH + x) * 4
+      return [data[idx], data[idx + 1], data[idx + 2], data[idx + 3]]
+    }
+
+    const hbFront = SKIN_RECTS.head.base.front
+    // Eyes: right eye (viewer left) white and pupil, left eye (viewer right) pupil and white
+    expect(getPixel(hbFront.x + 1, hbFront.y + 4)).toEqual([255, 255, 255, 255])
+    expect(getPixel(hbFront.x + 2, hbFront.y + 4)).toEqual([23, 32, 30, 255])
+    expect(getPixel(hbFront.x + 5, hbFront.y + 4)).toEqual([23, 32, 30, 255])
+    expect(getPixel(hbFront.x + 6, hbFront.y + 4)).toEqual([255, 255, 255, 255])
+
+    // Head base skin color on face (below eyes)
+    expect(getPixel(hbFront.x + 1, hbFront.y + 5)).toEqual([245, 203, 167, 255])
+
+    // Head hair color
+    const hbTop = SKIN_RECTS.head.base.top
+    expect(getPixel(hbTop.x + 2, hbTop.y + 2)).toEqual([44, 34, 30, 255])
+
+    // Body shirt color
+    const bbFront = SKIN_RECTS.body.base.front
+    expect(getPixel(bbFront.x + 1, bbFront.y + 5)).toEqual([25, 118, 210, 255])
+
+    // Leg pants color
+    const rlbFront = SKIN_RECTS.rightLeg.base.front
+    expect(getPixel(rlbFront.x + 1, rlbFront.y + 2)).toEqual([38, 50, 56, 255])
+
+    // Palette change applies to painted body colors
+    const dataUi = paintDefaultSkin(lookUi)
+    const getPixelUi = (x: number, y: number): [number, number, number, number] => {
+      const idx = (y * SKIN_WIDTH + x) * 4
+      return [dataUi[idx], dataUi[idx + 1], dataUi[idx + 2], dataUi[idx + 3]]
+    }
+    expect(getPixelUi(hbTop.x + 2, hbTop.y + 2)).toEqual([141, 73, 37, 255])
+    expect(getPixelUi(hbFront.x + 1, hbFront.y + 5)).toEqual([224, 172, 105, 255])
+    expect(getPixelUi(bbFront.x + 1, bbFront.y + 5)).toEqual([67, 160, 71, 255])
+    expect(getPixelUi(rlbFront.x + 1, rlbFront.y + 2)).toEqual([55, 71, 79, 255])
+  })
+
   it('produces distinct pixel buffers for distinct agent palettes', () => {
     const data1 = paintDefaultSkin(lookDev)
     const data2 = paintDefaultSkin(lookUi)
@@ -126,6 +169,7 @@ describe('SkinTextureManager', () => {
     const entry1 = skinTextureManager.get('dev')
     expect(entry1.texture).toBeDefined()
     expect(entry1.version).toBe('default')
+    expect(entry1.hasOverlay).toBe(true)
 
     const entry2 = skinTextureManager.get('dev')
     expect(entry2.texture).toBe(entry1.texture)
@@ -140,6 +184,41 @@ describe('SkinTextureManager', () => {
     expect(entry.texture).toBe(dummy)
     expect(entry.hasOverlay).toBe(true)
     expect(entry.version).toBe('v1')
+  })
+
+  it('falls back to default skin when PNG fetch returns non-200 status', async () => {
+    const originalFetch = globalThis.fetch
+    try {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+      }) as unknown as typeof fetch
+
+      const defaultEntry = skinTextureManager.get('fallback-agent')
+      const entry = await loadSkinImage('fallback-agent', 'v-missing')
+
+      expect(entry).toBeDefined()
+      expect(entry.version).toBe('default')
+      expect(entry.texture).toBe(defaultEntry.texture)
+      expect(entry.hasOverlay).toBe(true)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('falls back to default skin when PNG fetch throws a network exception', async () => {
+    const originalFetch = globalThis.fetch
+    try {
+      globalThis.fetch = vi.fn().mockRejectedValue(new Error('Network offline')) as unknown as typeof fetch
+
+      const entry = await loadSkinImage('network-err-agent', 'v-err')
+      expect(entry).toBeDefined()
+      expect(entry.version).toBe('default')
+      expect(entry.texture).toBeDefined()
+      expect(entry.hasOverlay).toBe(true)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 })
 

@@ -465,7 +465,8 @@ export class SkinTextureManager {
     if (!defaultEntry) {
       const data = paintDefaultSkin(look ?? agentLook(id))
       const texture = createSkinDataTexture(data)
-      defaultEntry = { texture, hasOverlay: false, version: 'default' }
+      const hasOverlay = hasOverlayPixels(data)
+      defaultEntry = { texture, hasOverlay, version: 'default' }
       this.cache.set(defaultKey, defaultEntry)
     }
 
