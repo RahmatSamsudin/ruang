@@ -16,7 +16,7 @@ import { getActivity, getCalendar, getChannels, getCommandLog, getDashboard, get
 // RUANG_HOST: comma-separated extra bind addresses, e.g. 172.17.0.1 so a Docker sidecar can reach it.
 const HOSTS = ['127.0.0.1', ...(process.env.RUANG_HOST?.split(',').map((host) => host.trim()).filter(Boolean) ?? [])]
 // MISSION_CONTROL_PORT is the pre-rename name, still honoured.
-const PORT = Number(process.env.RUANG_PORT ?? process.env.PORT ?? process.env.MISSION_CONTROL_PORT) || 3001
+const PORT = Number(process.env.RUANG_PORT ?? process.env.MISSION_CONTROL_PORT) || 3001
 // The built UI sits next to the server: ../dist from server/*.ts (development, npm start)
 // and ../../dist from build/server/*.js (the installed package).
 const distDirectory = [new URL('../dist', import.meta.url), new URL('../../dist', import.meta.url)].map((url) => fileURLToPath(url)).find((path) => existsSync(join(path, 'index.html'))) ?? fileURLToPath(new URL('../dist', import.meta.url))
