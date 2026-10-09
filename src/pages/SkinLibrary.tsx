@@ -83,8 +83,13 @@ export function SkinLibrary({
         setError(`Failed to load skin library (${res.status})`)
         return
       }
-      const data = (await res.json()) as SkinLibraryItem[]
-      setItems(Array.isArray(data) ? data : [])
+      const json = await res.json()
+      const list = Array.isArray(json)
+        ? (json as SkinLibraryItem[])
+        : Array.isArray((json as { items?: unknown })?.items)
+          ? ((json as { items: SkinLibraryItem[] }).items)
+          : []
+      setItems(list)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load skin library')
     } finally {
