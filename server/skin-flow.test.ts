@@ -207,6 +207,46 @@ describe('F3 Pure-Node PNG Decoder and Post-processing', () => {
     expect(() => decodeFlowPng(corrupt)).toThrow('unusable output')
   })
 
+  it('throws unusable output on inflate-bomb PNG exceeding maxOutputLength', () => {
+    // 10x10 RGBA image: expected uncompressed size is 10 * (1 + 10 * 4) = 410 bytes
+    // Payload deflates to small buffer but decompresses to 100,000 bytes
+    const bombPayload = zlib.deflateSync(Buffer.alloc(100_000))
+
+    const width = 10
+    const height = 10
+    const ihdrData = Buffer.alloc(13)
+    ihdrData.writeUInt32BE(width, 0)
+    ihdrData.writeUInt32BE(height, 4)
+    ihdrData[8] = 8 // bit depth
+    ihdrData[9] = 6 // color type RGBA
+    ihdrData[10] = 0 // compression
+    ihdrData[11] = 0 // filter
+    ihdrData[12] = 0 // interlace
+
+    const ihdrChunk = Buffer.alloc(12 + 13)
+    ihdrChunk.writeUInt32BE(13, 0)
+    ihdrChunk.write('IHDR', 4, 4, 'ascii')
+    ihdrData.copy(ihdrChunk, 8)
+    ihdrChunk.writeUInt32BE(crc32(ihdrChunk.subarray(4, 21)), 21)
+
+    const idatChunk = Buffer.alloc(12 + bombPayload.length)
+    idatChunk.writeUInt32BE(bombPayload.length, 0)
+    idatChunk.write('IDAT', 4, 4, 'ascii')
+    bombPayload.copy(idatChunk, 8)
+    idatChunk.writeUInt32BE(crc32(idatChunk.subarray(4, 8 + bombPayload.length)), 8 + bombPayload.length)
+
+    const iendChunk = Buffer.from([0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82])
+
+    const png = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      ihdrChunk,
+      idatChunk,
+      iendChunk,
+    ])
+
+    expect(() => decodeFlowPng(png)).toThrow('unusable output')
+  })
+
   it('downsamples 1024x1024 to 64x64 using median color of 16x16 cell', () => {
     const rawRgba = Buffer.alloc(1024 * 1024 * 4)
     // Fill cell (0, 0) with 200 red pixels, 56 green pixels

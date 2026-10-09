@@ -128,9 +128,10 @@ export function decodeFlowPng(buffer: Buffer): DecodedFlowPng {
   if (colorType === 2) bpp = 3
   else if (colorType === 0 || colorType === 3) bpp = 1
 
+  const maxOutputLength = height * (1 + width * bpp)
   let uncompressed: Buffer
   try {
-    uncompressed = inflateSync(Buffer.concat(idatChunks))
+    uncompressed = inflateSync(Buffer.concat(idatChunks), { maxOutputLength })
   } catch {
     throw new Error('unusable output')
   }
