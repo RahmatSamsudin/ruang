@@ -6,6 +6,7 @@ import { excludedFor, FolderError, listFolder, publicAgent, readFolderFile, reso
 import { installAccess } from './access.js'
 import { redactActivity, redactCalendar, redactDashboard, redactLogs, redactMemory, redactOffice, redactTasks, redactUsage } from './privacy.js'
 import { installProfileLock, isHidden, type Privacy } from './profile-lock.js'
+import { installSkinGenerate } from './skin-generate.js'
 import { installSkins } from './skins.js'
 import { API_VERSION } from './api-version.js'
 import { collectMemory } from './memory.js'
@@ -111,6 +112,7 @@ app.get('/api/folders/:profile/file', folderRoute(async (request) => {
   return readFolderFile(folder, request.query.path, excluded)
 }))
 
+installSkinGenerate(app, { privacyOf })
 installSkins(app, privacyOf)
 
 app.use('/api', (_request, response) => { response.status(404).json({ error: 'Not found' }) })
