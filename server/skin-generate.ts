@@ -304,14 +304,10 @@ export interface SkinGenerateOptions {
 }
 
 export async function archiveGeneratedJob(job: SkinJob, libraryStore?: SkinLibraryStore): Promise<void> {
-  if (!job.png) return
-  if (!libraryStore && process.env.NODE_ENV === 'test' && !process.env.RUANG_DATA_DIR) {
-    return
-  }
+  if (!job.png || !libraryStore) return
   try {
-    const store = libraryStore ?? new SkinLibraryStore()
     const bytes = Buffer.from(job.png, 'base64')
-    await store.archive({
+    await libraryStore.archive({
       bytes,
       source: 'generated',
       prompt: job.prompt,

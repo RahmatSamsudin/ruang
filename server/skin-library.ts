@@ -138,6 +138,7 @@ export class SkinLibraryStore {
     }
   }
 
+  // Identical PNG keeps the first archiver's agentId.
   async archive(input: ArchiveInput): Promise<SkinLibraryItem> {
     validatePng(input.bytes)
     const id = computeLibId(input.bytes)
@@ -243,12 +244,10 @@ export class SkinLibraryStore {
   }
 
   async seed(): Promise<void> {
-    // If library dir already exists, do not seed
+    const markerPath = join(this.dir, '.seeded')
     try {
-      const s = await stat(this.dir)
-      if (s.isDirectory()) {
-        return
-      }
+      await stat(markerPath)
+      return
     } catch (err: unknown) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
         return
@@ -286,6 +285,7 @@ export class SkinLibraryStore {
         }
       }
       await this.enforceCap(this.maxEntries)
+      await writeFile(markerPath, new Date().toISOString(), { mode: 0o600 })
     } catch {
       // Seed errors swallowed
     }

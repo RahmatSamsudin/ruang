@@ -11,6 +11,7 @@ import {
   computeLibId,
   installSkinLibrary,
 } from './skin-library.js'
+import { encodePng } from './skin-compose.js'
 import {
   installSkins,
   SkinStore,
@@ -449,6 +450,60 @@ describe('SkinLibrary', () => {
     await fs.rm(seedTmp, { recursive: true, force: true }).catch(() => {})
   })
 
+  it('seeds top-level pngs when library dir already exists with archived items but no marker', async () => {
+    const seedTmp = await fs.mkdtemp(path.join(os.tmpdir(), 'ruang-seed-race-'))
+    const seedSkinsDir = path.join(seedTmp, 'skins')
+    const seedLibDir = path.join(seedSkinsDir, 'library')
+    await fs.mkdir(seedSkinsDir, { recursive: true })
+
+    const seedStore = new SkinLibraryStore(seedLibDir, seedSkinsDir)
+
+    // Early archive creates the library dir and an archived item before seed()
+    const archivedPng = makePng(64, 64, 6, 8, 1, 2, 3)
+    await seedStore.archive({
+      bytes: archivedPng,
+      source: 'generated',
+      prompt: 'early skin',
+      agentId: 'early-agent',
+    })
+
+    // Confirm library dir exists with archived item but no marker
+    const markerFile = path.join(seedLibDir, '.seeded')
+    await expect(fs.stat(markerFile)).rejects.toThrow()
+    const beforeSeed = await seedStore.list()
+    expect(beforeSeed).toHaveLength(1)
+
+    // Put top-level pngs in skins dir
+    const png1 = makePng(64, 64, 6, 8, 10, 10, 10)
+    const png2 = makePng(64, 64, 6, 8, 20, 20, 20)
+    await fs.writeFile(path.join(seedSkinsDir, 'agent1.png'), png1)
+    await fs.writeFile(path.join(seedSkinsDir, 'agent2.png'), png2)
+
+    // Seed runs because marker is absent even though library dir exists
+    await seedStore.seed()
+    const items1 = await seedStore.list()
+    expect(items1).toHaveLength(3)
+    const agentIds = items1.map((i) => i.agentId)
+    expect(agentIds).toContain('early-agent')
+    expect(agentIds).toContain('agent1')
+    expect(agentIds).toContain('agent2')
+
+    // Marker file was written
+    await expect(fs.stat(markerFile)).resolves.toBeDefined()
+
+    // Add another png to skins dir
+    const png3 = makePng(64, 64, 6, 8, 30, 30, 30)
+    await fs.writeFile(path.join(seedSkinsDir, 'agent3.png'), png3)
+
+    // Second seed does nothing
+    await seedStore.seed()
+    const items2 = await seedStore.list()
+    expect(items2).toHaveLength(3)
+    expect(items2.map((i) => i.agentId)).not.toContain('agent3')
+
+    await fs.rm(seedTmp, { recursive: true, force: true }).catch(() => {})
+  })
+
   it('archives automatically on PUT /api/skins/:id save', async () => {
     const png = makePng(64, 64, 6, 8, 99, 88, 77)
 
@@ -470,7 +525,7 @@ describe('SkinLibrary', () => {
     expect(item?.name).toBe('designer skin')
   })
 
-  it('archives automatically when skin generation finishes for all providers', async () => {
+  it('auto-archives skins generated via LLM provider', async () => {
     // 1. LLM provider via stub completion
     const sampleValidLlmJson = {
       palette: ['#ff0000', '#00ff00'],
@@ -544,45 +599,175 @@ describe('SkinLibrary', () => {
     } finally {
       llmServer.close()
     }
+  })
 
-    // 2. Flow provider via archiveGeneratedJob
-    const pngFlow = makePng(64, 64, 6, 8, 22, 44, 66)
-    const flowJob: SkinJob = {
-      id: 'job_flow_test',
-      status: 'done',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+  it('auto-archives skins generated via Flow provider through runFlowPoller', async () => {
+    const flowTmp = await fs.mkdtemp(path.join(os.tmpdir(), 'ruang-flow-lib-'))
+    const flowOutputDir = path.join(flowTmp, 'output')
+    const flowSkinsDir = path.join(flowTmp, 'skins')
+    const flowLibDir = path.join(flowSkinsDir, 'library')
+    await fs.mkdir(flowOutputDir, { recursive: true })
+
+    const outPng = encodePng(Buffer.alloc(1024 * 1024 * 4, 120), 1024, 1024)
+    const outFilePath = path.join(flowOutputDir, 'output.png')
+    await fs.writeFile(outFilePath, outPng)
+
+    const stubServer = http.createServer((req, res) => {
+      if (req.method === 'POST' && req.url === '/jobs') {
+        let body = ''
+        req.on('data', (c) => (body += c))
+        req.on('end', () => {
+          res.writeHead(202, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ jobId: 'flow-job-42' }))
+        })
+      } else if (req.method === 'GET' && req.url === '/jobs/flow-job-42') {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ status: 'done', file: outFilePath }))
+      } else {
+        res.writeHead(404)
+        res.end()
+      }
+    })
+    await new Promise<void>((r) => stubServer.listen(0, '127.0.0.1', r))
+    const stubPort = (stubServer.address() as AddressInfo).port
+    const stubFlowUrl = `http://127.0.0.1:${stubPort}`
+
+    const flowLibStore = new SkinLibraryStore(flowLibDir, flowSkinsDir)
+    const flowApp = express()
+    flowApp.use(express.json())
+    installSkinGenerate(flowApp, {
       provider: 'flow',
-      prompt: 'neon cyberpunk',
-      part: 'all',
-      agent: 'cyber-bot',
-      png: pngFlow.toString('base64'),
-    }
-    await archiveGeneratedJob(flowJob, store)
-    const flowLibItem = await store.getItem(computeLibId(pngFlow))
-    expect(flowLibItem).not.toBeNull()
-    expect(flowLibItem?.source).toBe('generated')
-    expect(flowLibItem?.prompt).toBe('neon cyberpunk')
-    expect(flowLibItem?.agentId).toBe('cyber-bot')
+      flowUrl: stubFlowUrl,
+      flowOutputDir,
+      flowPollIntervalMs: 20,
+      libraryStore: flowLibStore,
+      rateLimiter: new GenerateRateLimiter(),
+    })
 
-    // 3. Block provider via archiveGeneratedJob
-    const pngBlock = makePng(64, 64, 6, 8, 33, 55, 77)
-    const blockJob: SkinJob = {
-      id: 'job_block_test',
-      status: 'done',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      provider: 'block',
-      prompt: 'retro pixel knight',
-      part: 'all',
-      png: pngBlock.toString('base64'),
+    const flowApiServer = flowApp.listen(0, '127.0.0.1')
+    await new Promise((r) => flowApiServer.once('listening', r))
+    const flowApiBase = `http://127.0.0.1:${(flowApiServer.address() as AddressInfo).port}`
+
+    try {
+      const postRes = await fetch(`${flowApiBase}/api/skins/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: flowApiBase },
+        body: JSON.stringify({ prompt: 'neon cyberpunk', agent: 'cyber-bot' }),
+      })
+      expect(postRes.status).toBe(202)
+      const { jobId } = (await postRes.json()) as { jobId: string }
+
+      let done = false
+      for (let i = 0; i < 40; i++) {
+        await new Promise((r) => setTimeout(r, 25))
+        const getRes = await fetch(`${flowApiBase}/api/skins/generate/${jobId}`)
+        const data = (await getRes.json()) as { status: string; png?: string }
+        if (data.status === 'done') {
+          done = true
+          break
+        }
+      }
+      expect(done).toBe(true)
+
+      const items = await flowLibStore.list()
+      const item = items.find((i) => i.agentId === 'cyber-bot')
+      expect(item).toBeDefined()
+      expect(item?.source).toBe('generated')
+      expect(item?.prompt).toBe('neon cyberpunk')
+      expect(item?.agentId).toBe('cyber-bot')
+    } finally {
+      flowApiServer.close()
+      stubServer.close()
+      await fs.rm(flowTmp, { recursive: true, force: true }).catch(() => {})
     }
-    await archiveGeneratedJob(blockJob, store)
-    const blockLibItem = await store.getItem(computeLibId(pngBlock))
-    expect(blockLibItem).not.toBeNull()
-    expect(blockLibItem?.source).toBe('generated')
-    expect(blockLibItem?.prompt).toBe('retro pixel knight')
-    expect(blockLibItem?.agentId).toBeUndefined()
+  })
+
+  it('auto-archives skins generated via BLOCK provider through runBlockPoller', async () => {
+    const blockTmp = await fs.mkdtemp(path.join(os.tmpdir(), 'ruang-block-lib-'))
+    const blockFlowOutputDir = path.join(blockTmp, 'flow-out')
+    const blockOutputDir = path.join(blockTmp, 'block-out')
+    const blockSkinsDir = path.join(blockTmp, 'skins')
+    const blockLibDir = path.join(blockSkinsDir, 'library')
+    await fs.mkdir(blockFlowOutputDir, { recursive: true })
+    await fs.mkdir(blockOutputDir, { recursive: true })
+
+    const refLayoutPath = path.join(blockTmp, 'ref_layout.png')
+    await fs.writeFile(refLayoutPath, 'fake-ref-png')
+
+    const flowRenderFile = path.join(blockFlowOutputDir, 'flow-stage.png')
+    await fs.writeFile(flowRenderFile, 'fake-flow-image')
+
+    const blockSkinFile = path.join(blockOutputDir, 'block-stage-skin.png')
+    await fs.writeFile(blockSkinFile, encodePng(Buffer.alloc(64 * 64 * 4, 100), 64, 64))
+
+    const mockFetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const urlStr = url.toString()
+      if (urlStr.endsWith('/health')) {
+        return new Response(JSON.stringify({ ok: true }), { status: 200 })
+      }
+      if (urlStr.endsWith('/jobs') && init?.method === 'POST') {
+        if (urlStr.includes(':8092')) return new Response(JSON.stringify({ jobId: 'flow-stage' }), { status: 200 })
+        if (urlStr.includes(':8093')) return new Response(JSON.stringify({ jobId: 'block-stage' }), { status: 200 })
+      }
+      if (urlStr.includes('/jobs/flow-stage')) {
+        return new Response(JSON.stringify({ status: 'done', file: flowRenderFile }), { status: 200 })
+      }
+      if (urlStr.includes('/jobs/block-stage')) {
+        return new Response(JSON.stringify({ status: 'done', file: blockSkinFile }), { status: 200 })
+      }
+      return new Response('Not found', { status: 404 })
+    })
+
+    const blockLibStore = new SkinLibraryStore(blockLibDir, blockSkinsDir)
+    const blockApp = express()
+    blockApp.use(express.json())
+    installSkinGenerate(blockApp, {
+      provider: 'block',
+      fetchFn: mockFetch as unknown as typeof fetch,
+      flowOutputDir: blockFlowOutputDir,
+      blockOutputDir,
+      blockRefLayoutPath: refLayoutPath,
+      flowPollIntervalMs: 20,
+      blockPollIntervalMs: 20,
+      libraryStore: blockLibStore,
+      rateLimiter: new GenerateRateLimiter(),
+    })
+
+    const blockApiServer = blockApp.listen(0, '127.0.0.1')
+    await new Promise((r) => blockApiServer.once('listening', r))
+    const blockApiBase = `http://127.0.0.1:${(blockApiServer.address() as AddressInfo).port}`
+
+    try {
+      const postRes = await fetch(`${blockApiBase}/api/skins/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: blockApiBase },
+        body: JSON.stringify({ prompt: 'retro pixel knight', agent: 'block-bot' }),
+      })
+      expect(postRes.status).toBe(202)
+      const { jobId } = (await postRes.json()) as { jobId: string }
+
+      let done = false
+      for (let i = 0; i < 40; i++) {
+        await new Promise((r) => setTimeout(r, 25))
+        const getRes = await fetch(`${blockApiBase}/api/skins/generate/${jobId}`)
+        const data = (await getRes.json()) as { status: string; png?: string }
+        if (data.status === 'done') {
+          done = true
+          break
+        }
+      }
+      expect(done).toBe(true)
+
+      const items = await blockLibStore.list()
+      const item = items.find((i) => i.agentId === 'block-bot')
+      expect(item).toBeDefined()
+      expect(item?.source).toBe('generated')
+      expect(item?.prompt).toBe('retro pixel knight')
+      expect(item?.agentId).toBe('block-bot')
+    } finally {
+      blockApiServer.close()
+      await fs.rm(blockTmp, { recursive: true, force: true }).catch(() => {})
+    }
   })
 
   it('does not fail save or generate if library archiving fails', async () => {
