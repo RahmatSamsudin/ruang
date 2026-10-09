@@ -14,6 +14,7 @@ import { TaskBoard } from './TaskBoard.tsx'
 import { formatCost } from '../usage.ts'
 import { RelockBar } from '../ProfileLock.tsx'
 import { TokenUsage } from './TokenUsage.tsx'
+import { SkinTab } from './SkinTab.tsx'
 
 // The 3D view (three.js) is only downloaded when someone switches to it.
 const Office3D = lazy(() => import('./Office3D.tsx'))
@@ -72,8 +73,8 @@ function AgentTokens({ agent }: { agent: string }) {
   return <div><dt>Tokens (7 days)</dt><dd>{mine ? `${formatNumber(mine.totalTokens)} · #${index + 1} of ${ranked.length}${mine.costUsd !== undefined ? ` · est. ${formatCost(mine.costUsd)}` : ''}${mine.topSession ? ` · biggest session ${formatCompact(mine.topSession.tokens)}` : ''}` : 'Not Available'}</dd></div>
 }
 
-type DetailTab = 'Overview' | 'Folder' | 'Memory'
-const DETAIL_TABS: DetailTab[] = ['Overview', 'Folder', 'Memory']
+type DetailTab = 'Overview' | 'Folder' | 'Memory' | 'Skin'
+const DETAIL_TABS: DetailTab[] = ['Overview', 'Folder', 'Memory', 'Skin']
 
 export function OfficeDetail({ station, onClose }: { station: OfficeStation; onClose: () => void }) {
   const closeRef = useRef<HTMLButtonElement>(null)
@@ -107,6 +108,7 @@ export function OfficeDetail({ station, onClose }: { station: OfficeStation; onC
           <dl className="office-detail-grid"><div><dt>Agent type</dt><dd>{station.role}</dd></div>{station.role !== 'OpenCode' && <AgentTokens agent={station.id}/>}<div><dt>Current room</dt><dd>{station.room} / {station.roomPosition}</dd></div><div><dt>Current task</dt><dd>{station.currentTask}</dd></div><div><dt>Recent activity</dt><dd>{station.recentActivity}</dd></div><div><dt>Source / provenance</dt><dd>{station.provenance}</dd></div><div><dt>Freshness</dt><dd>{station.freshness}</dd></div></dl></>}
         {tab === 'Folder' && profile && <AgentFolder profile={profile}/>}
         {tab === 'Memory' && profile && <AgentMemoryView profile={profile}/>}
+        {tab === 'Skin' && <SkinTab agentId={station.id}/>}
       </div>
     </section>
   </div>
