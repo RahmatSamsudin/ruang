@@ -10,6 +10,7 @@ export type SkinPart = 'all' | 'head' | 'body' | 'arms' | 'legs'
 
 export interface SkinPromptPanelProps {
   editorRef: React.RefObject<SkinEditorHandle | null>
+  agentId?: string
   initialPrompt?: string
   initialPart?: SkinPart
   onPromptChange?: (prompt: string) => void
@@ -19,6 +20,7 @@ export interface SkinPromptPanelProps {
 
 export function SkinPromptPanel({
   editorRef,
+  agentId,
   initialPrompt = '',
   initialPart = 'all',
   onPromptChange,
@@ -157,6 +159,7 @@ export function SkinPromptPanel({
         body: JSON.stringify({
           prompt: trimmed,
           part,
+          ...(agentId ? { agent: agentId } : {}),
           ...(baseBase64 ? { base: baseBase64 } : {}),
         }),
       })
@@ -180,7 +183,16 @@ export function SkinPromptPanel({
       }
 
       setIsGenerating(false)
-      if (res.status === 400) {
+      if (res.status === 423) {
+        let msg = 'Profile is locked. Unlock it in Settings to modify skins.'
+        try {
+          const data = await res.json()
+          if (data && data.error) msg = data.error
+        } catch {
+          /* ignore */
+        }
+        setError(msg)
+      } else if (res.status === 400) {
         let msg = 'Prompt must be 1 to 300 characters'
         try {
           const data = await res.json()

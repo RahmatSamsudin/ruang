@@ -34,7 +34,7 @@ describe('SkinPromptPanel component and polling flow', () => {
     document.body.replaceChildren()
   })
 
-  const setupPanel = async (initialPrompt = 'Test skin') => {
+  const setupPanel = async (initialPrompt = 'Test skin', agentId?: string) => {
     const host = document.body.appendChild(document.createElement('div'))
     const root = createRoot(host)
     const editorRef = { current: mockEditorHandle }
@@ -43,6 +43,7 @@ describe('SkinPromptPanel component and polling flow', () => {
       root.render(
         <SkinPromptPanel
           editorRef={editorRef}
+          agentId={agentId}
           initialPrompt={initialPrompt}
           initialPart="all"
         />,
@@ -229,6 +230,42 @@ describe('SkinPromptPanel component and polling flow', () => {
 
     const error = document.querySelector('.skin-generate-error')
     expect(error?.textContent).toContain('Daily generation limit reached')
+
+    await act(async () => {
+      root.unmount()
+    })
+  })
+
+  it('sends agent in POST body when agentId is provided', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ jobId: 'job-agent-1' }), { status: 202 }),
+    )
+
+    const { root } = await setupPanel('Test skin', 'dev')
+    await triggerGenerate()
+
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+    const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string)
+    expect(body.agent).toBe('dev')
+
+    await act(async () => {
+      root.unmount()
+    })
+  })
+
+  it('handles 423 profile locked response', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ error: 'Profile is locked. Unlock it in Settings to modify skins.' }),
+        { status: 423 },
+      ),
+    )
+
+    const { root } = await setupPanel('Test skin', 'dev')
+    await triggerGenerate()
+
+    const error = document.querySelector('.skin-generate-error')
+    expect(error?.textContent).toContain('Profile is locked')
 
     await act(async () => {
       root.unmount()

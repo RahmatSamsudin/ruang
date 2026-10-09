@@ -162,6 +162,7 @@ export function SkinTab({ agentId }: SkinTabProps) {
       >
         <SkinPromptPanel
           editorRef={editorRef}
+          agentId={agentId}
           initialPrompt={promptRef.current}
           initialPart={partRef.current}
           onPromptChange={(p) => {
