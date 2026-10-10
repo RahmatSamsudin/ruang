@@ -18,6 +18,8 @@ const TAU = Math.PI * 2
 // Four decimals keeps saved numbers small; `+ 0` turns -0 into 0.
 const round4 = (value: number): number => Number(value.toFixed(4)) + 0
 const clamp = (value: number, min: number, max: number): number => Math.min(Math.max(value, min), max)
+// Some stock items (trees) sit outside the pan bounds: widen them to include where the item is now, so an untouched axis never jumps.
+const clampAround = (value: number, min: number, max: number, current: number): number => clamp(value, Math.min(min, current), Math.max(max, current))
 
 export const snap = (value: number, step = GRID): number => round4(Math.round(value / step) * step)
 
@@ -35,16 +37,16 @@ function patchItem(patch: ScenePatch, id: string, fields: Partial<SceneItem>): S
 }
 
 export function moveItem(patch: ScenePatch, item: EditableItem, x: number, z: number, bounds?: Bounds): ScenePatch {
-  const px = round4(bounds ? clamp(x, bounds.minX, bounds.maxX) : x)
-  const pz = round4(bounds ? clamp(z, bounds.minZ, bounds.maxZ) : z)
+  const px = round4(bounds ? clampAround(x, bounds.minX, bounds.maxX, item.position[0]) : x)
+  const pz = round4(bounds ? clampAround(z, bounds.minZ, bounds.maxZ, item.position[2]) : z)
   if (px === item.position[0] && pz === item.position[2]) return patch
   return patchItem(patch, item.id, { position: [px, item.position[1], pz] })
 }
 
-/** Where a dragged object lands: movement snaps to the grid relative to where it started (items that sit off the grid, such as wall-mounted ones, keep their alignment and a click with jitter is a no-op), or is free with Alt; always clamped to the bounds. */
+/** Where a dragged object lands: movement snaps to the grid relative to where it started (items that sit off the grid, such as wall-mounted ones, keep their alignment and a click with jitter is a no-op), or is free with Alt; always clamped to the bounds (widened to include the origin, for items that start outside them). */
 export function dragTarget(origin: [number, number], pointer: [number, number], free: boolean, bounds: Bounds): [number, number] {
   const step = (from: number, to: number) => from + (free ? to - from : snap(to - from))
-  return [clamp(step(origin[0], pointer[0]), bounds.minX, bounds.maxX), clamp(step(origin[1], pointer[1]), bounds.minZ, bounds.maxZ)]
+  return [clampAround(step(origin[0], pointer[0]), bounds.minX, bounds.maxX, origin[0]), clampAround(step(origin[1], pointer[1]), bounds.minZ, bounds.maxZ, origin[1])]
 }
 
 export const rotateItem = (patch: ScenePatch, item: EditableItem, radians: number): ScenePatch => patchItem(patch, item.id, { rotation: normalizeAngle(radians) })

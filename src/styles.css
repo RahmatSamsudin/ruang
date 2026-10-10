@@ -921,5 +921,6 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
 .office-3d-objpanel label { color: #b7c9bf; display: grid; gap: 2px; }
 .office-3d-objpanel input, .office-3d-objpanel select { background: #101815; border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 4px; color: #f4efe6; font: inherit; padding: 3px 5px; width: 100%; }
 .office-3d-objpanel button.danger { border-color: #d9534f; color: #ff9b94; }
-.office-stage:has(.office-panel) .office-3d-objpanel { right: min(424px, calc(100% - 12px)); }
+.office-stage:has(.office-panel) .office-3d-objpanel { right: min(424px, calc(100% - 12px)); top: 150px; }
+.office-stage:has(.office-panel) .office-3d-editbar { left: auto; right: min(424px, calc(100% - 12px)); transform: none; }
 @media (max-width: 700px) { .office-3d-editbar, .office-3d-objpanel, .office-3d-tools .edit-toggle { display: none; } }

@@ -133,8 +133,8 @@ the agent's seat immediately in the draft.
 ## Error handling
 
 - A failed save keeps the draft, shows the message, and leaves `dirty` true.
-- A scene request that is pending or failed means "stock office" outside edit mode (unchanged); the
-  editor can still be entered and will save on top of whatever the server accepts.
+- A scene request that is pending or failed means "stock office" outside edit mode (unchanged).
+  Amendment: Edit is unavailable until the saved scene has loaded, so a save can never overwrite it with an empty draft.
 - Out-of-range or non-finite typed values in the panel are rejected on blur (the field reverts);
   positions are clamped to the pan bounds.
 - The selection is derived from the current items, so a stale selection shows no panel and re-selects itself if the item returns.

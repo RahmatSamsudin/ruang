@@ -62,6 +62,8 @@ export function EditTarget({ item, edit, children }: { item: EditableItem; edit:
     edit.setDragging(true)
     const move = (pointer: PointerEvent) => {
       if (pointer.pointerId !== pointerId) return
+      // The button was released outside the page (alt-tab): the pointerup never came, so end the drag here.
+      if (pointer.buttons === 0) { up(pointer); return }
       const point = pointOnPlane(pointer.clientX, pointer.clientY)
       if (!point) return
       const [x, z] = dragTarget(origin, [point[0] + offset[0], point[1] + offset[1]], pointer.altKey, edit.bounds)

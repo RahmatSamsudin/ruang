@@ -57,6 +57,18 @@ describe('ObjectPanel', () => {
     expect(handlers.onMove).not.toHaveBeenCalled()
   })
 
+  it('remounts the fields when another object is selected, so typed text cannot follow the selection', async () => {
+    const handlers = { onMove: vi.fn(), onRotate: vi.fn(), onLevel: vi.fn(), onDelete: vi.fn() }
+    const root = createRoot(document.body.appendChild(document.createElement('div')))
+    const other: PropItem = { ...desk, id: 'desk-2', position: [4.6, 0, -3.5] }
+    await act(async () => { root.render(<ObjectPanel item={sofa} levels={[0]} {...handlers}/>) })
+    const x = () => document.querySelector<HTMLInputElement>('input[type=number]')!
+    await act(async () => { x().value = '9' })
+    await act(async () => { root.render(<ObjectPanel item={other} levels={[0]} {...handlers}/>) })
+    expect(x().value).toBe('4.6')
+    expect(handlers.onMove).not.toHaveBeenCalled()
+  })
+
   it('moves the item to another floor from the select', async () => {
     const { host, handlers } = await mount(sofa)
     const select = host.querySelector('select')!

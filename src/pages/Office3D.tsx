@@ -6,7 +6,7 @@ import { officeStateBadge } from '../office-state.ts'
 import { clampTarget, createLayout, FLOOR_HEIGHT, GAME_ROOM, idlePlan, placementFor, walkPath3, withMovedSeats, type OfficeLayout, type Placement, type Vec3 } from '../office3d-layout.ts'
 import { defaultScene } from '../scene3d/default-scene.ts'
 import { levelName } from '../scene3d/level-names.ts'
-import { applyPatch, deskSeatNumber, levelAt, levelsOf, seatPositions } from '../scene3d/scene.ts'
+import { applyPatch, deskSeatNumber, levelAt, levelsOf, seatPositions, visibleAt } from '../scene3d/scene.ts'
 import { EditTarget, type EditHandlers } from '../scene3d/edit-layer.tsx'
 import { canDelete, deleteItem, editKeyAction, isEditable, moveItem, rotateBy, rotateItem, ROTATION_STEP, setItemLevel, type EditKeyAction } from '../scene3d/scene-edit.ts'
 import { SceneRenderer } from '../scene3d/scene-renderer.tsx'
@@ -380,7 +380,7 @@ function useLevelIndex(count: number): [number, (index: number) => void] {
   }]
 }
 
-export default function Office3D({ stations, onSelect }: { stations: OfficeStation[]; onSelect: (station: OfficeStation, trigger: HTMLElement | null) => void }) {
+export default function Office3D({ stations, onSelect, onDirtyChange }: { stations: OfficeStation[]; onSelect: (station: OfficeStation, trigger: HTMLElement | null) => void; onDirtyChange?: (dirty: boolean) => void }) {
   const anchors = useRef(new Map<string, THREE.Object3D>())
   const labels = useRef(new Map<string, HTMLElement>())
   const view = useRef<ViewHandle>(null)
@@ -394,7 +394,7 @@ export default function Office3D({ stations, onSelect }: { stations: OfficeStati
   // One unlabeled desk per agent (hot desking); the building is sized for the crew.
   // The office is a scene: the stock office for this crew plus the saved edits. Agents sit at the
   // scene's desks and beds; their other stops and walking routes are still the stock ones.
-  const { patch: savedPatch, refresh: refreshScene } = useScenePatch()
+  const { patch: savedPatch, ready: sceneReady, refresh: refreshScene } = useScenePatch()
   const editor = useSceneEditor(savedPatch, refreshScene)
   // Editing is inactive on narrow viewports, where the editor UI is hidden.
   const narrow = useNarrow()
@@ -410,7 +410,8 @@ export default function Office3D({ stations, onSelect }: { stations: OfficeStati
   const [hovering, setHovering] = useState(false)
   const [dragging, setDragging] = useState(false)
   const selectedItem = editor.selectedId ? items.find((item) => item.id === editor.selectedId) : undefined
-  const selected = selectedItem && isEditable(selectedItem) ? selectedItem : undefined
+  // A selection that is not drawn on the floor in view (floor switch, undone floor change) is not acted on.
+  const selected = selectedItem && isEditable(selectedItem) && visibleAt(selectedItem, level) ? selectedItem : undefined
   // The live drag position is drawn but not fed to the layout, so agents do not chase a desk mid-drag.
   const drawItems = useMemo(() => {
     const drag = editor.drag
@@ -436,6 +437,15 @@ export default function Office3D({ stations, onSelect }: { stations: OfficeStati
     else if (action === 'delete') { if (!canDelete(selected)) return; editor.apply((patchNow) => deleteItem(patchNow, selected)); editor.select(null) }
     else editor.apply((patchNow) => rotateBy(patchNow, selected, action === 'rotate+' ? ROTATION_STEP : -ROTATION_STEP))
   }
+  // Unsaved edits: tell the page (it asks before switching to 2D) and warn before the tab closes or reloads.
+  const unsaved = editor.editing && editor.dirty
+  useEffect(() => {
+    onDirtyChange?.(unsaved)
+    if (!unsaved) return
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
+    window.addEventListener('beforeunload', warn)
+    return () => { window.removeEventListener('beforeunload', warn); onDirtyChange?.(false) }
+  }, [unsaved, onDirtyChange])
   const finishEditing = () => {
     if (editor.saving) return
     if (editor.dirty && !window.confirm('Discard unsaved changes?')) return
@@ -491,7 +501,7 @@ export default function Office3D({ stations, onSelect }: { stations: OfficeStati
       </button>)}
     </div>
     <div className="office-3d-tools">
-      <button type="button" className={`edit-toggle${editor.editing ? ' active' : ''}`} aria-pressed={editor.editing} onClick={() => (editor.editing ? finishEditing() : editor.enter())} title="Rearrange the office">✎ Edit</button>
+      <button type="button" className={`edit-toggle${editor.editing ? ' active' : ''}`} aria-pressed={editor.editing} disabled={!editor.editing && !sceneReady} onClick={() => (editor.editing ? finishEditing() : editor.enter())} title={!editor.editing && !sceneReady ? 'Loading the saved layout…' : 'Rearrange the office'}>✎ Edit</button>
       <button type="button" className={sleepMode ? 'active sleep' : ''} aria-pressed={sleepMode} onClick={() => { setSleepMode(!sleepMode); if (!sleepMode && idleSeats.length > 0) setLevelIndex(Math.max(0, levels.indexOf(FLOOR_HEIGHT))) }} title="Send every idle agent to bed on lantai 2">💤 Tidur</button>
       <button type="button" className={panMode ? 'active' : ''} aria-pressed={panMode} onClick={() => setPanMode((value) => !value)} title="Drag moves the view instead of rotating it">✥ Geser</button>
       <button type="button" onClick={() => view.current?.reset()} title="Back to the starting view">↺ Reset view</button>

@@ -77,6 +77,24 @@ describe('moveItem', () => {
   })
 })
 
+describe('items outside the bounds', () => {
+  const tree = { ...sofa, id: 'tree-7', position: [3, 0, -8.5] as [number, number, number] }
+  const inside = { minX: -10, maxX: 10, minZ: -7, maxZ: 12 }
+
+  it('moveItem keeps an untouched off-bounds axis and still moves back inside', () => {
+    expect(moveItem(EMPTY_PATCH, tree, 3, -8.5, inside)).toBe(EMPTY_PATCH)
+    expect(moveItem(EMPTY_PATCH, tree, 5, -8.5, inside).overrides['tree-7']).toEqual({ position: [5, 0, -8.5] })
+    expect(moveItem(EMPTY_PATCH, tree, 3, 0, inside).overrides['tree-7']).toEqual({ position: [3, 0, 0] })
+    expect(moveItem(EMPTY_PATCH, tree, 3, -99, inside)).toBe(EMPTY_PATCH) // may not go further out
+  })
+
+  it('dragTarget keeps an off-bounds origin on a click and still moves inside', () => {
+    expect(dragTarget([3, -8.5], [3.05, -8.45], false, inside)).toEqual([3, -8.5])
+    expect(dragTarget([3, -8.5], [3, -2], true, inside)).toEqual([3, -2])
+    expect(dragTarget([3, 0], [3, -99], true, inside)).toEqual([3, -7])
+  })
+})
+
 describe('dragTarget', () => {
   const wide = { minX: -10, maxX: 10, minZ: -6, maxZ: 12 }
 
