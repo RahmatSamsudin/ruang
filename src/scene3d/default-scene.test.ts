@@ -22,7 +22,7 @@ describe('default scene', () => {
       })
 
       it('is plain data: a JSON round trip changes nothing', () => {
-        expect(JSON.parse(JSON.stringify(items))).toEqual(items)
+        expect(JSON.parse(JSON.stringify(items))).toStrictEqual(items)
       })
 
       it('puts every wall, floor and prop inside finite coordinates', () => {
@@ -30,6 +30,12 @@ describe('default scene', () => {
       })
     })
   }
+
+  // The stock office has no other source of truth now: these snapshots lock every wall, floor and prop number.
+  it('matches the committed stock scene for 3 and 12 agents', () => {
+    expect(defaultScene(createLayout(3))).toMatchSnapshot()
+    expect(defaultScene(createLayout(12))).toMatchSnapshot()
+  })
 
   it('keeps the stock furniture where the layout puts it', () => {
     const items = defaultScene(createLayout(3))

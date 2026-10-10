@@ -66,7 +66,7 @@ default.
 (`desk-N` and `bed-N` ids) into `OfficeLayout.desks` and `OfficeLayout.beds`, so agents sit at
 moved desks and beds. Agent movement keeps `Floor = 1 | 2` and `walkPath3` until sub-project 4;
 other idle stops and the walk routes keep their fixed coordinates, so a moved sofa does not
-re-route agents. The UI notes this.
+re-route agents. The README notes this, and an in-UI note ships with the editor.
 
 ## Patch and persistence
 
@@ -96,9 +96,9 @@ Saved document (`$RUANG_DATA_DIR/scene.json`, default `~/.local/share/ruang/scen
 - Behind the access code when one is configured (all `/api` except health already is).
 - Ruang's read-only boundary toward Hermes is unchanged; `scene.json` lives in `RUANG_DATA_DIR`
   like skins.
-- `API_VERSION` 12 to 13 in both `server/api-version.ts` and `src/api-version.ts`.
+- `API_VERSION` is bumped from 13 to 14 (13 was already taken by the skin library; the rule is to bump when the UI starts depending on a new endpoint) in both `server/api-version.ts` and `src/api-version.ts`.
 - The UI fetches the scene with `usePolling`/the existing request helpers; if it fails, the
-  default scene renders (never a blank office). Types are mirrored by hand in `src/types.ts`.
+  default scene renders (never a blank office). The scene types live in `src/scene3d/scene.ts`; `server/scene.ts` mirrors them, and a drift test covers the prop-type and surface lists.
 - README: document the file and the API.
 
 ## Testing

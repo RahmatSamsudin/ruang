@@ -5,7 +5,8 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { officeStateBadge } from '../office-state.ts'
 import { clampTarget, createLayout, FLOOR_HEIGHT, GAME_ROOM, idlePlan, placementFor, walkPath3, withMovedSeats, type OfficeLayout, type Placement, type Vec3 } from '../office3d-layout.ts'
 import { defaultScene } from '../scene3d/default-scene.ts'
-import { applyPatch, levelAt, levelsOf, seatPositions } from '../scene3d/scene.ts'
+import { levelName } from '../scene3d/level-names.ts'
+import { applyPatch, deskSeatNumber, levelAt, levelsOf, seatPositions } from '../scene3d/scene.ts'
 import { SceneRenderer } from '../scene3d/scene-renderer.tsx'
 import { useScenePatch } from '../scene3d/use-scene.ts'
 import { createSkinBoxGeometry, useSkinTexture, useSkins } from '../scene3d/skin.ts'
@@ -332,12 +333,6 @@ function Lighting({ theme }: { theme: 'dark' | 'light' }) {
   </>
 }
 
-/** Names for the two stock levels; levels a scene adds are called "Lantai N". */
-const STOCK_LEVELS = [
-  { label: 'Kantor', title: 'Lantai 1: office, lounge, pantry and game room' },
-  { label: 'Kamar & Balkon', title: 'Lantai 2: bedroom, lesehan and balcony' },
-]
-const levelName = (index: number) => STOCK_LEVELS[index] ?? { label: `Lantai ${index + 1}`, title: `Lantai ${index + 1}` }
 const FLOOR_KEY = 'mc.officeFloor'
 const SLEEP_KEY = 'mc.officeSleep'
 
@@ -398,7 +393,7 @@ export default function Office3D({ stations, onSelect }: { stations: OfficeStati
   }}>
     <Canvas shadows dpr={[1, 2]} camera={{ position: [-3, 13, 16], fov: 40, near: 0.5, far: 150 }} gl={{ antialias: true }}>
       <Lighting theme={theme}/>
-      <SceneRenderer items={items} level={level} night={theme === 'dark'} deskActive={(id) => occupiedSeats.has(Number(id.slice(5)))}/>
+      <SceneRenderer items={items} level={level} night={theme === 'dark'} deskActive={(id) => occupiedSeats.has(deskSeatNumber(id) ?? -1)}/>
       {stations.map((station) => <Character key={station.id} station={station} placement={placement(station)} layout={layout} level={level} levels={levels} onSelect={onSelect} anchor={register(anchors, `agent-${station.id}`)} skinVersion={skins?.[station.id]?.version}/>)}
       <LabelProjector anchors={anchors} labels={labels}/>
       <Controls key={layout.deskCount} ref={view} panMode={panMode} keyTarget={keyTarget} layout={layout} elevation={level}/>
@@ -416,8 +411,8 @@ export default function Office3D({ stations, onSelect }: { stations: OfficeStati
       })}
     </div>
     <div className="office-3d-floors" role="group" aria-label="Floors">
-      {levels.map((height, index) => ({ height, index })).reverse().map(({ height, index }) => <button key={height} type="button" className={levelIndex === index ? 'active' : ''} aria-pressed={levelIndex === index} onClick={() => setLevelIndex(index)} title={`${levelName(index).title} (Page Up and Page Down change floors)`}>
-        <b>{index + 1}</b><span>{levelName(index).label}</span><small>{levelCount(height)}</small>
+      {levels.map((height, index) => ({ height, index })).reverse().map(({ height, index }) => <button key={height} type="button" className={levelIndex === index ? 'active' : ''} aria-pressed={levelIndex === index} onClick={() => setLevelIndex(index)} title={`${levelName(height, index).title} (Page Up and Page Down change floors)`}>
+        <b>{index + 1}</b><span>{levelName(height, index).label}</span><small>{levelCount(height)}</small>
       </button>)}
     </div>
     <div className="office-3d-tools">

@@ -53,6 +53,12 @@ export function levelAt(levels: number[], y: number): number {
   return found
 }
 
+/** The seat number of a `desk-N` id (anything else, such as `tree-1`, has none). */
+export const deskSeatNumber = (id: string): number | undefined => {
+  const match = /^desk-(\d+)$/.exec(id)
+  return match ? Number(match[1]) : undefined
+}
+
 // One desk and one bed per agent come from the crew, so a patch can move them but not remove them.
 const SEAT_ID = /^(desk|bed)-\d+$/
 

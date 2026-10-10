@@ -1,6 +1,6 @@
 # Ruang · Hermes 3D Virtual Office
 
-*Ruang* is Indonesian for "room" or "space". It is a 3D virtual office and mission control for your local [Hermes Agent](https://hermes-agent.nousresearch.com) and OpenCode crew. See who is working and what they are doing, plus the Kanban board, cron jobs, sessions, memory, folders and logs, all in one place. Everything is read through the `hermes` CLI; Ruang is read-only toward Hermes and never changes anything in Hermes profiles (custom agent skins are stored separately in Ruang's own data directory).
+*Ruang* is Indonesian for "room" or "space". It is a 3D virtual office and mission control for your local [Hermes Agent](https://hermes-agent.nousresearch.com) and OpenCode crew. See who is working and what they are doing, plus the Kanban board, cron jobs, sessions, memory, folders and logs, all in one place. Everything is read through the `hermes` CLI; Ruang is read-only toward Hermes and never changes anything in Hermes profiles (custom agent skins and the saved office scene are stored separately in Ruang's own data directory).
 
 ![The 3D office: an agent at work at its desk, and idle agents playing ping-pong and console games in the game room](docs/screenshots/office.png)
 
@@ -159,6 +159,12 @@ The 3D office is rendered from a scene document: the built-in office (generated 
 
 `overrides` merge fields into a built-in item by id (`null` deletes it; the crew's `desk-N` and `bed-N` can be moved but not deleted). There is no editor yet: the patch is edited by hand or by a later release. Agent routes (idle stops, walking paths) do not follow moved furniture other than desks and beds.
 
+Notes for editing the patch by hand:
+
+- `level` is the base height of the item's storey (0 or 2.8 in the stock office). Every distinct `level` value becomes a floor tab. Moving an item to another floor means changing both its `level` and its y.
+- Overrides are a shallow merge: an override of `props` replaces the whole `props` object, so give all of its keys.
+- Item ids are listed in `src/scene3d/default-scene.ts`.
+
 ## Agent skins
 
 Agents in the 3D office render with classic 3D character models using standard Minecraft 64x64 RGBA PNG skins (with optional second-layer overlays for hats, jackets, sleeves and pants, and classic 4px arms).
@@ -208,7 +214,7 @@ Ruang supports three backend skin generation providers:
 
 - **Storage path:** Custom skins are stored as single PNG files named `<id>.png` under `$RUANG_DATA_DIR/skins` if `RUANG_DATA_DIR` is set, or `~/.local/share/ruang/skins` by default. Directory permissions are set to `0700` and file permissions to `0600`.
 - **Atomic writes:** Files are written to temporary files and atomically renamed to prevent corruption and support shared multi-device access.
-- **Read-only boundary:** Custom skin storage is Ruang's only data-write operation. Ruang stays strictly read-only toward Hermes and never writes into `~/.hermes` or profile directories.
+- **Read-only boundary:** Ruang writes only its own files: the access code and profile lock in `~/.config/ruang`, and skins and `scene.json` in `RUANG_DATA_DIR`. Ruang stays strictly read-only toward Hermes and never writes into `~/.hermes` or profile directories.
 
 ### Environment variables
 
@@ -278,7 +284,7 @@ Otherwise, raw CLI output, process details, paths, configuration, credentials, a
 - Activity is limited to session-list metadata and does not synthesize events.
 - Knowledge is a curated catalog of enabled skills recognized from Hermes's Rich table.
 
-Empty source results remain available and show truthful empty states; unparseable output and command failures are shown as `Not Available`. Hermes write actions are intentionally not implemented. The only things Ruang ever writes are its own optional access code, profile lock files (see *Access code* and *Profile lock*), and saved agent skins in its own data directory (see *Agent skins*). Ruang never writes to Hermes profiles or folders.
+Empty source results remain available and show truthful empty states; unparseable output and command failures are shown as `Not Available`. Hermes write actions are intentionally not implemented. The only things Ruang ever writes are its own optional access code, profile lock files (see *Access code* and *Profile lock*), and, in its own data directory, saved agent skins (see *Agent skins*) and the office scene file `scene.json` (see *Office scene*). Ruang never writes to Hermes profiles or folders.
 
 ## Office
 

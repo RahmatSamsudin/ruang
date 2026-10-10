@@ -109,7 +109,7 @@ export interface OfficeLayout {
 const spot = (x: number, z: number, facing: number, seated = false, label?: string): Placement => ({ position: [x, 0, z], facing, seated, ...(label ? { label } : {}) })
 const upstairs = (x: number, z: number, facing: number, extra: Partial<Placement> = {}): Placement => ({ position: [x, FLOOR_HEIGHT, z], facing, seated: false, ...extra })
 /** Lying in a bed: feet at the foot end, head on the pillow by the back wall. */
-export const bedSpot = ([x, , z]: Vec3, label?: string): Placement => upstairs(x, z + 0.95, 0, { pose: 'lie', height: 0.5, ...(label ? { label } : {}) })
+export const bedSpot = ([x, y, z]: Vec3, label?: string): Placement => ({ ...upstairs(x, z + 0.95, 0, { pose: 'lie', height: 0.5, ...(label ? { label } : {}) }), position: [x, y, z + 0.95] })
 /** A spot given in a stall's own coordinates (as if unrotated), placed in the world. */
 function stallSpot(stall: Vec3, x: number, z: number, facing: number, seated = false): Placement {
   const cos = Math.cos(STALL_ROTATION)

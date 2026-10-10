@@ -197,6 +197,11 @@ describe('moved seats', () => {
     expect(moved.building).toBe(base.building)
   })
 
+  it('lies the agent on the bed at the bed\'s own height', () => {
+    expect(bedSpot([1, FLOOR_HEIGHT, 2]).position).toEqual([1, FLOOR_HEIGHT, 2.95])
+    expect(bedSpot([1, 0, 2]).position).toEqual([1, 0, 2.95])
+  })
+
   it('keeps the generated seats when the scene does not have one per agent', () => {
     const base = createLayout(3)
     const moved = withMovedSeats(base, [[0, 0, 0]], [])

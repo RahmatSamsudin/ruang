@@ -19,7 +19,7 @@ export const SCENE_PROP_TYPES = [
   'Plant', 'Railing', 'RattanChair', 'SideTable', 'Sofa', 'Staircase', 'StreetLamp', 'StringLights', 'Television',
   'Tree', 'WallClock', 'Wardrobe', 'WaterTank', 'WorkDesk',
 ] as const
-const SURFACES = ['wood', 'tile', 'carpet', 'grass', 'asphalt', 'paving']
+export const SCENE_SURFACES = ['wood', 'tile', 'carpet', 'grass', 'asphalt', 'paving']
 
 export interface ScenePatch {
   version: 1
@@ -46,8 +46,8 @@ const bool: Check = (value) => typeof value === 'boolean'
 const tuple = (length: number, check: Check = num): Check => (value) => Array.isArray(value) && value.length === length && value.every(check)
 const oneOf = (list: readonly string[]): Check => (value) => typeof value === 'string' && list.includes(value)
 const color: Check = (value) => typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value)
-const surface: Check = (value) => isRecord(value) && Object.keys(value).every((key) => ['type', 'repeat', 'color'].includes(key)) && oneOf(SURFACES)(value.type) && tuple(2, positive)(value.repeat) && (value.color === undefined || color(value.color))
-const propValues: Check = (value) => isRecord(value) && Object.keys(value).length <= 16 && Object.entries(value).every(([key, item]) => /^[A-Za-z]{1,24}$/.test(key) && (num(item) || bool(item) || (typeof item === 'string' && item.length <= 64)))
+const surface: Check = (value) => isRecord(value) && Object.keys(value).every((key) => ['type', 'repeat', 'color'].includes(key)) && oneOf(SCENE_SURFACES)(value.type) && tuple(2, positive)(value.repeat) && (value.color === undefined || color(value.color))
+const propValues: Check = (value) => isRecord(value) && Object.keys(value).length <= 16 && Object.entries(value).every(([key, item]) => /^[A-Za-z]{1,24}$/.test(key) && ((num(item) && Math.abs(item as number) <= 100) || bool(item) || (typeof item === 'string' && item.length <= 64)))
 
 const FIELDS: Record<string, Record<string, Check>> = {
   prop: { type: oneOf(SCENE_PROP_TYPES), position: tuple(3), rotation: num, props: propValues },
@@ -118,11 +118,12 @@ const emptyPatch = (): ScenePatch => ({ version: 1, overrides: {}, added: [] })
 export class SceneStore {
   constructor(readonly file: string = sceneFile()) {}
 
-  /** A missing, unreadable or invalid file reads as "no edits": the default office always renders. */
+  /** A missing, unreadable or invalid file reads as "no edits": the default office always renders. An existing bad file is logged. */
   async read(): Promise<ScenePatch> {
     try {
       return validatePatch(JSON.parse(await readFile(this.file, 'utf8')))
-    } catch {
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') console.warn(`Ruang: ignoring ${this.file}, it is not a valid scene (${error instanceof Error ? error.message : 'unreadable'}).`)
       return emptyPatch()
     }
   }

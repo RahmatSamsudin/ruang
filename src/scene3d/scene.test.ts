@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyPatch, EMPTY_PATCH, levelAt, levelsOf, seatPositions, visibleAt, type PropItem, type SceneItem, type ScenePatch } from './scene.ts'
+import { applyPatch, deskSeatNumber, EMPTY_PATCH, levelAt, levelsOf, seatPositions, visibleAt, type PropItem, type SceneItem, type ScenePatch } from './scene.ts'
 
 const prop = (id: string, level = 0, extra: Partial<PropItem> = {}): PropItem => ({ kind: 'prop', id, level, type: 'Plant', position: [0, level, 0], ...extra })
 const patch = (overrides: ScenePatch['overrides'] = {}, added: SceneItem[] = []): ScenePatch => ({ version: 1, overrides, added })
@@ -89,5 +89,14 @@ describe('seatPositions', () => {
     const items = [prop('desk-10', 0, { position: [10, 0, 0] }), prop('desk-2', 0, { position: [2, 0, 0] }), prop('desk-1', 0, { position: [1, 0, 0] }), prop('bed-1', 2.8, { position: [5, 2.8, 5] }), prop('desk-x')]
     expect(seatPositions(items, 'desk')).toEqual([[1, 0, 0], [2, 0, 0], [10, 0, 0]])
     expect(seatPositions(items, 'bed')).toEqual([[5, 2.8, 5]])
+  })
+})
+
+describe('deskSeatNumber', () => {
+  it('reads the seat of desk-N ids only', () => {
+    expect(deskSeatNumber('desk-7')).toBe(7)
+    expect(deskSeatNumber('tree-1')).toBeUndefined()
+    expect(deskSeatNumber('desk-x')).toBeUndefined()
+    expect(deskSeatNumber('desk-1-extra')).toBeUndefined()
   })
 })

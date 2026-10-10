@@ -3,8 +3,8 @@ import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import express from 'express'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { installScene, MAX_SCENE_BYTES, SCENE_PROP_TYPES, SceneStore, validatePatch } from './scene.js'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { installScene, MAX_OVERRIDES, MAX_SCENE_BYTES, SCENE_PROP_TYPES, SCENE_SURFACES, SceneStore, validatePatch } from './scene.js'
 
 const sofa = { id: 'my-sofa', kind: 'prop', level: 0, type: 'Sofa', position: [1, 0, 2] }
 const good = { version: 1, overrides: { sofa: { position: [3, 0, 4], rotation: 1.5 }, 'wall-back': null }, added: [sofa] }
@@ -37,6 +37,8 @@ describe('scene patch validation', () => {
     ['prototype id in overrides', JSON.parse('{"version":1,"overrides":{"__proto__":null}}')],
     ['bad colour', { version: 1, added: [{ id: 'b', kind: 'box', level: 0, position: [0, 0, 0], size: [1, 1, 1], color: 'red' }] }],
     ['bad surface', { version: 1, added: [{ id: 'f', kind: 'floor', level: 0, y: 0, min: [0, 0], max: [1, 1], surface: { type: 'lava', repeat: [1, 1] } }] }],
+    ['prop value over the cap', { version: 1, added: [{ ...sofa, type: 'Railing', props: { length: 101 } }] }],
+    ['too many overrides', { version: 1, overrides: Object.fromEntries(Array.from({ length: MAX_OVERRIDES + 1 }, (_, index) => [`o${index}`, null])) }],
     ['too many added items', { version: 1, added: Array.from({ length: 501 }, (_, index) => ({ ...sofa, id: `s${index}` })) }],
   ]
   for (const [name, input] of bad) {
@@ -44,6 +46,19 @@ describe('scene patch validation', () => {
       expect(() => validatePatch(input)).toThrow()
     })
   }
+
+  it('accepts prop values up to 100 and exactly MAX_OVERRIDES overrides', () => {
+    expect(() => validatePatch({ version: 1, added: [{ ...sofa, type: 'Railing', props: { length: 100 } }] })).not.toThrow()
+    expect(() => validatePatch({ version: 1, overrides: Object.fromEntries(Array.from({ length: MAX_OVERRIDES }, (_, index) => [`o${index}`, null])) })).not.toThrow()
+  })
+
+  it('keeps its surface list in step with the UI', async () => {
+    const source = await readFile(new URL('../src/scene3d/scene.ts', import.meta.url), 'utf8')
+    const block = /SurfaceType = ([^\n]*)/.exec(source)
+    expect(block).not.toBeNull()
+    const ui = [...block![1].matchAll(/'(\w+)'/g)].map((match) => match[1])
+    expect([...ui].sort()).toEqual([...SCENE_SURFACES].sort())
+  })
 
   it('keeps its prop type list in step with the UI', async () => {
     const source = await readFile(new URL('../src/scene3d/scene.ts', import.meta.url), 'utf8')
@@ -131,11 +146,28 @@ describe('scene api routes', () => {
     expect((await readdir(join(tmp, 'data'))).filter((name) => name.endsWith('.tmp'))).toEqual([])
   })
 
-  it('reads a corrupt or invalid file as the empty patch instead of failing', async () => {
-    await put(good)
-    await writeFile(file, '{corrupt')
-    expect(await (await fetch(`${base}/api/scene`)).json()).toEqual({ version: 1, overrides: {}, added: [] })
-    await writeFile(file, JSON.stringify({ version: 1, added: [{ ...sofa, type: 'Rocket' }] }))
-    expect(await (await fetch(`${base}/api/scene`)).json()).toEqual({ version: 1, overrides: {}, added: [] })
+  it('reads a corrupt or invalid file as the empty patch instead of failing, and warns about it', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      await put(good)
+      await writeFile(file, '{corrupt')
+      expect(await (await fetch(`${base}/api/scene`)).json()).toEqual({ version: 1, overrides: {}, added: [] })
+      expect(warn).toHaveBeenCalledTimes(1)
+      await writeFile(file, JSON.stringify({ version: 1, added: [{ ...sofa, type: 'Rocket' }] }))
+      expect(await (await fetch(`${base}/api/scene`)).json()).toEqual({ version: 1, overrides: {}, added: [] })
+      expect(warn).toHaveBeenCalledTimes(2)
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('does not warn when the file is simply missing', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      expect(await new SceneStore(join(tmp, 'nope', 'scene.json')).read()).toEqual({ version: 1, overrides: {}, added: [] })
+      expect(warn).not.toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+    }
   })
 })
