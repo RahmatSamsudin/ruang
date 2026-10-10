@@ -25,7 +25,8 @@ export interface PropEntry {
 
 const number = (key: string, label: string, min: number, max: number, step: number): Field => ({ key, label, kind: 'number', min, max, step })
 const size = (min: number, max: number): Field => number('size', 'Size', min, max, 0.1)
-const length = (max: number): Field => number('length', 'Length (m)', 0.5, max, 0.25)
+// StringLights and ClothesLine break (NaN bulbs, clothes outside the posts) when very short, so they ask for a larger minimum.
+const length = (max: number, min = 0.5): Field => number('length', 'Length (m)', min, max, 0.25)
 const color: Field = { key: 'color', label: 'Color', kind: 'color' }
 const SEAT_NOTE = 'Decoration, not an agent seat'
 
@@ -40,7 +41,7 @@ export const PROP_CATALOG: Record<PropType, PropEntry> = {
   Bed: { label: 'Bed', group: 'Bedroom', y: 0, note: SEAT_NOTE, defaults: { color: '#3d7fd6' }, fields: [color] },
   Bookshelf: { label: 'Bookshelf', group: 'Furniture', y: 0 },
   CarromTable: { label: 'Carrom table', group: 'Leisure', y: 0 },
-  ClothesLine: { label: 'Clothes line', group: 'Outdoor', y: 0, defaults: { length: 2.4 }, fields: [length(6)] },
+  ClothesLine: { label: 'Clothes line', group: 'Outdoor', y: 0, defaults: { length: 2.4 }, fields: [length(6, 1.5)] },
   CoffeeTable: { label: 'Coffee table', group: 'Furniture', y: 0 },
   FlagPole: { label: 'Flag pole', group: 'Outdoor', y: 0 },
   FloorCushion: { label: 'Floor cushion', group: 'Leisure', y: 0, defaults: { color: '#e9c46a' }, fields: [color] },
@@ -64,7 +65,7 @@ export const PROP_CATALOG: Record<PropType, PropEntry> = {
     fields: [number('run', 'Run (m, − flips)', -20, 20, 0.25), number('rise', 'Rise (m)', 0.5, 6, 0.1), number('width', 'Width (m)', 0.5, 4, 0.1)],
   },
   StreetLamp: { label: 'Street lamp', group: 'Outdoor', y: 0 },
-  StringLights: { label: 'String lights', group: 'Structure', y: 2.15, defaults: { length: 3 }, fields: [length(20)] },
+  StringLights: { label: 'String lights', group: 'Structure', y: 2.15, defaults: { length: 3 }, fields: [length(20, 1)] },
   Television: { label: 'Television', group: 'Leisure', y: 1.35 },
   Tree: { label: 'Tree', group: 'Outdoor', y: 0, defaults: { size: 1 }, fields: [size(0.5, 3)] },
   WallClock: { label: 'Wall clock', group: 'Structure', y: 2.35 },

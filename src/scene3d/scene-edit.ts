@@ -100,12 +100,12 @@ export function duplicateItem(patch: ScenePatch, items: SceneItem[], item: Edita
   if (patch.added.length >= MAX_ADDED) return { patch, id: null }
   const id = nextAddedId(patch, items)
   const [x, y, z] = item.position
-  const copy = {
-    ...item,
-    id,
-    position: [round4(clampAround(x + DUPLICATE_OFFSET, bounds.minX, bounds.maxX, x)), y, round4(clampAround(z + DUPLICATE_OFFSET, bounds.minZ, bounds.maxZ, z))],
-    ...(item.kind === 'prop' && item.props ? { props: { ...item.props } } : {}),
-  } as EditableItem
+  const position: PropItem['position'] =[round4(clampAround(x + DUPLICATE_OFFSET, bounds.minX, bounds.maxX, x)), y, round4(clampAround(z + DUPLICATE_OFFSET, bounds.minZ, bounds.maxZ, z))]
+  // Only the fields the server accepts for the kind: a hand-edited stock item may carry others, and the whole save would be refused.
+  const common = { id, level: item.level, position, ...(item.view ? { view: item.view } : {}), ...(item.rotation !== undefined ? { rotation: item.rotation } : {}) }
+  const copy: EditableItem = item.kind === 'prop'
+    ? { kind: 'prop', type: item.type, ...common, ...(item.props ? { props: { ...item.props } } : {}) }
+    : { kind: 'window', ...common, ...(item.width !== undefined ? { width: item.width } : {}) }
   return { patch: { ...patch, added: [...patch.added, copy] }, id }
 }
 

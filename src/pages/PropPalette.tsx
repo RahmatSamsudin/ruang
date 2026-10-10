@@ -24,8 +24,13 @@ export function PropPalette({ placing, limitReached, onPick }: PropPaletteProps)
   return <aside className="office-3d-palette" aria-label="Object palette">
     <button type="button" className="office-3d-palette-head" aria-expanded={open} onClick={() => setOpen((value) => !value)}>{open ? '▾' : '▸'} Objects</button>
     {open && <>
-      <input type="search" placeholder="Search objects" aria-label="Search objects" value={query} onChange={(event) => setQuery(event.target.value)}/>
-      {limitReached ? <p role="status" className="office-3d-palette-note">Limit reached ({MAX_ADDED} added objects)</p> : <p className="office-3d-palette-note">Click the floor to place, Esc to stop.</p>}
+      <input type="search" placeholder="Search objects" aria-label="Search objects" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => {
+        if (event.key !== 'Escape') return
+        // The page's Esc handling ignores inputs: the first Esc clears the search, the next one stops placing.
+        if (query) setQuery('')
+        else { onPick(null); event.currentTarget.blur() }
+      }}/>
+      <p role="status" className="office-3d-palette-note">{limitReached ? `Limit reached (${MAX_ADDED} added objects)` : 'Click the floor to place, Esc to stop.'}</p>
       <div className="office-3d-palette-list">
         {sections.map(({ group, types }) => <section key={group}>
           <h4>{group}</h4>

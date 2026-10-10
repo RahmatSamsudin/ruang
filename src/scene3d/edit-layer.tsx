@@ -106,6 +106,7 @@ export function EditTarget({ item, edit, children }: { item: EditableItem; edit:
 }
 
 const CLICK_SLOP = 4
+const OUTSIDE_SLACK = 1
 
 /**
  * While placing: a translucent ghost of the object follows the pointer across the floor of the viewed
@@ -136,10 +137,15 @@ export function PlacementLayer({ type, level, bounds, night, onPlace, onExit }: 
   useEffect(() => {
     const canvas = gl.domElement
     plane.constant = -level
+    // The ghost may already be showing (floor switch) at the old height until the next pointermove.
+    if (ghost.current) ghost.current.position.y = level
+    // A hit more than a metre outside the office is not a placement (it would otherwise land on the edge).
+    const farOutside = (b: Bounds) => hit.x < b.minX - OUTSIDE_SLACK || hit.x > b.maxX + OUTSIDE_SLACK || hit.z < b.minZ - OUTSIDE_SLACK || hit.z > b.maxZ + OUTSIDE_SLACK
     const target = (event: PointerEvent): [number, number] | null => {
       const rect = canvas.getBoundingClientRect()
       ray.setFromCamera(new THREE.Vector2(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1), camera)
-      return ray.ray.intersectPlane(plane, hit) ? placePoint([hit.x, hit.z], event.altKey, latest.current.bounds) : null
+      if (!ray.ray.intersectPlane(plane, hit) || farOutside(latest.current.bounds)) return null
+      return placePoint([hit.x, hit.z], event.altKey, latest.current.bounds)
     }
     let down: { id: number; button: number; x: number; y: number } | null = null
     const onMove = (event: PointerEvent) => {
@@ -148,7 +154,11 @@ export function PlacementLayer({ type, level, bounds, night, onPlace, onExit }: 
       ghost.current.visible = at !== null
       if (at) ghost.current.position.set(at[0], level, at[1])
     }
-    const onDown = (event: PointerEvent) => { down = { id: event.pointerId, button: event.button, x: event.clientX, y: event.clientY } }
+    const onDown = (event: PointerEvent) => {
+      // A second finger (pinch or pan) is never a click, and it cancels the one already pending.
+      if (!event.isPrimary || (down && down.id !== event.pointerId)) { down = null; return }
+      down = { id: event.pointerId, button: event.button, x: event.clientX, y: event.clientY }
+    }
     const onUp = (event: PointerEvent) => {
       const start = down
       down = null

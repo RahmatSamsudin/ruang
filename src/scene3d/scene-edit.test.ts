@@ -275,6 +275,19 @@ describe('duplicateItem', () => {
     expect(copy).toMatchObject({ kind: 'window', id: 'added-1', position: [-6.5, 1.55, -4.56] })
   })
 
+  it('copies only the fields the server accepts for the kind', () => {
+    const odd = { ...sofa, width: 1, size: [1, 1, 1] } as PropItem
+    const copy = duplicateItem(EMPTY_PATCH, [odd], odd, bounds).patch.added[0]
+    expect(copy).not.toHaveProperty('width')
+    expect(copy).not.toHaveProperty('size')
+    expect(copy).toMatchObject({ kind: 'prop', type: 'Sofa', rotation: Math.PI, level: 0 })
+    const wide = { ...window1, width: 2, rotation: 1, view: 'both', props: { color: 'red' } } as WindowItem
+    const windowCopy = duplicateItem(EMPTY_PATCH, [wide], wide, bounds).patch.added[0]
+    expect(windowCopy).toMatchObject({ kind: 'window', width: 2, rotation: 1, view: 'both' })
+    expect(windowCopy).not.toHaveProperty('props')
+    expect(duplicateItem(EMPTY_PATCH, [window1], window1, bounds).patch.added[0]).not.toHaveProperty('width')
+  })
+
   it('stays inside the bounds, but an item already outside them can still be copied', () => {
     const edge: PropItem = { ...lamp, id: 'edge', position: [10, 0, 12] }
     expect((duplicateItem(EMPTY_PATCH, [edge], edge, bounds).patch.added[0] as PropItem).position).toEqual([10, 0, 12])

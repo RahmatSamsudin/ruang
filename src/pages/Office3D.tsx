@@ -402,6 +402,9 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
   const editingActive = editor.editing && !narrow
   // Placing is part of editing; it ends when the editor UI is hidden (narrow viewport) or editing stops.
   const placing = editingActive ? editor.placing : null
+  // Narrowing the window while placing would otherwise bring the ghost back when it widens again.
+  const { stopPlacing } = editor
+  useEffect(() => { if (narrow) stopPlacing() }, [narrow, stopPlacing])
   const limitReached = editor.draft.added.length >= MAX_ADDED
   // While editing, the draft is the scene (the polled patch is ignored); otherwise the saved patch.
   const patch = editor.editing ? editor.draft : savedPatch
@@ -473,7 +476,8 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
   const placement = (station: OfficeStation) => wandering(station)?.placement ?? placementFor(station, layout, Math.max(0, meetingOrder.indexOf(station.id)))
   const levelCount = (value: number) => stations.filter((station) => levelAt(levels, placement(station).position[1]) === value).length
   const occupiedSeats = new Set(stations.filter((station) => station.room === 'Workspace' && station.roomPosition !== 'meeting-area' && station.state !== 'Offline').map((station) => station.seat))
-  return <div className="office-3d" ref={setKeyTarget} tabIndex={0} role="region" aria-label="3D office. Drag to rotate, right-drag or two fingers to pan, scroll to zoom, arrow keys pan when focused. Page Up and Page Down change floors." onKeyDown={(event) => {
+  // The canvas's own blocker unmounts with the placement layer, and on Windows the context menu opens after the right-click that left placing.
+  return <div className="office-3d" ref={setKeyTarget} tabIndex={0} role="region" onContextMenu={editingActive ? (event) => { if (event.target instanceof HTMLCanvasElement) event.preventDefault() } : undefined} aria-label="3D office. Drag to rotate, right-drag or two fingers to pan, scroll to zoom, arrow keys pan when focused. Page Up and Page Down change floors." onKeyDown={(event) => {
     const typing = /^(INPUT|SELECT|TEXTAREA)$/.test((event.target as HTMLElement).tagName)
     if (editingActive && !typing && !dragging) {
       const action = editKeyAction(event)

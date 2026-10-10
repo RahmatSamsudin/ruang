@@ -56,6 +56,32 @@ describe('PropPalette', () => {
     expect(enabled).toEqual(['Plant'])
   })
 
+  it('keeps an always-present status line with the hint until the limit is reached', async () => {
+    const { host } = await mount()
+    expect(host.querySelectorAll('[role="status"]')).toHaveLength(1)
+    expect(host.querySelector('[role="status"]')?.textContent).toMatch(/esc to stop/i)
+  })
+
+  it('Esc in the search box clears a typed query first, then stops placing', async () => {
+    const { host, onPick, buttons } = await mount({ placing: 'Sofa' })
+    const search = host.querySelector('input[type="search"]') as HTMLInputElement
+    const escape = () => act(async () => { search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(search, 'rail')
+      search.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    search.focus()
+    expect(buttons()).toHaveLength(1)
+    await escape()
+    expect(search.value).toBe('')
+    expect(buttons()).toHaveLength(PROP_TYPES.length)
+    expect(onPick).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(search)
+    await escape()
+    expect(onPick).toHaveBeenCalledWith(null)
+    expect(document.activeElement).not.toBe(search)
+  })
+
   it('marks desks and beds as decoration in their tooltip', async () => {
     const { button } = await mount()
     expect(button('Work desk').title).toMatch(/not an agent seat/i)

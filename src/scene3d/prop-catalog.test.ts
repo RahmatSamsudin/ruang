@@ -51,6 +51,13 @@ describe('prop catalogue', () => {
     for (const type of ['Armchair', 'ArcadeCabinet', 'Beanbag', 'FloorCushion'] as const) expect(PROP_CATALOG[type].defaults, type).toHaveProperty('color')
   })
 
+  it('keeps string lights and clothes lines long enough to draw', () => {
+    const min = (type: 'StringLights' | 'ClothesLine' | 'Railing') => PROP_CATALOG[type].fields?.find((field) => field.key === 'length' && field.kind === 'number')
+    expect(min('StringLights')).toMatchObject({ min: 1 })
+    expect(min('ClothesLine')).toMatchObject({ min: 1.5 })
+    expect(min('Railing')).toMatchObject({ min: 0.5 })
+  })
+
   it('mounts wall and ceiling objects at the stock heights', () => {
     expect(PROP_CATALOG.WallClock.y).toBe(2.35)
     expect(PROP_CATALOG.Television.y).toBe(1.35)
