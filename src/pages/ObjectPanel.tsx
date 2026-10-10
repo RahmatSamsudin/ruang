@@ -32,7 +32,7 @@ function ColorField({ label, value, onCommit }: { label: string; value: string; 
     const onChange = () => commit.current(node.value)
     node.addEventListener('change', onChange)
     return () => node.removeEventListener('change', onChange)
-  }, [])
+  }, [value]) // the input remounts (key) when the value changes, so rebind to the new node
   return <label>{label}<input type="color" ref={input} defaultValue={value} key={value}/></label>
 }
 

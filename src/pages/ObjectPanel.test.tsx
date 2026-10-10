@@ -16,12 +16,13 @@ afterEach(() => { document.body.replaceChildren() })
 async function mount(item: PropItem | WindowItem, canDuplicate = true) {
   const handlers = { onMove: vi.fn(), onRotate: vi.fn(), onLevel: vi.fn(), onDelete: vi.fn(), onDuplicate: vi.fn(), onProp: vi.fn() }
   const host = document.body.appendChild(document.createElement('div'))
-  await act(async () => { createRoot(host).render(<ObjectPanel item={item} levels={[0, 2.8]} canDuplicate={canDuplicate} {...handlers}/>) })
+  const root = createRoot(host)
+  await act(async () => { root.render(<ObjectPanel item={item} levels={[0, 2.8]} canDuplicate={canDuplicate} {...handlers}/>) })
   const input = (label: string) => [...host.querySelectorAll('label')].find((node) => node.textContent?.startsWith(label))!.querySelector('input')!
   const type = async (field: HTMLInputElement, value: string) => {
     await act(async () => { field.value = value; field.dispatchEvent(new FocusEvent('focusout', { bubbles: true })) })
   }
-  return { host, handlers, input, type }
+  return { host, root, handlers, input, type }
 }
 
 describe('ObjectPanel', () => {
@@ -126,6 +127,20 @@ describe('ObjectPanel duplicate and properties', () => {
     expect(handlers.onProp).not.toHaveBeenCalled()
     await act(async () => { picker.dispatchEvent(new Event('change', { bubbles: true })) })
     expect(handlers.onProp).toHaveBeenLastCalledWith('color', '#112233')
+  })
+
+  it('keeps committing colours after the field remounts with a new value', async () => {
+    const { handlers, host, root } = await mount(sofa)
+    const picker = () => host.querySelector('input[type="color"]') as HTMLInputElement
+    const choose = async (color: string) => { await act(async () => { picker().value = color; picker().dispatchEvent(new Event('change', { bubbles: true })) }) }
+    await choose('#112233')
+    expect(handlers.onProp).toHaveBeenLastCalledWith('color', '#112233')
+    const recolored: PropItem = { ...sofa, props: { color: '#112233' } }
+    await act(async () => { root.render(<ObjectPanel item={recolored} levels={[0, 2.8]} canDuplicate {...handlers}/>) })
+    expect(picker().value).toBe('#112233')
+    await choose('#445566')
+    expect(handlers.onProp).toHaveBeenCalledTimes(2)
+    expect(handlers.onProp).toHaveBeenLastCalledWith('color', '#445566')
   })
 
   it('has no property fields for a window or a type without any', async () => {
