@@ -1,10 +1,11 @@
-import { isSeatId, type PropItem, type SceneItem, type ScenePatch, type WindowItem } from './scene.ts'
+import { PROP_CATALOG } from './prop-catalog.ts'
+import { isSeatId, MAX_ADDED, type PropItem, type PropType, type PropValue, type SceneItem, type ScenePatch, type WindowItem } from './scene.ts'
 
 // The editor's operations on a draft ScenePatch. Each takes the patch and the item as it is drawn
 // now (defaults plus patch) and returns a new patch; nothing is mutated. Stock items change through
 // `overrides[id]`, items the user added are edited in place in `added`.
 
-/** What the editor can select and move: props and windows. Structure waits for the 2b handles. */
+/** What the editor can select and move: props and windows. Structure waits for the floors-and-walls sub-project (2c). */
 export type EditableItem = PropItem | WindowItem
 export const isEditable = (item: SceneItem): item is EditableItem => item.kind === 'prop' || item.kind === 'window'
 /** Desks and beds follow the number of agents: they can be moved but not deleted. */
@@ -65,12 +66,62 @@ export function setItemLevel(patch: ScenePatch, item: EditableItem, level: numbe
   return patchItem(patch, item.id, { level, position: [x, round4(y + (level - item.level)), z] })
 }
 
-export type EditKeyAction = 'undo' | 'redo' | 'delete' | 'rotate+' | 'rotate-' | 'deselect'
+export const DUPLICATE_OFFSET = 0.5
+
+/** The result of an operation that adds an item: `id` is null when nothing was added (limit reached). */
+export interface AddResult { patch: ScenePatch; id: string | null }
+
+/** `added-<n>` with the smallest n that no stock item, added item or override refers to. `items` is the scene as drawn. */
+export function nextAddedId(patch: ScenePatch, items: SceneItem[]): string {
+  const used = new Set<string>([...items.map((item) => item.id), ...patch.added.map((item) => item.id), ...Object.keys(patch.overrides)])
+  let n = 1
+  while (used.has(`added-${n}`)) n += 1
+  return `added-${n}`
+}
+
+/** Where a new object lands for a pointer on the floor: grid-snapped (free with Alt) and clamped to the bounds. */
+export function placePoint(point: [number, number], free: boolean, bounds: Bounds): [number, number] {
+  const pick = (value: number, min: number, max: number) => round4(clamp(free ? value : snap(value), min, max))
+  return [pick(point[0], bounds.minX, bounds.maxX), pick(point[1], bounds.minZ, bounds.maxZ)]
+}
+
+/** A new prop of `type` on `level`, mounted at the catalogue height with the catalogue defaults. */
+export function addProp(patch: ScenePatch, items: SceneItem[], type: PropType, x: number, z: number, level: number, bounds: Bounds): AddResult {
+  if (patch.added.length >= MAX_ADDED) return { patch, id: null }
+  const entry = PROP_CATALOG[type]
+  const [px, pz] = placePoint([x, z], true, bounds)
+  const id = nextAddedId(patch, items)
+  const item: PropItem = { kind: 'prop', id, type, level, position: [px, round4(level + entry.y), pz], ...(entry.defaults ? { props: { ...entry.defaults } } : {}) }
+  return { patch: { ...patch, added: [...patch.added, item] }, id }
+}
+
+/** A copy of an editable item as drawn now, half a metre over; the bounds are widened to include the original so items outside them (trees) can be copied. */
+export function duplicateItem(patch: ScenePatch, items: SceneItem[], item: EditableItem, bounds: Bounds): AddResult {
+  if (patch.added.length >= MAX_ADDED) return { patch, id: null }
+  const id = nextAddedId(patch, items)
+  const [x, y, z] = item.position
+  const copy = {
+    ...item,
+    id,
+    position: [round4(clampAround(x + DUPLICATE_OFFSET, bounds.minX, bounds.maxX, x)), y, round4(clampAround(z + DUPLICATE_OFFSET, bounds.minZ, bounds.maxZ, z))],
+    ...(item.kind === 'prop' && item.props ? { props: { ...item.props } } : {}),
+  } as EditableItem
+  return { patch: { ...patch, added: [...patch.added, copy] }, id }
+}
+
+/** Sets one prop (size, length, colour...) of a prop item. The whole props object is written, so a stock item's override replaces its props with the edited copy. */
+export function setItemProp(patch: ScenePatch, item: EditableItem, key: string, value: PropValue): ScenePatch {
+  if (item.kind !== 'prop' || item.props?.[key] === value) return patch
+  return patchItem(patch, item.id, { props: { ...item.props, [key]: value } })
+}
+
+export type EditKeyAction = 'undo' | 'redo' | 'delete' | 'rotate+' | 'rotate-' | 'deselect' | 'duplicate'
 
 export function editKeyAction(event: { key: string; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }): EditKeyAction | null {
   const key = event.key.toLowerCase()
   if (event.ctrlKey || event.metaKey) {
     if (key === 'z') return event.shiftKey ? 'redo' : 'undo'
+    if (key === 'd') return 'duplicate'
     return key === 'y' ? 'redo' : null
   }
   if (key === 'delete' || key === 'backspace') return 'delete'

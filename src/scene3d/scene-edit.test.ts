@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { EMPTY_PATCH, type BoxItem, type PropItem, type ScenePatch, type WindowItem } from './scene.ts'
-import { canDelete, deleteItem, dragTarget, editKeyAction, GRID, isEditable, moveItem, ROTATION_STEP, rotateBy, rotateItem, setItemLevel, snap } from './scene-edit.ts'
+import { EMPTY_PATCH, MAX_ADDED, type BoxItem, type PropItem, type ScenePatch, type WindowItem } from './scene.ts'
+import { addProp, canDelete, deleteItem, dragTarget, duplicateItem, editKeyAction, GRID, isEditable, moveItem, nextAddedId, placePoint, ROTATION_STEP, rotateBy, rotateItem, setItemLevel, setItemProp, snap } from './scene-edit.ts'
 
 const sofa: PropItem = { kind: 'prop', id: 'sofa', level: 0, type: 'Sofa', position: [4.6, 0, -1.3], rotation: Math.PI }
 const lamp: PropItem = { kind: 'prop', id: 'my-lamp', level: 0, type: 'Plant', position: [1, 0, 1] }
@@ -192,5 +192,135 @@ describe('editKeyAction', () => {
     expect(key('a')).toBeNull()
     expect(key('r', { ctrl: true })).toBeNull()
     expect(key('PageUp')).toBeNull()
+  })
+})
+
+describe('nextAddedId', () => {
+  it('takes the smallest free number, counting stock, added and overridden ids', () => {
+    expect(nextAddedId(EMPTY_PATCH, [sofa])).toBe('added-1')
+    expect(nextAddedId({ ...EMPTY_PATCH, added: [{ ...lamp, id: 'added-1' }] }, [])).toBe('added-2')
+    expect(nextAddedId({ ...EMPTY_PATCH, overrides: { 'added-1': null } }, [])).toBe('added-2')
+    expect(nextAddedId(EMPTY_PATCH, [{ ...sofa, id: 'added-1' }, { ...sofa, id: 'added-2' }])).toBe('added-3')
+  })
+
+  it('reuses a number only when nothing refers to it any more', () => {
+    const one = { ...lamp, id: 'added-1' }
+    const two = { ...lamp, id: 'added-2' }
+    expect(nextAddedId({ ...EMPTY_PATCH, added: [two] }, [])).toBe('added-1')
+    expect(nextAddedId({ ...EMPTY_PATCH, added: [one, two] }, [])).toBe('added-3')
+  })
+})
+
+describe('placePoint', () => {
+  it('snaps to the grid, or stays free with Alt, and clamps to the bounds', () => {
+    expect(placePoint([1.13, 2.4], false, bounds)).toEqual([1.25, 2.5])
+    expect(placePoint([1.13, 2.4], true, bounds)).toEqual([1.13, 2.4])
+    expect(placePoint([99, -99], false, bounds)).toEqual([10, -6])
+    expect(Object.is(placePoint([-0.05, 0], false, bounds)[0], 0)).toBe(true)
+  })
+})
+
+describe('addProp', () => {
+  it('adds a prop of the catalogue type at the viewed level with its mounting height and defaults', () => {
+    const { patch, id } = addProp(EMPTY_PATCH, [], 'Sofa', 3, -2, 2.8, bounds)
+    expect(id).toBe('added-1')
+    expect(patch.added).toEqual([{ kind: 'prop', id: 'added-1', type: 'Sofa', level: 2.8, position: [3, 2.8, -2], props: { color: '#5b6f8c' } }])
+    const clock = addProp(EMPTY_PATCH, [], 'WallClock', 1, 1, 0, bounds).patch.added[0] as PropItem
+    expect(clock.position).toEqual([1, 2.35, 1])
+    expect(clock.props).toBeUndefined()
+  })
+
+  it('rounds, clamps to the bounds and does not mutate or share the catalogue defaults', () => {
+    const frozen = deepFreeze({ ...EMPTY_PATCH })
+    const first = addProp(frozen, [], 'Plant', 99, -99.123456, 0, bounds)
+    expect((first.patch.added[0] as PropItem).position).toEqual([10, 0, -6])
+    expect(frozen.added).toEqual([])
+    const a = addProp(EMPTY_PATCH, [], 'Plant', 0, 0, 0, bounds).patch.added[0] as PropItem
+    const b = addProp(EMPTY_PATCH, [], 'Plant', 0, 0, 0, bounds).patch.added[0] as PropItem
+    expect(a.props).not.toBe(b.props)
+  })
+
+  it('refuses the 501st added item and changes nothing', () => {
+    const full = { ...EMPTY_PATCH, added: Array.from({ length: MAX_ADDED }, (_, n) => ({ ...lamp, id: `added-${n + 1}` })) }
+    const result = addProp(full, [], 'Sofa', 0, 0, 0, bounds)
+    expect(result.id).toBeNull()
+    expect(result.patch).toBe(full)
+    const almost = { ...EMPTY_PATCH, added: full.added.slice(1) }
+    expect(addProp(almost, [], 'Sofa', 0, 0, 0, bounds).id).not.toBeNull()
+  })
+})
+
+describe('duplicateItem', () => {
+  it('copies the drawn item to a new id, offset by half a metre, with its own props', () => {
+    const chair: PropItem = { kind: 'prop', id: 'armchair-1', level: 0, type: 'Armchair', position: [2.1, 0, -2.9], rotation: Math.PI / 2, props: { color: '#d9784a' } }
+    const { patch, id } = duplicateItem(EMPTY_PATCH, [chair], chair, bounds)
+    expect(id).toBe('added-1')
+    const copy = patch.added[0] as PropItem
+    expect(copy).toMatchObject({ kind: 'prop', id: 'added-1', type: 'Armchair', level: 0, rotation: Math.PI / 2, position: [2.6, 0, -2.4], props: { color: '#d9784a' } })
+    expect(copy.props).not.toBe(chair.props)
+    expect(patch.overrides).toEqual({})
+  })
+
+  it('takes the drawn values, so an overridden original does not leak its override to the copy', () => {
+    const moved = { ...sofa, position: [5, 0, 5] as [number, number, number] }
+    const { patch } = duplicateItem({ ...EMPTY_PATCH, overrides: { sofa: { position: [5, 0, 5] } } }, [moved], moved, bounds)
+    expect((patch.added[0] as PropItem).position).toEqual([5.5, 0, 5.5])
+    expect(patch.overrides).toEqual({ sofa: { position: [5, 0, 5] } })
+  })
+
+  it('keeps the view of a stair-like item and copies windows too', () => {
+    const stairs: PropItem = { kind: 'prop', id: 'stairs', level: 0, view: 'both', type: 'Staircase', position: [4.7, 0, 3.45], props: { run: -2.9, rise: 2.8, width: 0.9 } }
+    expect((duplicateItem(EMPTY_PATCH, [stairs], stairs, bounds).patch.added[0] as PropItem).view).toBe('both')
+    const copy = duplicateItem(EMPTY_PATCH, [window1], window1, bounds).patch.added[0] as WindowItem
+    expect(copy).toMatchObject({ kind: 'window', id: 'added-1', position: [-6.5, 1.55, -4.56] })
+  })
+
+  it('stays inside the bounds, but an item already outside them can still be copied', () => {
+    const edge: PropItem = { ...lamp, id: 'edge', position: [10, 0, 12] }
+    expect((duplicateItem(EMPTY_PATCH, [edge], edge, bounds).patch.added[0] as PropItem).position).toEqual([10, 0, 12])
+    const tree: PropItem = { ...lamp, id: 'tree-7', type: 'Tree', position: [1, 0, -8.5] }
+    expect((duplicateItem(EMPTY_PATCH, [tree], tree, bounds).patch.added[0] as PropItem).position).toEqual([1.5, 0, -8])
+  })
+
+  it('refuses at the limit', () => {
+    const full = { ...EMPTY_PATCH, added: Array.from({ length: MAX_ADDED }, (_, n) => ({ ...lamp, id: `added-${n + 1}` })) }
+    const result = duplicateItem(full, [], sofa, bounds)
+    expect(result.id).toBeNull()
+    expect(result.patch).toBe(full)
+  })
+
+  it('does not mutate its input', () => {
+    const patch = deepFreeze({ ...EMPTY_PATCH })
+    expect(() => duplicateItem(patch, deepFreeze([{ ...sofa }]), deepFreeze({ ...sofa }), bounds)).not.toThrow()
+  })
+})
+
+describe('setItemProp', () => {
+  it('writes the whole props object through an override for a stock item', () => {
+    const chair: PropItem = { kind: 'prop', id: 'armchair-1', level: 0, type: 'Armchair', position: [2, 0, 2], props: { color: '#d9784a' } }
+    const next = setItemProp(EMPTY_PATCH, chair, 'color', '#112233')
+    expect(next.overrides['armchair-1']).toEqual({ props: { color: '#112233' } })
+  })
+
+  it('keeps the other props and edits added items in place', () => {
+    const stairs: PropItem = { kind: 'prop', id: 'added-1', level: 0, type: 'Staircase', position: [0, 0, 0], props: { run: 3, rise: 2.8, width: 0.9 } }
+    const next = setItemProp({ ...EMPTY_PATCH, added: [stairs] }, stairs, 'width', 1.2)
+    expect((next.added[0] as PropItem).props).toEqual({ run: 3, rise: 2.8, width: 1.2 })
+    expect(next.overrides).toEqual({})
+  })
+
+  it('is a no-op for an unchanged value or a window', () => {
+    const chair: PropItem = { ...lamp, props: { size: 1 } }
+    const patch = { ...EMPTY_PATCH, added: [chair] }
+    expect(setItemProp(patch, chair, 'size', 1)).toBe(patch)
+    expect(setItemProp(EMPTY_PATCH, window1, 'width', 3)).toBe(EMPTY_PATCH)
+  })
+})
+
+describe('editKeyAction duplicate', () => {
+  it('maps Ctrl/Cmd+D', () => {
+    expect(editKeyAction({ key: 'd', ctrlKey: true, metaKey: false, shiftKey: false })).toBe('duplicate')
+    expect(editKeyAction({ key: 'D', ctrlKey: false, metaKey: true, shiftKey: false })).toBe('duplicate')
+    expect(editKeyAction({ key: 'd', ctrlKey: false, metaKey: false, shiftKey: false })).toBeNull()
   })
 })
