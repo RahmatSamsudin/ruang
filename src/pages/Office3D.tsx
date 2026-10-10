@@ -7,10 +7,15 @@ import { clampTarget, createLayout, FLOOR_HEIGHT, GAME_ROOM, idlePlan, placement
 import { defaultScene } from '../scene3d/default-scene.ts'
 import { levelName } from '../scene3d/level-names.ts'
 import { applyPatch, deskSeatNumber, levelAt, levelsOf, seatPositions } from '../scene3d/scene.ts'
+import { EditTarget, type EditHandlers } from '../scene3d/edit-layer.tsx'
+import { deleteItem, editKeyAction, isEditable, moveItem, rotateBy, rotateItem, ROTATION_STEP, setItemLevel, type EditKeyAction } from '../scene3d/scene-edit.ts'
 import { SceneRenderer } from '../scene3d/scene-renderer.tsx'
+import { useSceneEditor } from '../scene3d/use-scene-editor.ts'
 import { useScenePatch } from '../scene3d/use-scene.ts'
 import { createSkinBoxGeometry, useSkinTexture, useSkins } from '../scene3d/skin.ts'
 import type { OfficeStation } from '../types.ts'
+import { EditorBar } from './EditorBar.tsx'
+import { ObjectPanel } from './ObjectPanel.tsx'
 
 // 3D view of the same Office snapshot the 2D view renders. Positions come from each station's
 // room, roomPosition and seat, so the 3D office shows exactly the states the server derived.
@@ -228,7 +233,7 @@ function LabelProjector({ anchors, labels }: { anchors: Registry<THREE.Object3D>
 export interface ViewHandle { reset: () => void }
 
 /** Orbit (drag), pan (right-drag, two fingers, arrow keys or pan mode) and zoom, kept in bounds. */
-const Controls = forwardRef<ViewHandle, { panMode: boolean; keyTarget: HTMLElement | null; layout: OfficeLayout; elevation: number }>(function Controls({ panMode, keyTarget, layout, elevation }, handle) {
+const Controls = forwardRef<ViewHandle, { panMode: boolean; keyTarget: HTMLElement | null; layout: OfficeLayout; elevation: number; enabled: boolean }>(function Controls({ panMode, keyTarget, layout, elevation, enabled }, handle) {
   const { camera, gl, size } = useThree()
   const controls = useRef<OrbitControls | null>(null)
   const { target: cameraTarget, offset: cameraOffset } = layout.camera
@@ -266,6 +271,10 @@ const Controls = forwardRef<ViewHandle, { panMode: boolean; keyTarget: HTMLEleme
     // frame() only sets the initial view; re-running it on resize is handled below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [camera, gl])
+  useEffect(() => {
+    const orbit = controls.current
+    if (orbit) orbit.enabled = enabled
+  }, [enabled])
   useEffect(() => { frame() }, [frame])
   useEffect(() => {
     const orbit = controls.current
@@ -308,6 +317,20 @@ function useClock(interval: number) {
     return () => window.clearInterval(timer)
   }, [interval])
   return now
+}
+
+/** True while the viewport is 700px wide or less (the editor UI is hidden there). */
+function useNarrow(): boolean {
+  const query = '(max-width: 700px)'
+  const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && window.matchMedia?.(query).matches === true)
+  useEffect(() => {
+    const media = window.matchMedia?.(query)
+    if (!media) return
+    const onChange = () => setNarrow(media.matches)
+    media.addEventListener('change', onChange)
+    return () => media.removeEventListener('change', onChange)
+  }, [])
+  return narrow
 }
 
 function useThemeName(): 'dark' | 'light' {
@@ -370,13 +393,59 @@ export default function Office3D({ stations, onSelect }: { stations: OfficeStati
   // One unlabeled desk per agent (hot desking); the building is sized for the crew.
   // The office is a scene: the stock office for this crew plus the saved edits. Agents sit at the
   // scene's desks and beds; their other stops and walking routes are still the stock ones.
-  const patch = useScenePatch()
+  const { patch: savedPatch, refresh: refreshScene } = useScenePatch()
+  const editor = useSceneEditor(savedPatch, refreshScene)
+  // Editing is inactive on narrow viewports, where the editor UI is hidden.
+  const narrow = useNarrow()
+  const editingActive = editor.editing && !narrow
+  // While editing, the draft is the scene (the polled patch is ignored); otherwise the saved patch.
+  const patch = editor.editing ? editor.draft : savedPatch
   const baseLayout = useMemo(() => createLayout(stations.length), [stations.length])
   const items = useMemo(() => applyPatch(defaultScene(baseLayout), patch), [baseLayout, patch])
   const layout = useMemo(() => withMovedSeats(baseLayout, seatPositions(items, 'desk'), seatPositions(items, 'bed')), [baseLayout, items])
   const levels = useMemo(() => levelsOf(items), [items])
   const [levelIndex, setLevelIndex] = useLevelIndex(levels.length)
   const level = levels[levelIndex] ?? 0
+  const [hovering, setHovering] = useState(false)
+  const [dragging, setDragging] = useState(false)
+  const selectedItem = editor.selectedId ? items.find((item) => item.id === editor.selectedId) : undefined
+  const selected = selectedItem && isEditable(selectedItem) ? selectedItem : undefined
+  // The live drag position is drawn but not fed to the layout, so agents do not chase a desk mid-drag.
+  const drawItems = useMemo(() => {
+    const drag = editor.drag
+    return drag ? items.map((item) => (item.id === drag.id && isEditable(item) ? { ...item, position: [drag.x, item.position[1], drag.z] as Vec3 } : item)) : items
+  }, [items, editor.drag])
+  const bounds = layout.pan
+  const edit: EditHandlers = {
+    selectedId: selected?.id ?? null,
+    bounds,
+    select: editor.select,
+    setHover: setHovering,
+    setDragging,
+    previewDrag: editor.previewDrag,
+    commitMove: (item, x, z) => { editor.apply((patchNow) => moveItem(patchNow, item, x, z, bounds)); editor.endDrag() },
+    cancelDrag: editor.endDrag,
+  }
+  const selectAgent: typeof onSelect = editingActive ? () => {} : onSelect
+  const runEditAction = (action: EditKeyAction) => {
+    if (action === 'undo') editor.undo()
+    else if (action === 'redo') editor.redo()
+    else if (action === 'deselect') editor.select(null)
+    else if (!selected) return
+    else if (action === 'delete') { editor.apply((patchNow) => deleteItem(patchNow, selected)); editor.select(null) }
+    else editor.apply((patchNow) => rotateBy(patchNow, selected, action === 'rotate+' ? ROTATION_STEP : -ROTATION_STEP))
+  }
+  const finishEditing = () => {
+    if (editor.saving) return
+    if (editor.dirty && !window.confirm('Discard unsaved changes?')) return
+    setHovering(false)
+    setDragging(false)
+    document.body.style.cursor = ''
+    editor.exit()
+  }
+  const resetEdits = () => {
+    if (window.confirm('Reset the office to the default layout? This removes every saved edit.')) void editor.reset()
+  }
   // Idle agents wander between the lounge, the game room, the pantry, the street food and
   // lantai 2 (decorative only), spread so no two share a spot. With sleep mode on, every idle
   // agent goes to bed upstairs instead.
@@ -389,21 +458,26 @@ export default function Office3D({ stations, onSelect }: { stations: OfficeStati
   const levelCount = (value: number) => stations.filter((station) => levelAt(levels, placement(station).position[1]) === value).length
   const occupiedSeats = new Set(stations.filter((station) => station.room === 'Workspace' && station.roomPosition !== 'meeting-area' && station.state !== 'Offline').map((station) => station.seat))
   return <div className="office-3d" ref={setKeyTarget} tabIndex={0} role="region" aria-label="3D office. Drag to rotate, right-drag or two fingers to pan, scroll to zoom, arrow keys pan when focused. Page Up and Page Down change floors." onKeyDown={(event) => {
+    const typing = /^(INPUT|SELECT|TEXTAREA)$/.test((event.target as HTMLElement).tagName)
+    if (editingActive && !typing) {
+      const action = editKeyAction(event)
+      if (action) { event.preventDefault(); runEditAction(action); return }
+    }
     if (event.key === 'PageUp' || event.key === 'PageDown') { event.preventDefault(); setLevelIndex(Math.min(Math.max(levelIndex + (event.key === 'PageUp' ? 1 : -1), 0), levels.length - 1)) }
   }}>
-    <Canvas shadows dpr={[1, 2]} camera={{ position: [-3, 13, 16], fov: 40, near: 0.5, far: 150 }} gl={{ antialias: true }}>
+    <Canvas shadows dpr={[1, 2]} camera={{ position: [-3, 13, 16], fov: 40, near: 0.5, far: 150 }} gl={{ antialias: true }} onPointerMissed={editingActive ? () => editor.select(null) : undefined}>
       <Lighting theme={theme}/>
-      <SceneRenderer items={items} level={level} night={theme === 'dark'} deskActive={(id) => occupiedSeats.has(deskSeatNumber(id) ?? -1)}/>
-      {stations.map((station) => <Character key={station.id} station={station} placement={placement(station)} layout={layout} level={level} levels={levels} onSelect={onSelect} anchor={register(anchors, `agent-${station.id}`)} skinVersion={skins?.[station.id]?.version}/>)}
+      <SceneRenderer items={drawItems} level={level} night={theme === 'dark'} deskActive={(id) => occupiedSeats.has(deskSeatNumber(id) ?? -1)} wrap={editingActive ? (item, node) => (isEditable(item) ? <EditTarget item={item} edit={edit}>{node}</EditTarget> : node) : undefined}/>
+      {stations.map((station) => <Character key={station.id} station={station} placement={placement(station)} layout={layout} level={level} levels={levels} onSelect={selectAgent} anchor={register(anchors, `agent-${station.id}`)} skinVersion={skins?.[station.id]?.version}/>)}
       <LabelProjector anchors={anchors} labels={labels}/>
-      <Controls key={layout.deskCount} ref={view} panMode={panMode} keyTarget={keyTarget} layout={layout} elevation={level}/>
+      <Controls key={layout.deskCount} ref={view} panMode={panMode} keyTarget={keyTarget} layout={layout} elevation={level} enabled={!(editingActive && (hovering || dragging))}/>
     </Canvas>
     <div className="office-3d-labels">
       {stations.map((station) => {
         const badge = officeStateBadge(station.state)
         const busy = ['Working', 'Reviewing', 'Collaborating'].includes(station.state)
         const idle = wandering(station)
-        return <button key={station.id} ref={register(labels, `agent-${station.id}`)} type="button" className={`agent-tag-3d state-${station.state.toLowerCase()}`} onClick={(event) => onSelect(station, event.currentTarget)} aria-label={`${station.name}. ${station.state}.${station.activity ? ` ${station.activity}.` : ''}${idle ? ` ${idle.placement.label ?? idle.stop.label}.` : ''} Open station details.`}>
+        return <button key={station.id} ref={register(labels, `agent-${station.id}`)} type="button" className={`agent-tag-3d state-${station.state.toLowerCase()}`} onClick={(event) => selectAgent(station, event.currentTarget)} aria-label={`${station.name}. ${station.state}.${station.activity ? ` ${station.activity}.` : ''}${idle ? ` ${idle.placement.label ?? idle.stop.label}.` : ''} Open station details.`}>
           {busy && station.activity && <span className="speech speech-3d">{station.activity}</span>}
           {idle && <span className={`speech speech-3d speech-idle${idle.placement.pose === 'lie' ? ' speech-sleep' : ''}`}>{idle.placement.pose === 'lie' ? '💤 ' : ''}{idle.placement.label ?? idle.stop.label}</span>}
           <span className="agent-tag-row"><span className="pixel-station-name">{station.privacy === 'locked' ? '🔒 ' : ''}{station.name}</span><span className={`badge ${badge.tone}`}>{station.state === 'Idle' ? 'Idle' : station.state}</span></span>
@@ -416,9 +490,12 @@ export default function Office3D({ stations, onSelect }: { stations: OfficeStati
       </button>)}
     </div>
     <div className="office-3d-tools">
+      <button type="button" className={`edit-toggle${editor.editing ? ' active' : ''}`} aria-pressed={editor.editing} onClick={() => (editor.editing ? finishEditing() : editor.enter())} title="Rearrange the office">✎ Edit</button>
       <button type="button" className={sleepMode ? 'active sleep' : ''} aria-pressed={sleepMode} onClick={() => { setSleepMode(!sleepMode); if (!sleepMode && idleSeats.length > 0) setLevelIndex(Math.max(0, levels.indexOf(FLOOR_HEIGHT))) }} title="Send every idle agent to bed on lantai 2">💤 Tidur</button>
       <button type="button" className={panMode ? 'active' : ''} aria-pressed={panMode} onClick={() => setPanMode((value) => !value)} title="Drag moves the view instead of rotating it">✥ Geser</button>
       <button type="button" onClick={() => view.current?.reset()} title="Back to the starting view">↺ Reset view</button>
     </div>
+    {editor.editing && <EditorBar canUndo={editor.canUndo} canRedo={editor.canRedo} dirty={editor.dirty} saving={editor.saving} error={editor.error} onUndo={editor.undo} onRedo={editor.redo} onSave={() => void editor.save()} onReset={resetEdits} onDone={finishEditing}/>}
+    {editor.editing && selected && <ObjectPanel item={selected} levels={levels} onMove={(x, z) => editor.apply((patchNow) => moveItem(patchNow, selected, x, z, bounds))} onRotate={(degrees) => editor.apply((patchNow) => rotateItem(patchNow, selected, (degrees * Math.PI) / 180))} onLevel={(next) => { editor.apply((patchNow) => setItemLevel(patchNow, selected, next)); setLevelIndex(Math.max(0, levels.indexOf(next))) }} onDelete={() => { editor.apply((patchNow) => deleteItem(patchNow, selected)); editor.select(null) }}/>}
   </div>
 }

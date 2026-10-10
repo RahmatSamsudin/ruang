@@ -1,4 +1,4 @@
-import type { ComponentType } from 'react'
+import { Fragment, type ComponentType, type ReactNode } from 'react'
 import { AcOutdoorUnit, AirConditioner, ArcadeCabinet, Armchair, BaksoStall, BathroomFittings, Beanbag, Bed, Bookshelf, CarromTable, ClothesLine, CoffeeTable, FlagPole, FloorCushion, Fridge, GalonDispenser, Hammock, KopiStall, LowTable, MeetingTable, Nightstand, OfficeLight, PantryCounter, PingPongTable, Plant, Railing, RattanChair, RBox, SideTable, Sofa, Staircase, StreetLamp, StringLights, Television, Tree, WallClock, Wardrobe, WaterTank, WorkDesk } from './props.tsx'
 import { visibleAt, type BoxItem, type FloorItem, type GlassItem, type PropItem, type PropType, type SceneItem, type Surface, type WallItem, type WindowItem } from './scene.ts'
 import { asphalt, carpet, grass, pavingStones, tileFloor, woodFloor } from './textures.ts'
@@ -91,9 +91,16 @@ function SceneNode({ item, night, active }: { item: SceneItem; night: boolean; a
   }
 }
 
-/** The items visible from `level`. `deskActive(id)` says whether the seat of a `desk-N` item is occupied. */
-export function SceneRenderer({ items, level, night, deskActive }: { items: SceneItem[]; level: number; night: boolean; deskActive?: (id: string) => boolean }) {
+/**
+ * The items visible from `level`. `deskActive(id)` says whether the seat of a `desk-N` item is
+ * occupied. `wrap` lets the editor surround an item's node (for picking) without the renderer
+ * knowing about editing.
+ */
+export function SceneRenderer({ items, level, night, deskActive, wrap }: { items: SceneItem[]; level: number; night: boolean; deskActive?: (id: string) => boolean; wrap?: (item: SceneItem, node: ReactNode) => ReactNode }) {
   return <group>
-    {items.filter((item) => visibleAt(item, level)).map((item) => <SceneNode key={item.id} item={item} night={night} active={deskActive?.(item.id) ?? false}/>)}
+    {items.filter((item) => visibleAt(item, level)).map((item) => {
+      const node = <SceneNode item={item} night={night} active={deskActive?.(item.id) ?? false}/>
+      return <Fragment key={item.id}>{wrap ? wrap(item, node) : node}</Fragment>
+    })}
   </group>
 }

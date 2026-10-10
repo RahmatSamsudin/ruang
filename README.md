@@ -157,13 +157,19 @@ The 3D office is rendered from a scene document: the built-in office (generated 
 | `PUT /api/scene` | Replace the patch (`application/json`, max 256 KiB, same-origin only, strictly validated). |
 | `DELETE /api/scene` | Reset to the stock office. |
 
-`overrides` merge fields into a built-in item by id (`null` deletes it; the crew's `desk-N` and `bed-N` can be moved but not deleted). There is no editor yet: the patch is edited by hand or by a later release. Agent routes (idle stops, walking paths) do not follow moved furniture other than desks and beds.
+`overrides` merge fields into a built-in item by id (`null` deletes it; the crew's `desk-N` and `bed-N` can be moved but not deleted). The patch can be edited in the app (see *Editing the office*) or by hand. Agent routes (idle stops, walking paths) do not follow moved furniture other than desks and beds.
 
 Notes for editing the patch by hand:
 
 - `level` is the base height of the item's storey (0 or 2.8 in the stock office). Every distinct `level` value becomes a floor tab. Moving an item to another floor means changing both its `level` and its y.
 - Overrides are a shallow merge: an override of `props` replaces the whole `props` object, so give all of its keys.
 - Item ids are listed in `src/scene3d/default-scene.ts`.
+
+### Editing the office
+
+Press **✎ Edit** (bottom right of the 3D office) to rearrange it from the UI. Click an object or window to select it (a yellow box appears), drag it to move it (it snaps to a 0.25 m grid; hold **Alt** for free placement), press **R** (or **Shift+R**) to rotate by 15°, **Delete** to remove it, **Esc** to deselect, **Ctrl/Cmd+Z** and **Ctrl/Cmd+Shift+Z** to undo and redo. The panel at the top right has exact X, Z, rotation and floor fields. Desks and beds can be moved but not deleted (they follow the number of agents). **Save** writes your changes to the shared scene (see *Office scene*), **Reset to default** removes every saved edit, **Done** leaves edit mode (it asks if you have unsaved changes).
+
+This first editor handles objects and windows only. Floors, walls, glass and new objects come later. Agents' walking routes still follow the stock layout, so a moved sofa does not re-route them (desks and beds do move their agents' seats).
 
 ## Agent skins
 
