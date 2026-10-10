@@ -2,7 +2,7 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { PropItem } from '../scene3d/scene.ts'
+import type { PropItem, WindowItem } from '../scene3d/scene.ts'
 import { ObjectPanel } from './ObjectPanel.tsx'
 
 const testEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -13,10 +13,10 @@ const desk: PropItem = { kind: 'prop', id: 'desk-1', level: 0, type: 'WorkDesk',
 
 afterEach(() => { document.body.replaceChildren() })
 
-async function mount(item: PropItem) {
-  const handlers = { onMove: vi.fn(), onRotate: vi.fn(), onLevel: vi.fn(), onDelete: vi.fn() }
+async function mount(item: PropItem | WindowItem, canDuplicate = true) {
+  const handlers = { onMove: vi.fn(), onRotate: vi.fn(), onLevel: vi.fn(), onDelete: vi.fn(), onDuplicate: vi.fn(), onProp: vi.fn() }
   const host = document.body.appendChild(document.createElement('div'))
-  await act(async () => { createRoot(host).render(<ObjectPanel item={item} levels={[0, 2.8]} {...handlers}/>) })
+  await act(async () => { createRoot(host).render(<ObjectPanel item={item} levels={[0, 2.8]} canDuplicate={canDuplicate} {...handlers}/>) })
   const input = (label: string) => [...host.querySelectorAll('label')].find((node) => node.textContent?.startsWith(label))!.querySelector('input')!
   const type = async (field: HTMLInputElement, value: string) => {
     await act(async () => { field.value = value; field.dispatchEvent(new FocusEvent('focusout', { bubbles: true })) })
@@ -58,7 +58,7 @@ describe('ObjectPanel', () => {
   })
 
   it('remounts the fields when another object is selected, so typed text cannot follow the selection', async () => {
-    const handlers = { onMove: vi.fn(), onRotate: vi.fn(), onLevel: vi.fn(), onDelete: vi.fn() }
+    const handlers = { canDuplicate: true, onMove: vi.fn(), onRotate: vi.fn(), onLevel: vi.fn(), onDelete: vi.fn(), onDuplicate: vi.fn(), onProp: vi.fn() }
     const root = createRoot(document.body.appendChild(document.createElement('div')))
     const other: PropItem = { ...desk, id: 'desk-2', position: [4.6, 0, -3.5] }
     await act(async () => { root.render(<ObjectPanel item={sofa} levels={[0]} {...handlers}/>) })
@@ -87,5 +87,50 @@ describe('ObjectPanel', () => {
     const locked = [...seat.host.querySelectorAll('button')].find((node) => node.textContent === 'Delete')!
     expect(locked.disabled).toBe(true)
     expect(locked.title).toBe('Desks and beds follow the number of agents')
+  })
+})
+
+describe('ObjectPanel duplicate and properties', () => {
+  const plant: PropItem = { kind: 'prop', id: 'added-1', level: 0, type: 'Plant', position: [1, 0, 1], props: { size: 1 } }
+  const railing: PropItem = { kind: 'prop', id: 'added-2', level: 0, type: 'Railing', position: [0, 0, 0] }
+
+  it('has a Duplicate button that can be disabled with a reason', async () => {
+    const enabled = await mount(sofa)
+    const button = [...enabled.host.querySelectorAll('button')].find((node) => node.textContent === 'Duplicate')!
+    await act(async () => { button.click() })
+    expect(enabled.handlers.onDuplicate).toHaveBeenCalledTimes(1)
+    const full = await mount(sofa, false)
+    const disabled = [...full.host.querySelectorAll('button')].filter((node) => node.textContent === 'Duplicate').at(-1)!
+    expect(disabled.disabled).toBe(true)
+    expect(disabled.title).toMatch(/limit/i)
+  })
+
+  it('shows the fields of the object type with the catalogue default when the prop is unset', async () => {
+    const { input } = await mount(railing)
+    expect(input('Length').value).toBe('2')
+  })
+
+  it('commits a number field clamped to its limits', async () => {
+    const { handlers, input, type } = await mount(plant)
+    await type(input('Size'), '1.5')
+    expect(handlers.onProp).toHaveBeenLastCalledWith('size', 1.5)
+    await type(input('Size'), '50')
+    expect(handlers.onProp).toHaveBeenLastCalledWith('size', 2.5)
+  })
+
+  it('commits a colour on change, not on every drag of the picker', async () => {
+    const { handlers, host } = await mount(sofa)
+    const picker = host.querySelector('input[type="color"]') as HTMLInputElement
+    expect(picker.value).toBe('#5b6f8c')
+    await act(async () => { picker.value = '#112233'; picker.dispatchEvent(new Event('input', { bubbles: true })) })
+    expect(handlers.onProp).not.toHaveBeenCalled()
+    await act(async () => { picker.dispatchEvent(new Event('change', { bubbles: true })) })
+    expect(handlers.onProp).toHaveBeenLastCalledWith('color', '#112233')
+  })
+
+  it('has no property fields for a window or a type without any', async () => {
+    const { host } = await mount({ kind: 'window', id: 'w1', level: 0, position: [0, 1.5, 0] })
+    expect(host.querySelector('input[type="color"]')).toBeNull()
+    expect(host.querySelectorAll('input[type="number"]')).toHaveLength(3)
   })
 })
