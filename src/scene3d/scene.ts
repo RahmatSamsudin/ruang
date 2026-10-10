@@ -15,6 +15,9 @@ export const PROP_TYPES = [
 export type PropType = typeof PROP_TYPES[number]
 export type PropValue = number | string | boolean
 
+/** The most items a saved patch may add. server/scene.ts keeps the same number; its test checks they match. */
+export const MAX_ADDED = 500
+
 /** `cutaway` (default): drawn when its own level is viewed. `shell`: drawn from higher levels. `both`: either. */
 export type SceneView = 'cutaway' | 'shell' | 'both'
 export type SurfaceType = 'wood' | 'tile' | 'carpet' | 'grass' | 'asphalt' | 'paving'

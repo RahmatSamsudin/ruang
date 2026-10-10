@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import express from 'express'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { installScene, MAX_OVERRIDES, MAX_SCENE_BYTES, SCENE_PROP_TYPES, SCENE_SURFACES, SceneStore, validatePatch } from './scene.js'
+import { installScene, MAX_ADDED, MAX_OVERRIDES, MAX_SCENE_BYTES, SCENE_PROP_TYPES, SCENE_SURFACES, SceneStore, validatePatch } from './scene.js'
 
 const sofa = { id: 'my-sofa', kind: 'prop', level: 0, type: 'Sofa', position: [1, 0, 2] }
 const good = { version: 1, overrides: { sofa: { position: [3, 0, 4], rotation: 1.5 }, 'wall-back': null }, added: [sofa] }
@@ -66,6 +66,13 @@ describe('scene patch validation', () => {
     expect(block).not.toBeNull()
     const ui = [...block![1].matchAll(/'(\w+)'/g)].map((match) => match[1])
     expect([...ui].sort()).toEqual([...SCENE_PROP_TYPES].sort())
+  })
+
+  it('keeps its added-item limit in step with the UI', async () => {
+    const source = await readFile(new URL('../src/scene3d/scene.ts', import.meta.url), 'utf8')
+    const match = /export const MAX_ADDED = (\d+)/.exec(source)
+    expect(match).not.toBeNull()
+    expect(Number(match![1])).toBe(MAX_ADDED)
   })
 })
 
