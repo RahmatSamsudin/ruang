@@ -595,3 +595,19 @@ export function BathroomFittings({ position }: { position: Vec3 }) {
     <RBox position={[-0.3, 0.6, -2.05]} size={[0.42, 0.45, 0.16]} radius={0.04} color="#f6f7f5" roughness={0.25}/>
   </Group>
 }
+
+/** The bakso cart with its vendor: the unit the scene places (rotated to face the building). */
+export function BaksoStall({ position, rotation = 0, night = false }: { position: Vec3; rotation?: number; night?: boolean }) {
+  return <Group position={position} rotation={rotation}>
+    <Gerobak position={[0, 0, 0]} night={night}/>
+    <Vendor position={[-1.6, 0, 0]} rotation={Math.PI / 2} shirt="#f1f1ec" hat="peci"/>
+  </Group>
+}
+
+/** The kopi bike with its vendor. */
+export function KopiStall({ position, rotation = 0, night = false }: { position: Vec3; rotation?: number; night?: boolean }) {
+  return <Group position={position} rotation={rotation}>
+    <KopiSepeda position={[0, 0, 0]} night={night}/>
+    <Vendor position={[-1.35, 0, -0.1]} rotation={Math.PI / 2} shirt="#2f6d8f" hat="cap"/>
+  </Group>
+}
