@@ -32,31 +32,41 @@ The building grows with the crew (one desk and one bed per agent).
 
 ## Scene model (`src/scene3d/scene.ts`)
 
-`defaultScene(crewCount): SceneItem[]` replaces the JSX in `environment.tsx`. Every item has a
-stable `id` (`desk-3`, `bed-2`, `sofa`, `wall-back`, `floor-lounge-rug`, ...).
+`defaultScene(layout): SceneItem[]` (the crew-sized `OfficeLayout` from `createLayout`) replaces
+the JSX in `environment.tsx`. Every item has a stable `id` (`desk-3`, `bed-2`, `sofa`,
+`wall-back`, `rug-lounge`, ...), and positions are absolute world coordinates (y included).
 
 Item kinds:
 
-- `prop`: `{ type, position, rotation, scale?, color? }`, where `type` names an existing component
-  in `props.tsx`.
-- `floor`: a slab `{ min: [x, z], max: [x, z], y, surface }`. Surfaces: wood, tile, carpet + colour,
-  grass, paving, asphalt (the existing procedural textures in `textures.ts`).
-- `wall`, `glass`, `window`: `{ from, to, y, height }` plus `width` for windows.
+- `prop`: `{ type, position, rotation?, props? }`, where `type` names a component in `props.tsx`
+  (or one of two small composites, `BaksoStall` and `KopiStall`) and `props` holds its extra
+  props (`color`, `size`, `length`, ...).
+- `floor`: a slab `{ min: [x, z], max: [x, z], y, surface, roughness? }`. Surfaces: wood, tile,
+  carpet + colour, grass, paving, asphalt (the existing procedural textures in `textures.ts`).
+- `wall`: `{ from, to, y, height }`; `glass`: `{ from, to, bottom, top }` (axis-aligned pane);
+  `window`: `{ position, rotation?, width? }`; `box`: `{ position, size, color, ... }` for the
+  loose rounded boxes (slab edges, lintels, cabinets, the roof).
 
-All items carry `view: 'cutaway' | 'shell' | 'both'` (default `both`), the same split that exists
-today between the lantai 1 cut-away and the closed shell seen from lantai 2. Walls on lower levels
-draw at full height when a higher level is in view.
+**Levels and views.** Every item has a `level`: the base height of the storey it belongs to
+(`0` or `FLOOR_HEIGHT` in the stock scene; a new slab at a new height creates a new level). Levels
+are the sorted distinct `level` values. Viewing level L draws, from levels at or below L only:
+
+- items of level L whose `view` is `cutaway` (the default) or `both`;
+- items of lower levels whose `view` is `shell` or `both`.
+
+That reproduces today's behaviour: the lantai 1 cut-away (low front walls, furniture) when viewing
+lantai 1, and from lantai 2 the closed shell of lantai 1 (full-height walls, roof, tank) plus
+lantai 2 itself, with stairs, back/left walls and the outdoors drawn in both. The floor switcher
+in `Office3D.tsx` is built from the levels; the stock scene has two, so it is unchanged by
+default.
 
 `SceneRenderer` maps items to the existing components. Textures stay procedural.
 
-**Levels.** A level is a distinct slab `y`. The floor switcher in `Office3D.tsx` is built from the
-sorted levels; the `Floor = 1 | 2` type and `floorOf` are replaced by a level index. The stock
-scene has two levels (`y = 0` and `y = FLOOR_HEIGHT`), so the switcher is unchanged by default.
-
-**Agents (this step only).** Desk and bed positions are read back from the (patched) scene into
-`OfficeLayout.desks` and `OfficeLayout.beds`, so agents sit at moved desks and beds. Other idle
-stops and the `walkPath3` routes keep their fixed coordinates until sub-project 4; a moved sofa
-does not re-route agents. The UI notes this.
+**Agents (this step only).** Desk and bed positions are read back from the (patched) scene
+(`desk-N` and `bed-N` ids) into `OfficeLayout.desks` and `OfficeLayout.beds`, so agents sit at
+moved desks and beds. Agent movement keeps `Floor = 1 | 2` and `walkPath3` until sub-project 4;
+other idle stops and the walk routes keep their fixed coordinates, so a moved sofa does not
+re-route agents. The UI notes this.
 
 ## Patch and persistence
 
@@ -72,7 +82,9 @@ Saved document (`$RUANG_DATA_DIR/scene.json`, default `~/.local/share/ruang/scen
   never invalidate a save.
 - `desk-*` and `bed-*`: their count always follows the crew. They can be moved; a `null` override
   for them is ignored.
-- Added item ids must not collide with generated ids (rejected on write).
+- Added items: the server rejects duplicate ids and ids shaped like `desk-N` / `bed-N`; the
+  client also drops any added item whose id collides with a generated one (the server cannot
+  know the generated ids, since they depend on the crew).
 
 ## Server API (`server/scene.ts`, modelled on `skins.ts`)
 
