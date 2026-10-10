@@ -48,6 +48,25 @@ afterEach(() => {
   document.body.replaceChildren()
 })
 
+describe('SkinEditor parent re-render', () => {
+  it('keeps edited pixels when the parent re-renders with a new onDirtyChange', async () => {
+    const host = document.body.appendChild(document.createElement('div'))
+    const root = createRoot(host)
+    const ref = createRef<SkinEditorHandle>()
+    const render = () =>
+      root.render(<SkinEditor ref={ref} id="dev" initialPng={null} onSave={() => {}} onReset={() => {}} onDirtyChange={() => {}} />)
+
+    await act(async () => { render() })
+    const edited = new Uint8ClampedArray(BUFFER_LENGTH).fill(7)
+    await act(async () => { ref.current?.loadPixels(edited, { undoable: true }) })
+
+    await act(async () => { render() })
+    await act(async () => { await Promise.resolve() })
+
+    expect(Array.from(ref.current!.getPixels())).toEqual(Array.from(edited))
+  })
+})
+
 describe('SkinEditor component interactive tests', () => {
   it('renders correctly with null initialPng and default controls', async () => {
     const host = document.body.appendChild(document.createElement('div'))

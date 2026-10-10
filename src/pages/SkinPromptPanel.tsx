@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { SkinEditorHandle } from './SkinEditor'
+import { skinJobStore as runningJobs } from './skin-draft'
 import {
   base64ToBytes,
   bytesToBase64,
@@ -29,9 +30,11 @@ export function SkinPromptPanel({
 }: SkinPromptPanelProps) {
   const [prompt, setPrompt] = useState(initialPrompt)
   const [part, setPart] = useState<SkinPart>(initialPart)
-  const [isGenerating, setIsGenerating] = useState(false)
+  const jobKey = agentId ?? ''
+  const resumed = runningJobs.get(jobKey)
+  const [isGenerating, setIsGenerating] = useState(Boolean(resumed))
   const [stage, setStage] = useState<'preview' | 'convert' | null>(null)
-  const [elapsed, setElapsed] = useState(0)
+  const [elapsed, setElapsed] = useState(resumed ? Math.floor((Date.now() - resumed.startedAt) / 1000) : 0)
   const [error, setError] = useState<string | null>(null)
 
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -47,19 +50,37 @@ export function SkinPromptPanel({
       clearInterval(elapsedIntervalRef.current)
       elapsedIntervalRef.current = null
     }
+    runningJobs.delete(jobKey)
     if (isMountedRef.current) {
       setIsGenerating(false)
       setStage(null)
     }
   }
 
+  const startPolling = (jobId: string, startedAt: number) => {
+    runningJobs.set(jobKey, { jobId, startedAt })
+    setElapsed(Math.floor((Date.now() - startedAt) / 1000))
+    elapsedIntervalRef.current = setInterval(() => {
+      if (isMountedRef.current) setElapsed(Math.floor((Date.now() - startedAt) / 1000))
+    }, 1000)
+    pollIntervalRef.current = setInterval(() => {
+      void pollJob(jobId)
+    }, 2000)
+  }
+
   useEffect(() => {
     isMountedRef.current = true
+    const job = runningJobs.get(jobKey)
+    if (job) {
+      startPolling(job.jobId, job.startedAt)
+      void pollJob(job.jobId)
+    }
     return () => {
       isMountedRef.current = false
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
       if (elapsedIntervalRef.current) clearInterval(elapsedIntervalRef.current)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- resume once on mount
   }, [])
 
   const handlePromptChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -122,6 +143,8 @@ export function SkinPromptPanel({
       }
 
       if (data.status === 'done') {
+        // Editor not mounted yet (tab still loading): keep the job and try again on the next poll.
+        if (!editorRef.current) return
         stopPolling()
         if (data.png) {
           try {
@@ -180,17 +203,9 @@ export function SkinPromptPanel({
 
       if (res.status === 202) {
         const data = await res.json()
-        const jobId = data.jobId
-
-        elapsedIntervalRef.current = setInterval(() => {
-          if (isMountedRef.current) {
-            setElapsed((prev) => prev + 1)
-          }
-        }, 1000)
-
-        pollIntervalRef.current = setInterval(() => {
-          void pollJob(jobId)
-        }, 2000)
+        // Left the tab while the POST was in flight: just remember the job, the next mount resumes it.
+        if (isMountedRef.current) startPolling(data.jobId, Date.now())
+        else runningJobs.set(jobKey, { jobId: data.jobId, startedAt: Date.now() })
         return
       }
 

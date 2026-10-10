@@ -105,6 +105,7 @@ export const SkinEditor = forwardRef<SkinEditorHandle, SkinEditorProps>(function
   const [canUndo, setCanUndo] = useState<boolean>(false)
   const [canRedo, setCanRedo] = useState<boolean>(false)
   const [isSaving, setIsSaving] = useState<boolean>(false)
+  const [justSaved, setJustSaved] = useState<boolean>(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
   const [hoverCoord, setHoverCoord] = useState<Coord | null>(null)
@@ -139,6 +140,8 @@ export const SkinEditor = forwardRef<SkinEditorHandle, SkinEditorProps>(function
     }
   }, [])
 
+  // The parent passes a fresh callback on every render; read it through a ref so a parent
+  // re-render never re-runs the initial load below and wipes the pixels being edited.
   const onDirtyChangeRef = useRef(onDirtyChange)
   onDirtyChangeRef.current = onDirtyChange
 
@@ -446,6 +449,8 @@ export const SkinEditor = forwardRef<SkinEditorHandle, SkinEditorProps>(function
       await onSave(png)
       savedSnapshotRef.current = new Uint8ClampedArray(pixelsRef.current)
       updateDirtyAndHistoryState()
+      setJustSaved(true)
+      setTimeout(() => setJustSaved(false), 2500)
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Failed to save skin')
     } finally {
@@ -544,7 +549,7 @@ export const SkinEditor = forwardRef<SkinEditorHandle, SkinEditorProps>(function
               disabled={isSaving}
               title="Save skin changes"
             >
-              {isSaving ? 'Saving...' : 'Save'}
+              {isSaving ? 'Saving...' : justSaved ? 'Saved ✓' : 'Save'}
             </button>
           </div>
         </div>

@@ -3,6 +3,7 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SkinPromptPanel } from './SkinPromptPanel'
+import { skinJobStore } from './skin-draft'
 import type { SkinEditorHandle } from './SkinEditor'
 import { bytesToBase64 } from './skin-editor-state'
 import { createTestSkinPng } from '../dev-mock'
@@ -16,6 +17,7 @@ describe('SkinPromptPanel component and polling flow', () => {
   const dummyBase64 = bytesToBase64(new Uint8Array(createTestSkinPng()))
 
   beforeEach(() => {
+    skinJobStore.clear()
     vi.useFakeTimers()
     mockEditorHandle = {
       loadPixels: vi.fn(),
@@ -91,6 +93,34 @@ describe('SkinPromptPanel component and polling flow', () => {
 
     await act(async () => {
       root.unmount()
+    })
+  })
+
+  it('resumes a running job after the panel is unmounted and mounted again', async () => {
+    mockFetch
+      .mockResolvedValueOnce(new Response(JSON.stringify({ jobId: 'job-r' }), { status: 202 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: 'done', png: dummyBase64 }), { status: 200 }),
+      )
+
+    const first = await setupPanel('Test skin', 'developer')
+    await triggerGenerate()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+      first.root.unmount()
+    })
+
+    const second = await setupPanel('Test skin', 'developer')
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+
+    expect(mockFetch.mock.calls.filter(([url]) => url === '/api/skins/generate')).toHaveLength(1)
+    expect(mockFetch).toHaveBeenCalledWith('/api/skins/generate/job-r')
+    expect(mockEditorHandle.loadPixels).toHaveBeenCalled()
+
+    await act(async () => {
+      second.root.unmount()
     })
   })
 

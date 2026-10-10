@@ -146,7 +146,6 @@ describe('SkinTab component', () => {
     const host = document.body.appendChild(document.createElement('div'))
     const root = createRoot(host)
 
-    const disposeSpy = vi.spyOn(skinTextureManager, 'disposeAgent')
     const refreshListener = vi.fn()
     window.addEventListener('ruang:skins-refresh', refreshListener)
 
@@ -180,7 +179,6 @@ describe('SkinTab component', () => {
       '/api/skins/developer',
       expect.objectContaining({ method: 'PUT' }),
     )
-    expect(disposeSpy).toHaveBeenCalledWith('developer')
     expect(refreshListener).toHaveBeenCalled()
 
     window.removeEventListener('ruang:skins-refresh', refreshListener)

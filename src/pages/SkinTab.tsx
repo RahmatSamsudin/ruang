@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { SkinEditor, type SkinEditorHandle } from './SkinEditor'
 import { SkinPromptPanel, type SkinPart } from './SkinPromptPanel'
 import { SkinLibrary } from './SkinLibrary'
-import { skinTextureManager, triggerSkinsRefresh } from '../scene3d/skin'
+import { loadSkinImage, skinTextureManager, triggerSkinsRefresh } from '../scene3d/skin'
 import { skinDraftStore } from './skin-draft'
 import { computeSkinSha1Prefix } from './skin-editor-state'
 
@@ -130,7 +130,9 @@ export function SkinTab({ agentId }: SkinTabProps) {
     const saved = (await res.json().catch(() => null)) as { version?: string } | null
     isDirtyRef.current = false
     skinDraftStore.delete(agentId)
-    skinTextureManager.disposeAgent(agentId)
+    // Preload the saved version so the 3D model swaps as soon as the next poll reports it;
+    // disposing the live texture here raced that poll.
+    if (saved?.version) await loadSkinImage(agentId, saved.version)
     triggerSkinsRefresh()
     if (saved?.version) setActiveSkinId(saved.version)
     else void computeSkinSha1Prefix(png).then(setActiveSkinId)
