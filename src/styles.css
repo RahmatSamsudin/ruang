@@ -905,3 +905,20 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
 
 
 
+.office-3d-editbar { align-items: center; background: rgba(18, 26, 24, 0.86); border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 8px; color: #f4efe6; display: grid; font-size: 12px; gap: 4px; justify-items: center; left: 50%; padding: 6px 10px; position: absolute; top: 10px; transform: translateX(-50%); z-index: 3; }
+.office-3d-editbar-row { align-items: center; display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.office-3d-editbar button, .office-3d-objpanel button { background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 6px; color: inherit; cursor: pointer; font: inherit; padding: 4px 9px; }
+.office-3d-editbar button:disabled, .office-3d-objpanel button:disabled { cursor: not-allowed; opacity: .45; }
+.office-3d-editstate { color: #b7c9bf; }
+.office-3d-editstate.unsaved { color: #f5bd6d; }
+.office-3d-editbar small { color: #b7c9bf; }
+.office-3d-editerror { color: #ff9b94 !important; }
+.office-3d-objpanel { background: rgba(18, 26, 24, 0.86); border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 8px; color: #f4efe6; display: grid; font-size: 12px; gap: 8px; padding: 10px; position: absolute; right: 10px; top: 64px; width: 220px; z-index: 3; }
+.office-3d-objpanel h3 { font-size: 13px; margin: 0; }
+.office-3d-objpanel h3 small { color: #b7c9bf; font-weight: normal; margin-left: 4px; }
+.office-3d-objpanel-grid { display: grid; gap: 6px; grid-template-columns: 1fr 1fr; }
+.office-3d-objpanel label { color: #b7c9bf; display: grid; gap: 2px; }
+.office-3d-objpanel input, .office-3d-objpanel select { background: #101815; border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 4px; color: #f4efe6; font: inherit; padding: 3px 5px; width: 100%; }
+.office-3d-objpanel button.danger { border-color: #d9534f; color: #ff9b94; }
+.office-stage:has(.office-panel) .office-3d-objpanel { right: min(424px, calc(100% - 12px)); }
+@media (max-width: 700px) { .office-3d-editbar, .office-3d-objpanel, .office-3d-tools .edit-toggle { display: none; } }
