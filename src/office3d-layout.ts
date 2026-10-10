@@ -172,6 +172,20 @@ export function createLayout(agentCount: number): OfficeLayout {
   }
 }
 
+/**
+ * The layout with desks and beds taken from an edited scene, so agents sit where the desks and
+ * beds are. A scene without exactly one of each per agent leaves the generated seats alone.
+ */
+export function withMovedSeats(layout: OfficeLayout, desks: Vec3[], beds: Vec3[]): OfficeLayout {
+  const movedBeds = beds.length === layout.beds.length ? beds : layout.beds
+  return {
+    ...layout,
+    desks: desks.length === layout.desks.length ? desks : layout.desks,
+    beds: movedBeds,
+    idleStops: idleStops(layout.building, layout.baksoCart, layout.kopiBike, movedBeds),
+  }
+}
+
 const MEETING_RINGS = [
   { radius: 1.4, angles: [Math.PI, 2 * Math.PI, 1.5 * Math.PI, 1.25 * Math.PI, 1.75 * Math.PI] },
   { radius: 2.1, angles: [1.2 * Math.PI, 1.8 * Math.PI, 1.5 * Math.PI, 1.35 * Math.PI, 1.65 * Math.PI] },

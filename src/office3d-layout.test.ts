@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AISLE_Z, BUILDING, DESKS, ENTRANCE_X, GAME_DOOR, GAME_LANE_Z, GAME_ROOM, IDLE_ROUTE, IDLE_STOPS, IDLE_STOP_MS, LOUNGE_LANE_X, LOUNGE_SEATS, MEETING_TABLE, PAN_BOUNDS, createLayout, idlePlan, meetingSeat, SIDE_LANE_X, SIDEWALK_Z, clampTarget, idleStop, placementFor, walkPath, walkPath3, FLOOR_HEIGHT, STAIRS, BALCONY, floorOf, type Vec3 } from './office3d-layout.ts'
+import { AISLE_Z, BUILDING, DESKS, ENTRANCE_X, GAME_DOOR, GAME_LANE_Z, GAME_ROOM, IDLE_ROUTE, IDLE_STOPS, IDLE_STOP_MS, LOUNGE_LANE_X, LOUNGE_SEATS, MEETING_TABLE, PAN_BOUNDS, createLayout, idlePlan, meetingSeat, SIDE_LANE_X, SIDEWALK_Z, clampTarget, idleStop, placementFor, walkPath, walkPath3, FLOOR_HEIGHT, STAIRS, BALCONY, floorOf, withMovedSeats, bedSpot, type Vec3 } from './office3d-layout.ts'
 import type { OfficeStation } from './types.ts'
 
 const station = (overrides: Partial<OfficeStation>): OfficeStation => ({
@@ -181,5 +181,26 @@ describe('lantai 2', () => {
       }
       expect(new Set(seats.map((seat) => plan.get(seat)!.placement.position.join(','))).size).toBe(6)
     }
+  })
+})
+
+describe('moved seats', () => {
+  it('takes desk and bed positions from an edited scene and re-derives the bed stops', () => {
+    const base = createLayout(3)
+    const desks: Vec3[] = [[-1, 0, -1], [-2, 0, -2], [-3, 0, -3]]
+    const beds: Vec3[] = [[-1, FLOOR_HEIGHT, -4], [-2, FLOOR_HEIGHT, -4], [-3, FLOOR_HEIGHT, -4]]
+    const moved = withMovedSeats(base, desks, beds)
+    expect(moved.desks).toEqual(desks)
+    expect(moved.beds).toEqual(beds)
+    expect(moved.idleStops.find((stop) => stop.key === 'tidur')!.spots[0]).toEqual(bedSpot(beds[0]))
+    expect(moved.camera).toBe(base.camera)
+    expect(moved.building).toBe(base.building)
+  })
+
+  it('keeps the generated seats when the scene does not have one per agent', () => {
+    const base = createLayout(3)
+    const moved = withMovedSeats(base, [[0, 0, 0]], [])
+    expect(moved.desks).toEqual(base.desks)
+    expect(moved.beds).toEqual(base.beds)
   })
 })
