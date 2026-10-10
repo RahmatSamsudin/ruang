@@ -95,4 +95,13 @@ describe('PropPalette', () => {
     expect(head.getAttribute('aria-expanded')).toBe('false')
     expect(buttons()).toHaveLength(0)
   })
+
+  it('stops wheel event propagation so canvas controls do not zoom', async () => {
+    const { host } = await mount()
+    const palette = host.querySelector('.office-3d-palette')!
+    let propagated = false
+    host.addEventListener('wheel', () => { propagated = true })
+    palette.dispatchEvent(new Event('wheel', { bubbles: true, cancelable: true }))
+    expect(propagated).toBe(false)
+  })
 })

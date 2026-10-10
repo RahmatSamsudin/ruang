@@ -21,7 +21,15 @@ export function PropPalette({ placing, limitReached, onPick }: PropPaletteProps)
       types: PROP_TYPES.filter((type) => PROP_CATALOG[type].group === group && matches(type)).sort((a, b) => PROP_CATALOG[a].label.localeCompare(PROP_CATALOG[b].label)),
     })).filter((section) => section.types.length > 0)
   }, [query])
-  return <aside className="office-3d-palette" aria-label="Object palette">
+  return <aside
+    className="office-3d-palette"
+    aria-label="Object palette"
+    ref={(el) => {
+      if (!el) return
+      el.onwheel = (event) => event.stopPropagation()
+    }}
+    onWheel={(event) => event.stopPropagation()}
+  >
     <button type="button" className="office-3d-palette-head" aria-expanded={open} onClick={() => setOpen((value) => !value)}>{open ? '▾' : '▸'} Objects</button>
     {open && <>
       <input type="search" placeholder="Search objects" aria-label="Search objects" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => {

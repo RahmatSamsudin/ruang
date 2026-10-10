@@ -148,4 +148,13 @@ describe('ObjectPanel duplicate and properties', () => {
     expect(host.querySelector('input[type="color"]')).toBeNull()
     expect(host.querySelectorAll('input[type="number"]')).toHaveLength(3)
   })
+
+  it('stops wheel event propagation so canvas controls do not zoom', async () => {
+    const { host } = await mount(sofa)
+    const panel = host.querySelector('.office-3d-objpanel')!
+    let propagated = false
+    host.addEventListener('wheel', () => { propagated = true })
+    panel.dispatchEvent(new Event('wheel', { bubbles: true, cancelable: true }))
+    expect(propagated).toBe(false)
+  })
 })
