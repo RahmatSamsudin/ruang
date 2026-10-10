@@ -5,6 +5,7 @@ import { dirname, join, resolve } from 'node:path'
 import express, { type Express, type Request, type Response, type Router } from 'express'
 import { isHidden, type Privacy } from './profile-lock.js'
 import { SkinLibraryStore } from './skin-library.js'
+import { ComposeError, decodePng, encodePng } from './skin-compose.js'
 
 export const SKIN_ID_REGEX = /^[A-Za-z0-9._-]{1,64}$/
 export const MAX_SKIN_BYTES = 16 * 1024 // 16 KiB
@@ -313,8 +314,10 @@ export function createSkinsRouter(
         response.status(415).json({ error: 'Content-Type must be image/png.' })
         return
       }
-      const buffer = await readSkinBody(request)
-      validatePng(buffer)
+      const body = await readSkinBody(request)
+      validatePng(body)
+      // Canonical re-encode: same pixels => same bytes => same library id, whatever encoder the client used.
+      const buffer = encodePng(decodePng(body).data)
       const saved = await store.save(id, buffer)
       try {
         await libStore.archive({
@@ -327,7 +330,7 @@ export function createSkinsRouter(
       }
       response.json(saved)
     } catch (error) {
-      if (error instanceof SkinError) {
+      if (error instanceof SkinError || error instanceof ComposeError) {
         response.status(error.status).json({ error: error.message })
         return
       }

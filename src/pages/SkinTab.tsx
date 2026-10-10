@@ -126,11 +126,14 @@ export function SkinTab({ agentId }: SkinTabProps) {
       throw new Error(errMsg)
     }
 
+    // Server stores a canonical re-encode, so its version (== library id) differs from a local hash of `png`.
+    const saved = (await res.json().catch(() => null)) as { version?: string } | null
     isDirtyRef.current = false
     skinDraftStore.delete(agentId)
     skinTextureManager.disposeAgent(agentId)
     triggerSkinsRefresh()
-    void computeSkinSha1Prefix(png).then(setActiveSkinId)
+    if (saved?.version) setActiveSkinId(saved.version)
+    else void computeSkinSha1Prefix(png).then(setActiveSkinId)
     setLibraryRefresh((v) => v + 1)
   }
 

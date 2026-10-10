@@ -8,6 +8,7 @@ import express from 'express'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { AccessStore, installAccess } from './access.js'
 import { installProfileLock, ProfileLockStore } from './profile-lock.js'
+import { SkinLibraryStore } from './skin-library.js'
 import { installSkins, isValidSkinId, matchOriginHost, SkinStore, validatePng } from './skins.js'
 
 // CRC32 table for generating valid test PNGs
@@ -208,6 +209,36 @@ describe('skins api routes', () => {
 
     const list2 = (await (await fetch(`${base}/api/skins`)).json()) as { skins: Record<string, unknown> }
     expect(list2).toEqual({ skins: {} })
+  })
+
+  it('does not duplicate library entries when identical pixels arrive with different PNG encodings', async () => {
+    const plain = makePng(64, 64, 6, 8)
+    // Same pixels as makePng, but Sub-filtered like a browser canvas would encode them.
+    const sub = Buffer.alloc(64 * (1 + 256), 0)
+    for (let y = 0; y < 64; y++) {
+      sub[y * 257] = 1
+      sub.set([120, 180, 240, 255], y * 257 + 1)
+    }
+    const reencoded = Buffer.concat([
+      plain.subarray(0, 33),
+      makeChunk('IDAT', deflateSync(sub)),
+      makeChunk('IEND', Buffer.alloc(0)),
+    ])
+    expect(reencoded.equals(plain)).toBe(false)
+
+    const put = (agent: string, body: Buffer) =>
+      fetch(`${base}/api/skins/${agent}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'image/png', origin: base },
+        body,
+      })
+    const first = (await (await put('coder', plain)).json()) as { version: string }
+    const second = (await (await put('writer', reencoded)).json()) as { version: string }
+
+    expect(second.version).toBe(first.version)
+    const items = await new SkinLibraryStore(join(store.dir, 'library')).list()
+    expect(items).toHaveLength(1)
+    expect(items[0].id).toBe(first.version)
   })
 
   it('rejects PUT/DELETE without matching Origin with 403', async () => {
