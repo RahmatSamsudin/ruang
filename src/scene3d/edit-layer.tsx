@@ -1,7 +1,10 @@
 import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { useEffect, useMemo, useRef, type ReactNode, type RefObject } from 'react'
 import * as THREE from 'three'
-import { dragTarget, type Bounds, type EditableItem } from './scene-edit.ts'
+import { PROP_CATALOG } from './prop-catalog.ts'
+import { PROP_COMPONENTS } from './scene-renderer.tsx'
+import { dragTarget, placePoint, type Bounds, type EditableItem } from './scene-edit.ts'
+import type { PropType } from './scene.ts'
 
 /** What the 3D layer needs from the editor session (Office3D builds this from useSceneEditor). */
 export interface EditHandlers {
@@ -100,4 +103,77 @@ export function EditTarget({ item, edit, children }: { item: EditableItem; edit:
     </group>
     {edit.selectedId === item.id && <SelectionBox target={group}/>}
   </>
+}
+
+const CLICK_SLOP = 4
+
+/**
+ * While placing: a translucent ghost of the object follows the pointer across the floor of the viewed
+ * level (grid snap, Alt for free). A press-and-release under 4 px places it; a longer drag is the camera.
+ * Right-click (without dragging) or Esc (handled by the page) leaves placing. Listeners sit on the canvas
+ * element, not on scene objects, so existing items never take the click.
+ */
+export function PlacementLayer({ type, level, bounds, night, onPlace, onExit }: { type: PropType; level: number; bounds: Bounds; night: boolean; onPlace: (x: number, z: number) => void; onExit: () => void }) {
+  const { camera, gl } = useThree()
+  const entry = PROP_CATALOG[type]
+  const Component = PROP_COMPONENTS[type]
+  const ghost = useRef<THREE.Group>(null)
+  const plane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), [])
+  const ray = useMemo(() => new THREE.Raycaster(), [])
+  const hit = useMemo(() => new THREE.Vector3(), [])
+  const latest = useRef({ bounds, onPlace, onExit })
+  latest.current = { bounds, onPlace, onExit }
+
+  // Make the ghost translucent and unpickable once its meshes exist.
+  useEffect(() => {
+    ghost.current?.traverse((object) => {
+      object.raycast = () => {}
+      const material = (object as THREE.Mesh).material
+      for (const one of Array.isArray(material) ? material : material ? [material] : []) { one.transparent = true; one.opacity = 0.55; one.needsUpdate = true }
+    })
+  }, [type])
+
+  useEffect(() => {
+    const canvas = gl.domElement
+    plane.constant = -level
+    const target = (event: PointerEvent): [number, number] | null => {
+      const rect = canvas.getBoundingClientRect()
+      ray.setFromCamera(new THREE.Vector2(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1), camera)
+      return ray.ray.intersectPlane(plane, hit) ? placePoint([hit.x, hit.z], event.altKey, latest.current.bounds) : null
+    }
+    let down: { id: number; button: number; x: number; y: number } | null = null
+    const onMove = (event: PointerEvent) => {
+      const at = target(event)
+      if (!ghost.current) return
+      ghost.current.visible = at !== null
+      if (at) ghost.current.position.set(at[0], level, at[1])
+    }
+    const onDown = (event: PointerEvent) => { down = { id: event.pointerId, button: event.button, x: event.clientX, y: event.clientY } }
+    const onUp = (event: PointerEvent) => {
+      const start = down
+      down = null
+      if (!start || start.id !== event.pointerId || Math.hypot(event.clientX - start.x, event.clientY - start.y) >= CLICK_SLOP) return
+      if (start.button === 2) { latest.current.onExit(); return }
+      if (start.button !== 0) return
+      const at = target(event)
+      if (at) latest.current.onPlace(at[0], at[1])
+    }
+    const onContext = (event: Event) => event.preventDefault()
+    canvas.addEventListener('pointermove', onMove)
+    canvas.addEventListener('pointerdown', onDown)
+    canvas.addEventListener('pointerup', onUp)
+    canvas.addEventListener('contextmenu', onContext)
+    canvas.style.cursor = 'crosshair'
+    return () => {
+      canvas.removeEventListener('pointermove', onMove)
+      canvas.removeEventListener('pointerdown', onDown)
+      canvas.removeEventListener('pointerup', onUp)
+      canvas.removeEventListener('contextmenu', onContext)
+      canvas.style.cursor = ''
+    }
+  }, [camera, gl, hit, level, plane, ray])
+
+  return <group ref={ghost} visible={false}>
+    <Component {...entry.defaults} position={[0, entry.y, 0]} night={night} active={false}/>
+  </group>
 }

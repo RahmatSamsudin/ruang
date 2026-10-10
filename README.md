@@ -169,7 +169,12 @@ Notes for editing the patch by hand:
 
 Press **✎ Edit** (bottom right of the 3D office) to rearrange it from the UI. Click an object or window to select it (a yellow box appears), drag it to move it (movement happens in 0.25 m steps from where the object started; hold **Alt** for free placement), press **R** / **Shift+R** to rotate by +15° / -15°, **Delete** or **Backspace** to remove it, **Esc** to deselect, **Ctrl/Cmd+Z** to undo and **Ctrl/Cmd+Shift+Z** or **Ctrl/Cmd+Y** to redo. The panel at the top right has exact X, Z, rotation and floor fields. Desks and beds can be moved but not deleted (they follow the number of agents). **Save** writes your changes to the shared scene (see *Office scene*), **Reset to default** removes every saved edit, **Done** leaves edit mode (it asks if you have unsaved changes).
 
-Editing is unavailable when the window is 700 px wide or narrower. This first editor handles objects and windows only. Floors, walls, glass and new objects come later. Agents' walking routes still follow the stock layout, so a moved sofa does not re-route them (desks and beds do move their agents' seats).
+- **Add objects.** The *Objects* palette (left, collapsed on narrow screens) lists every object type. Pick one, then click the floor: it is placed on the floor you are viewing, snapped to 0.25 m (hold Alt for free placement). You stay in placing mode for the next one until you press Esc, right-click, or click the active entry again. Dragging still moves the camera. Desks and beds you add are decoration, not agent seats.
+- **Duplicate** the selected object with the *Duplicate* button or Ctrl/Cmd+D (the copy is half a metre over).
+- **Properties.** Size, length, run/rise/width and colour appear in the object panel for the objects that have them, including the stock ones.
+- At most 500 added objects can be saved.
+
+Editing is unavailable when the window is 700 px wide or narrower. The editor handles objects and windows; floors, walls and glass cannot be added or edited yet. Agents' walking routes still follow the stock layout, so a moved sofa does not re-route them (desks and beds do move their agents' seats).
 
 ## Agent skins
 

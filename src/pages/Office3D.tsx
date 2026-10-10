@@ -6,9 +6,9 @@ import { officeStateBadge } from '../office-state.ts'
 import { clampTarget, createLayout, FLOOR_HEIGHT, GAME_ROOM, idlePlan, placementFor, walkPath3, withMovedSeats, type OfficeLayout, type Placement, type Vec3 } from '../office3d-layout.ts'
 import { defaultScene } from '../scene3d/default-scene.ts'
 import { levelName } from '../scene3d/level-names.ts'
-import { applyPatch, deskSeatNumber, levelAt, levelsOf, seatPositions, visibleAt } from '../scene3d/scene.ts'
-import { EditTarget, type EditHandlers } from '../scene3d/edit-layer.tsx'
-import { canDelete, deleteItem, editKeyAction, isEditable, moveItem, rotateBy, rotateItem, ROTATION_STEP, setItemLevel, type EditKeyAction } from '../scene3d/scene-edit.ts'
+import { applyPatch, deskSeatNumber, levelAt, levelsOf, MAX_ADDED, seatPositions, visibleAt } from '../scene3d/scene.ts'
+import { EditTarget, PlacementLayer, type EditHandlers } from '../scene3d/edit-layer.tsx'
+import { addProp, canDelete, deleteItem, duplicateItem, editKeyAction, isEditable, moveItem, rotateBy, rotateItem, ROTATION_STEP, setItemLevel, setItemProp, type EditKeyAction } from '../scene3d/scene-edit.ts'
 import { SceneRenderer } from '../scene3d/scene-renderer.tsx'
 import { useSceneEditor } from '../scene3d/use-scene-editor.ts'
 import { useScenePatch } from '../scene3d/use-scene.ts'
@@ -16,6 +16,7 @@ import { createSkinBoxGeometry, useSkinTexture, useSkins } from '../scene3d/skin
 import type { OfficeStation } from '../types.ts'
 import { EditorBar } from './EditorBar.tsx'
 import { ObjectPanel } from './ObjectPanel.tsx'
+import { PropPalette } from './PropPalette.tsx'
 
 // 3D view of the same Office snapshot the 2D view renders. Positions come from each station's
 // room, roomPosition and seat, so the 3D office shows exactly the states the server derived.
@@ -399,6 +400,9 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
   // Editing is inactive on narrow viewports, where the editor UI is hidden.
   const narrow = useNarrow()
   const editingActive = editor.editing && !narrow
+  // Placing is part of editing; it ends when the editor UI is hidden (narrow viewport) or editing stops.
+  const placing = editingActive ? editor.placing : null
+  const limitReached = editor.draft.added.length >= MAX_ADDED
   // While editing, the draft is the scene (the polled patch is ignored); otherwise the saved patch.
   const patch = editor.editing ? editor.draft : savedPatch
   const baseLayout = useMemo(() => createLayout(stations.length), [stations.length])
@@ -432,8 +436,9 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
   const runEditAction = (action: EditKeyAction) => {
     if (action === 'undo') editor.undo()
     else if (action === 'redo') editor.redo()
-    else if (action === 'deselect') editor.select(null)
+    else if (action === 'deselect') { if (editor.placing) editor.stopPlacing(); else editor.select(null) }
     else if (!selected) return
+    else if (action === 'duplicate') { if (!limitReached) editor.addWith((patchNow) => duplicateItem(patchNow, items, selected, bounds)) }
     else if (action === 'delete') { if (!canDelete(selected)) return; editor.apply((patchNow) => deleteItem(patchNow, selected)); editor.select(null) }
     else editor.apply((patchNow) => rotateBy(patchNow, selected, action === 'rotate+' ? ROTATION_STEP : -ROTATION_STEP))
   }
@@ -476,9 +481,10 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
     }
     if (event.key === 'PageUp' || event.key === 'PageDown') { event.preventDefault(); setLevelIndex(Math.min(Math.max(levelIndex + (event.key === 'PageUp' ? 1 : -1), 0), levels.length - 1)) }
   }}>
-    <Canvas shadows dpr={[1, 2]} camera={{ position: [-3, 13, 16], fov: 40, near: 0.5, far: 150 }} gl={{ antialias: true }} onPointerMissed={editingActive ? () => editor.select(null) : undefined}>
+    <Canvas shadows dpr={[1, 2]} camera={{ position: [-3, 13, 16], fov: 40, near: 0.5, far: 150 }} gl={{ antialias: true }} onPointerMissed={editingActive && !placing ? () => editor.select(null) : undefined}>
       <Lighting theme={theme}/>
-      <SceneRenderer items={drawItems} level={level} night={theme === 'dark'} deskActive={(id) => occupiedSeats.has(deskSeatNumber(id) ?? -1)} wrap={editingActive ? (item, node) => (isEditable(item) ? <EditTarget item={item} edit={edit}>{node}</EditTarget> : node) : undefined}/>
+      <SceneRenderer items={drawItems} level={level} night={theme === 'dark'} deskActive={(id) => occupiedSeats.has(deskSeatNumber(id) ?? -1)} wrap={editingActive && !placing ? (item, node) => (isEditable(item) ? <EditTarget item={item} edit={edit}>{node}</EditTarget> : node) : undefined}/>
+      {placing && <PlacementLayer type={placing} level={level} bounds={bounds} night={theme === 'dark'} onPlace={(x, z) => editor.addWith((patchNow) => addProp(patchNow, items, placing, x, z, level, bounds))} onExit={editor.stopPlacing}/>}
       {stations.map((station) => <Character key={station.id} station={station} placement={placement(station)} layout={layout} level={level} levels={levels} onSelect={selectAgent} anchor={register(anchors, `agent-${station.id}`)} skinVersion={skins?.[station.id]?.version}/>)}
       <LabelProjector anchors={anchors} labels={labels}/>
       <Controls key={layout.deskCount} ref={view} panMode={panMode} keyTarget={keyTarget} layout={layout} elevation={level} enabled={!(editingActive && (hovering || dragging))}/>
@@ -507,6 +513,7 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
       <button type="button" onClick={() => view.current?.reset()} title="Back to the starting view">↺ Reset view</button>
     </div>
     {editor.editing && <EditorBar canUndo={editor.canUndo} canRedo={editor.canRedo} dirty={editor.dirty} saving={editor.saving} error={editor.error} onUndo={editor.undo} onRedo={editor.redo} onSave={() => void editor.save()} onReset={resetEdits} onDone={finishEditing}/>}
-    {editor.editing && selected && <ObjectPanel item={selected} levels={levels} canDuplicate={false} onDuplicate={() => {}} onProp={() => {}} onMove={(x, z) => editor.apply((patchNow) => moveItem(patchNow, selected, x, z, bounds))} onRotate={(degrees) => editor.apply((patchNow) => rotateItem(patchNow, selected, (degrees * Math.PI) / 180))} onLevel={(next) => { editor.apply((patchNow) => setItemLevel(patchNow, selected, next)); setLevelIndex(Math.max(0, levels.indexOf(next))) }} onDelete={() => { editor.apply((patchNow) => deleteItem(patchNow, selected)); editor.select(null); keyTarget?.focus() }}/>}
+    {editor.editing && <PropPalette placing={placing} limitReached={limitReached} onPick={(type) => (type ? editor.startPlacing(type) : editor.stopPlacing())}/>}
+    {editor.editing && selected && <ObjectPanel item={selected} levels={levels} canDuplicate={!limitReached} onDuplicate={() => editor.addWith((patchNow) => duplicateItem(patchNow, items, selected, bounds))} onProp={(key, value) => editor.apply((patchNow) => setItemProp(patchNow, selected, key, value))} onMove={(x, z) => editor.apply((patchNow) => moveItem(patchNow, selected, x, z, bounds))} onRotate={(degrees) => editor.apply((patchNow) => rotateItem(patchNow, selected, (degrees * Math.PI) / 180))} onLevel={(next) => { editor.apply((patchNow) => setItemLevel(patchNow, selected, next)); setLevelIndex(Math.max(0, levels.indexOf(next))) }} onDelete={() => { editor.apply((patchNow) => deleteItem(patchNow, selected)); editor.select(null); keyTarget?.focus() }}/>}
   </div>
 }
