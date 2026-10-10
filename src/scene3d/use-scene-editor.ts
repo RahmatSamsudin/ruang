@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
-import { EMPTY_PATCH, type ScenePatch } from './scene.ts'
+import { EMPTY_PATCH, type PropType, type ScenePatch } from './scene.ts'
+import type { AddResult } from './scene-edit.ts'
 
 // The editing session for the 3D office: a draft ScenePatch with undo/redo, a live drag position,
 // and Save / Reset against /api/scene. Edits are pure patch to patch functions (scene-edit.ts).
@@ -15,11 +16,12 @@ interface State {
   future: ScenePatch[]
   selectedId: string | null
   drag: { id: string; x: number; z: number } | null
+  placing: PropType | null
   saving: boolean
   error: string | null
 }
 
-const fresh = (patch: ScenePatch): State => ({ editing: false, draft: patch, baseline: patch, past: [], future: [], selectedId: null, drag: null, saving: false, error: null })
+const fresh = (patch: ScenePatch): State => ({ editing: false, draft: patch, baseline: patch, past: [], future: [], selectedId: null, drag: null, placing: null, saving: false, error: null })
 const same = (a: ScenePatch, b: ScenePatch): boolean => a === b || JSON.stringify(a) === JSON.stringify(b)
 
 async function failure(response: Response, prefix: string): Promise<string> {
@@ -32,6 +34,7 @@ export interface SceneEditor {
   draft: ScenePatch
   selectedId: string | null
   drag: { id: string; x: number; z: number } | null
+  placing: PropType | null
   canUndo: boolean
   canRedo: boolean
   dirty: boolean
@@ -43,6 +46,10 @@ export interface SceneEditor {
   apply: (change: (patch: ScenePatch) => ScenePatch) => void
   undo: () => void
   redo: () => void
+  startPlacing: (type: PropType) => void
+  stopPlacing: () => void
+  /** Applies an add (place or duplicate) as one undo step and selects the new item. */
+  addWith: (make: (patch: ScenePatch) => AddResult) => void
   previewDrag: (id: string, x: number, z: number) => void
   endDrag: () => void
   save: () => Promise<void>
@@ -64,14 +71,21 @@ export function useSceneEditor(saved: ScenePatch, refresh: () => void, request?:
   const enter = useCallback(() => setState({ ...fresh(savedRef.current), editing: true }), [])
   const exit = useCallback(() => setState((s) => fresh(s.baseline)), [])
   const select = useCallback((id: string | null) => setState((s) => ({ ...s, selectedId: id })), [])
+  const startPlacing = useCallback((type: PropType) => setState((s) => ({ ...s, placing: type, selectedId: null })), [])
+  const stopPlacing = useCallback(() => setState((s) => (s.placing ? { ...s, placing: null } : s)), [])
+  const addWith = useCallback((make: (patch: ScenePatch) => AddResult) => setState((s) => {
+    const { patch, id } = make(s.draft)
+    if (id === null || patch === s.draft) return s
+    return { ...s, draft: patch, past: [...s.past, s.draft].slice(-MAX_HISTORY), future: [], selectedId: id, error: null }
+  }), [])
 
   const apply = useCallback((change: (patch: ScenePatch) => ScenePatch) => setState((s) => {
     const next = change(s.draft)
     if (next === s.draft) return s
     return { ...s, draft: next, past: [...s.past, s.draft].slice(-MAX_HISTORY), future: [], error: null }
   }), [])
-  const undo = useCallback(() => setState((s) => (s.past.length === 0 ? s : { ...s, draft: s.past[s.past.length - 1], past: s.past.slice(0, -1), future: [...s.future, s.draft] })), [])
-  const redo = useCallback(() => setState((s) => (s.future.length === 0 ? s : { ...s, draft: s.future[s.future.length - 1], future: s.future.slice(0, -1), past: [...s.past, s.draft] })), [])
+  const undo = useCallback(() => setState((s) => (s.past.length === 0 ? s : { ...s, draft: s.past[s.past.length - 1], past: s.past.slice(0, -1), future: [...s.future, s.draft], placing: null })), [])
+  const redo = useCallback(() => setState((s) => (s.future.length === 0 ? s : { ...s, draft: s.future[s.future.length - 1], future: s.future.slice(0, -1), past: [...s.past, s.draft], placing: null })), [])
 
   const previewDrag = useCallback((id: string, x: number, z: number) => setState((s) => ({ ...s, drag: { id, x, z } })), [])
   const endDrag = useCallback(() => setState((s) => (s.drag ? { ...s, drag: null } : s)), [])
@@ -106,9 +120,9 @@ export function useSceneEditor(saved: ScenePatch, refresh: () => void, request?:
   }, [send])
 
   return {
-    editing: state.editing, draft: state.draft, selectedId: state.selectedId, drag: state.drag,
+    editing: state.editing, draft: state.draft, selectedId: state.selectedId, drag: state.drag, placing: state.placing,
     canUndo: state.past.length > 0, canRedo: state.future.length > 0,
     dirty: !same(state.draft, state.baseline), saving: state.saving, error: state.error,
-    enter, exit, select, apply, undo, redo, previewDrag, endDrag, save, reset,
+    enter, exit, select, apply, undo, redo, startPlacing, stopPlacing, addWith, previewDrag, endDrag, save, reset,
   }
 }

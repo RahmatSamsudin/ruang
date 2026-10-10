@@ -172,3 +172,60 @@ describe('useSceneEditor', () => {
     expect(editor().canUndo).toBe(false)
   })
 })
+
+describe('placing and adding', () => {
+  const item = { kind: 'prop' as const, id: 'added-1', type: 'Plant' as const, level: 0, position: [1, 0, 1] as [number, number, number] }
+  const addOne = (patch: ScenePatch) => ({ patch: { ...patch, added: [...patch.added, item] }, id: 'added-1' as string | null })
+
+  it('startPlacing deselects and stopPlacing clears the mode', async () => {
+    const { editor, run } = await mount()
+    await run((e) => e.enter())
+    await run((e) => e.select('sofa'))
+    await run((e) => e.startPlacing('Sofa'))
+    expect(editor().placing).toBe('Sofa')
+    expect(editor().selectedId).toBeNull()
+    await run((e) => e.stopPlacing())
+    expect(editor().placing).toBeNull()
+  })
+
+  it('addWith adds as one undo step and selects the new item, staying in placing mode', async () => {
+    const { editor, run } = await mount()
+    await run((e) => e.enter())
+    await run((e) => e.startPlacing('Plant'))
+    await run((e) => e.addWith(addOne))
+    expect(editor().draft.added).toEqual([item])
+    expect(editor().selectedId).toBe('added-1')
+    expect(editor().placing).toBe('Plant')
+    expect(editor().dirty).toBe(true)
+    await run((e) => e.undo())
+    expect(editor().draft.added).toEqual([])
+    expect(editor().canUndo).toBe(false)
+    expect(editor().placing).toBeNull()
+  })
+
+  it('addWith ignores a result without an id', async () => {
+    const { editor, run } = await mount()
+    await run((e) => e.enter())
+    await run((e) => e.addWith((patch) => ({ patch, id: null })))
+    expect(editor().canUndo).toBe(false)
+    expect(editor().selectedId).toBeNull()
+  })
+
+  it('leaves placing mode on redo, Done and reset', async () => {
+    const { editor, run, request } = await mount(vi.fn(async () => json({ ok: true })))
+    await run((e) => e.enter())
+    await run((e) => e.addWith(addOne))
+    await run((e) => e.undo())
+    await run((e) => e.startPlacing('Sofa'))
+    await run((e) => e.redo())
+    expect(editor().placing).toBeNull()
+    await run((e) => e.startPlacing('Sofa'))
+    await run((e) => e.exit())
+    expect(editor().placing).toBeNull()
+    await run((e) => e.enter())
+    await run((e) => e.startPlacing('Sofa'))
+    await run((e) => e.reset())
+    expect(request).toHaveBeenCalled()
+    expect(editor().placing).toBeNull()
+  })
+})
