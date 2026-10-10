@@ -46,10 +46,10 @@ export function visibleAt(item: SceneItem, active: number): boolean {
 
 export const levelsOf = (items: SceneItem[]): number[] => [...new Set(items.map((item) => item.level))].sort((a, b) => a - b)
 
-/** The level (from the sorted `levels`) a given height is on. */
+/** The level (from the sorted `levels`) a given height belongs to. Each level extends down to the midpoint with the level below it, so an agent halfway up the stairs counts as upstairs. */
 export function levelAt(levels: number[], y: number): number {
   let found = levels[0] ?? 0
-  for (const level of levels) if (y >= level - 1e-6) found = level
+  for (let i = 1; i < levels.length; i++) if (y > (levels[i - 1] + levels[i]) / 2) found = levels[i]
   return found
 }
 

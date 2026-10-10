@@ -22,9 +22,14 @@ describe('levels and views', () => {
   it('derives sorted levels and finds the level an agent stands on', () => {
     expect(levelsOf([prop('a', 2.8), prop('b', 0), prop('c', 2.8)])).toEqual([0, 2.8])
     expect(levelAt([0, 2.8], 0)).toBe(0)
-    expect(levelAt([0, 2.8], 1.4)).toBe(0)
+    expect(levelAt([0, 2.8], 0.3)).toBe(0)
+    expect(levelAt([0, 2.8], 1.4)).toBe(0) // exactly the midpoint stays low, like the old y > H/2
+    expect(levelAt([0, 2.8], 1.41)).toBe(2.8)
     expect(levelAt([0, 2.8], 2.8)).toBe(2.8)
+    expect(levelAt([0, 2.8, 5.6], 4.19)).toBe(2.8) // 4.2 itself is a float coin-toss: (2.8 + 5.6) / 2 is 4.199999999999999
+    expect(levelAt([0, 2.8, 5.6], 4.21)).toBe(5.6)
     expect(levelAt([0, 2.8, 5.6], 9)).toBe(5.6)
+    expect(levelAt([0, 2.8], -3)).toBe(0)
     expect(levelAt([], 3)).toBe(0)
   })
 })
