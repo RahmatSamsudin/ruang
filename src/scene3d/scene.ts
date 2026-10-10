@@ -61,6 +61,8 @@ export const deskSeatNumber = (id: string): number | undefined => {
 
 // One desk and one bed per agent come from the crew, so a patch can move them but not remove them.
 const SEAT_ID = /^(desk|bed)-\d+$/
+/** True for the crew's `desk-N` / `bed-N` ids. */
+export const isSeatId = (id: string): boolean => SEAT_ID.test(id)
 
 export function applyPatch(items: SceneItem[], patch?: ScenePatch): SceneItem[] {
   if (!patch) return items
