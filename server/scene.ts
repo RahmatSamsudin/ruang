@@ -131,9 +131,14 @@ export class SceneStore {
     const directory = dirname(this.file)
     await mkdir(directory, { recursive: true, mode: 0o700 })
     const temporary = join(directory, `.scene.${process.pid}.${randomUUID()}.tmp`)
-    await writeFile(temporary, JSON.stringify(patch), { mode: 0o600 })
-    await chmod(temporary, 0o600).catch(() => {})
-    await rename(temporary, this.file)
+    try {
+      await writeFile(temporary, JSON.stringify(patch), { mode: 0o600 })
+      await chmod(temporary, 0o600).catch(() => {})
+      await rename(temporary, this.file)
+    } catch (error) {
+      await rm(temporary, { force: true }).catch(() => {})
+      throw error
+    }
     await chmod(this.file, 0o600).catch(() => {})
   }
 
@@ -193,6 +198,9 @@ export function createSceneRouter(store: SceneStore = new SceneStore()): Router 
     const type = (error as { type?: string } | null)?.type
     if (type === 'entity.too.large') { response.status(413).json({ error: 'Scene is too large.' }); return }
     if (type === 'entity.parse.failed') { response.status(400).json({ error: 'Invalid JSON.' }); return }
+    // Other client-caused body-parser errors (unsupported charset or encoding, aborted request) carry a 4xx status.
+    const status = (error as { status?: unknown } | null)?.status
+    if (typeof status === 'number' && status >= 400 && status < 500) { response.status(status).json({ error: 'Request body not accepted.' }); return }
     next(error)
   })
 

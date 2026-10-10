@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -65,6 +65,11 @@ describe('scene api routes', () => {
     file = join(tmp, 'data', 'scene.json')
     const app = express()
     installScene(app, new SceneStore(file))
+    // Like server/index.ts: any error that reaches the app handler is a 500.
+    app.use((_error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
+      void _next
+      response.status(500).json({ error: 'Internal error' })
+    })
     const server = app.listen(0, '127.0.0.1')
     await new Promise((resolve) => server.once('listening', resolve))
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
@@ -111,6 +116,19 @@ describe('scene api routes', () => {
     expect((await put({ version: 1, added: [{ ...sofa, type: 'Rocket' }] })).status).toBe(400)
     expect((await put('')).status).toBe(400)
     await expect(stat(file)).rejects.toThrow()
+  })
+
+  it('answers an unsupported charset with a 4xx, never a 500, and writes nothing', async () => {
+    const response = await put(good, { 'content-type': 'application/json; charset=iso-8859-1' })
+    expect(response.status).toBe(415)
+    await expect(stat(file)).rejects.toThrow()
+  })
+
+  it('removes its temp file when a write fails and leaves the target alone', async () => {
+    await mkdir(file, { recursive: true }) // scene.json is a directory, so the final rename fails
+    await expect(new SceneStore(file).write(validatePatch(good))).rejects.toThrow()
+    expect((await stat(file)).isDirectory()).toBe(true)
+    expect((await readdir(join(tmp, 'data'))).filter((name) => name.endsWith('.tmp'))).toEqual([])
   })
 
   it('reads a corrupt or invalid file as the empty patch instead of failing', async () => {
