@@ -70,6 +70,7 @@ export function applyPatch(items: SceneItem[], patch?: ScenePatch): SceneItem[] 
   }
   const taken = new Set(items.map((item) => item.id))
   for (const added of Array.isArray(patch.added) ? patch.added : []) {
+    if (typeof added !== 'object' || added === null || typeof added.id !== 'string') continue
     if (taken.has(added.id) || SEAT_ID.test(added.id)) continue
     taken.add(added.id)
     result.push(added)

@@ -75,6 +75,7 @@ describe('applyPatch', () => {
     expect(applyPatch(base, { version: 1 } as never)).toEqual(base)
     expect(applyPatch(base, { version: 1, overrides: { sofa: 'nope' }, added: 'nope' } as never)).toEqual(base)
     expect(applyPatch(base, null as never)).toBe(base)
+    expect(applyPatch(base, { version: 1, overrides: {}, added: [null, 3, {}, { id: 5 }] } as never)).toEqual(base)
   })
 })
 
