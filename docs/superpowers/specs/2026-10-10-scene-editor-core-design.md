@@ -67,12 +67,14 @@ Labels are in English like the rest of the app.
 - **Select.** Click an editable object (a `prop` or `window`) to select it; a yellow box outlines it.
   Clicking empty space (R3F `onPointerMissed`) or pressing Esc deselects.
 - **Move.** Drag a selected or unselected editable object across the horizontal plane at its own
-  height. The grab offset is kept, so it does not jump. Positions snap to a 0.25 m grid; hold Alt for
-  free placement. Positions are clamped to the office's pan bounds (`layout.pan`) so an object can
+  height. The grab offset is kept, so it does not jump. Movement snaps to 0.25 m steps relative to where the
+  object started (so stock items that sit off the grid, such as wall-mounted ones, keep their
+  alignment); hold Alt for free placement. Positions are clamped to the office's pan bounds (`layout.pan`) so an object can
   never be dropped out of reach. One drag is one undo step.
-- **Camera.** While the pointer is over an editable object, or while dragging, orbit/pan is
-  disabled (a `enabled` prop on `Controls`), so the press-drag moves the object. Everywhere else
-  the camera works as before.
+- **Camera.** While the pointer is over an editable object, or while dragging, orbit and pan are
+  disabled (an `enabled` prop on `Controls`; wheel zoom still works), so the press-drag moves the
+  object. The hover lock is not taken when a mouse button is already held (an orbit drag crossing
+  an object). Everywhere else the camera works as before.
 - **Rotate.** `R` rotates the selection by +15° (`Shift+R` by −15°), or type degrees in the panel.
 - **Delete.** `Delete`/`Backspace` or the panel button. Desks and beds (`desk-N`, `bed-N`) cannot be
   deleted: the button is disabled with the tooltip "Desks and beds follow the number of agents".
@@ -135,7 +137,7 @@ the agent's seat immediately in the draft.
   editor can still be entered and will save on top of whatever the server accepts.
 - Out-of-range or non-finite typed values in the panel are rejected on blur (the field reverts);
   positions are clamped to the pan bounds.
-- Unknown item ids (a stale selection after undo) clear the selection.
+- The selection is derived from the current items, so a stale selection shows no panel and re-selects itself if the item returns.
 
 ## Testing
 

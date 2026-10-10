@@ -167,9 +167,9 @@ Notes for editing the patch by hand:
 
 ### Editing the office
 
-Press **✎ Edit** (bottom right of the 3D office) to rearrange it from the UI. Click an object or window to select it (a yellow box appears), drag it to move it (it snaps to a 0.25 m grid; hold **Alt** for free placement), press **R** (or **Shift+R**) to rotate by 15°, **Delete** to remove it, **Esc** to deselect, **Ctrl/Cmd+Z** and **Ctrl/Cmd+Shift+Z** to undo and redo. The panel at the top right has exact X, Z, rotation and floor fields. Desks and beds can be moved but not deleted (they follow the number of agents). **Save** writes your changes to the shared scene (see *Office scene*), **Reset to default** removes every saved edit, **Done** leaves edit mode (it asks if you have unsaved changes).
+Press **✎ Edit** (bottom right of the 3D office) to rearrange it from the UI. Click an object or window to select it (a yellow box appears), drag it to move it (movement happens in 0.25 m steps from where the object started; hold **Alt** for free placement), press **R** / **Shift+R** to rotate by +15° / -15°, **Delete** or **Backspace** to remove it, **Esc** to deselect, **Ctrl/Cmd+Z** to undo and **Ctrl/Cmd+Shift+Z** or **Ctrl/Cmd+Y** to redo. The panel at the top right has exact X, Z, rotation and floor fields. Desks and beds can be moved but not deleted (they follow the number of agents). **Save** writes your changes to the shared scene (see *Office scene*), **Reset to default** removes every saved edit, **Done** leaves edit mode (it asks if you have unsaved changes).
 
-This first editor handles objects and windows only. Floors, walls, glass and new objects come later. Agents' walking routes still follow the stock layout, so a moved sofa does not re-route them (desks and beds do move their agents' seats).
+Editing is unavailable when the window is 700 px wide or narrower. This first editor handles objects and windows only. Floors, walls, glass and new objects come later. Agents' walking routes still follow the stock layout, so a moved sofa does not re-route them (desks and beds do move their agents' seats).
 
 ## Agent skins
 

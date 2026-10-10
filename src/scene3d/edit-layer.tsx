@@ -1,7 +1,7 @@
 import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
-import { useMemo, useRef, type ReactNode, type RefObject } from 'react'
+import { useEffect, useMemo, useRef, type ReactNode, type RefObject } from 'react'
 import * as THREE from 'three'
-import { snap, type Bounds, type EditableItem } from './scene-edit.ts'
+import { dragTarget, type Bounds, type EditableItem } from './scene-edit.ts'
 
 /** What the 3D layer needs from the editor session (Office3D builds this from useSceneEditor). */
 export interface EditHandlers {
@@ -20,6 +20,7 @@ export interface EditHandlers {
 function SelectionBox({ target }: { target: RefObject<THREE.Group | null> }) {
   const box = useMemo(() => new THREE.Box3(), [])
   const helper = useMemo(() => new THREE.Box3Helper(box, new THREE.Color('#f5bd6d')), [box])
+  useEffect(() => () => { helper.dispose() }, [helper])
   useFrame(() => { if (target.current) box.setFromObject(target.current) })
   return <primitive object={helper}/>
 }
@@ -36,6 +37,10 @@ export function EditTarget({ item, edit, children }: { item: EditableItem; edit:
   const plane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), [])
   const ray = useMemo(() => new THREE.Raycaster(), [])
   const hit = useMemo(() => new THREE.Vector3(), [])
+  const { setHover } = edit
+  const hovered = useRef(false)
+  // R3F does not fire pointer-out when a hovered object unmounts (deleted, floor change), so release the hover lock here.
+  useEffect(() => () => { if (hovered.current) { setHover(false); document.body.style.cursor = '' } }, [setHover])
 
   const pointOnPlane = (clientX: number, clientY: number): [number, number] | null => {
     const rect = gl.domElement.getBoundingClientRect()
@@ -53,18 +58,19 @@ export function EditTarget({ item, edit, children }: { item: EditableItem; edit:
     const offset: [number, number] = [item.position[0] - start[0], item.position[2] - start[1]]
     const origin: [number, number] = [item.position[0], item.position[2]]
     let last = origin
+    const pointerId = event.nativeEvent.pointerId
     edit.setDragging(true)
     const move = (pointer: PointerEvent) => {
+      if (pointer.pointerId !== pointerId) return
       const point = pointOnPlane(pointer.clientX, pointer.clientY)
       if (!point) return
-      const raw: [number, number] = [point[0] + offset[0], point[1] + offset[1]]
-      const free = pointer.altKey
-      const x = Math.min(Math.max(free ? raw[0] : snap(raw[0]), edit.bounds.minX), edit.bounds.maxX)
-      const z = Math.min(Math.max(free ? raw[1] : snap(raw[1]), edit.bounds.minZ), edit.bounds.maxZ)
+      const [x, z] = dragTarget(origin, [point[0] + offset[0], point[1] + offset[1]], pointer.altKey, edit.bounds)
+      if (x === last[0] && z === last[1]) return
       last = [x, z]
       edit.previewDrag(item.id, x, z)
     }
-    const up = () => {
+    const up = (pointer: PointerEvent) => {
+      if (pointer.pointerId !== pointerId) return
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
       window.removeEventListener('pointercancel', up)
@@ -79,8 +85,15 @@ export function EditTarget({ item, edit, children }: { item: EditableItem; edit:
 
   return <>
     <group ref={group} onPointerDown={onPointerDown}
-      onPointerOver={(event) => { event.stopPropagation(); edit.setHover(true); document.body.style.cursor = 'grab' }}
-      onPointerOut={() => { edit.setHover(false); document.body.style.cursor = '' }}>
+      onPointerOver={(event) => {
+        event.stopPropagation()
+        // Not while a button is held (an orbit drag crossing this object): the camera must not stop mid-drag.
+        if (event.nativeEvent.buttons) return
+        hovered.current = true
+        edit.setHover(true)
+        document.body.style.cursor = 'grab'
+      }}
+      onPointerOut={() => { hovered.current = false; edit.setHover(false); document.body.style.cursor = '' }}>
       {children}
     </group>
     {edit.selectedId === item.id && <SelectionBox target={group}/>}

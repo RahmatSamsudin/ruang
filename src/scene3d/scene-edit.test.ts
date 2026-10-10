@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { EMPTY_PATCH, type BoxItem, type PropItem, type ScenePatch, type WindowItem } from './scene.ts'
-import { canDelete, deleteItem, editKeyAction, GRID, isEditable, moveItem, ROTATION_STEP, rotateBy, rotateItem, setItemLevel, snap } from './scene-edit.ts'
+import { canDelete, deleteItem, dragTarget, editKeyAction, GRID, isEditable, moveItem, ROTATION_STEP, rotateBy, rotateItem, setItemLevel, snap } from './scene-edit.ts'
 
 const sofa: PropItem = { kind: 'prop', id: 'sofa', level: 0, type: 'Sofa', position: [4.6, 0, -1.3], rotation: Math.PI }
 const lamp: PropItem = { kind: 'prop', id: 'my-lamp', level: 0, type: 'Plant', position: [1, 0, 1] }
@@ -69,6 +69,47 @@ describe('moveItem', () => {
 
   it('rounds to four decimals so saved numbers stay small', () => {
     expect(moveItem(EMPTY_PATCH, sofa, 1.123456789, 2).overrides.sofa).toEqual({ position: [1.1235, 0, 2] })
+  })
+
+  it('returns the same patch when the position does not change (no empty undo step)', () => {
+    expect(moveItem(EMPTY_PATCH, sofa, 4.6, -1.3)).toBe(EMPTY_PATCH)
+    expect(moveItem(EMPTY_PATCH, sofa, 99, -1.3, { minX: -10, maxX: 4.6, minZ: -6, maxZ: 12 })).toBe(EMPTY_PATCH)
+  })
+})
+
+describe('dragTarget', () => {
+  const wide = { minX: -10, maxX: 10, minZ: -6, maxZ: 12 }
+
+  it('a click with jitter keeps an off-grid origin exactly', () => {
+    expect(dragTarget([0.9, 1.3], [0.95, 1.32], false, wide)).toEqual([0.9, 1.3])
+  })
+
+  it('snaps the movement, not the position, to the grid', () => {
+    const [x, z] = dragTarget([0.9, 1.3], [1.2, 1.3], false, wide)
+    expect(x).toBeCloseTo(1.15, 6)
+    expect(z).toBeCloseTo(1.3, 6)
+  })
+
+  it('rounds a 0.12 delta to 0 and a 0.13 delta to one step', () => {
+    expect(dragTarget([0, 0], [0.12, 0], false, wide)[0]).toBe(0)
+    expect(dragTarget([0, 0], [0.13, 0], false, wide)[0]).toBe(0.25)
+  })
+
+  it('free placement follows the raw delta', () => {
+    const [x, z] = dragTarget([0.9, 1.3], [0.95, 1.32], true, wide)
+    expect(x).toBeCloseTo(0.95, 6)
+    expect(z).toBeCloseTo(1.32, 6)
+  })
+
+  it('clamps to the bounds on both axes, also when free', () => {
+    expect(dragTarget([0, 0], [99, -99], false, wide)).toEqual([10, -6])
+    expect(dragTarget([0, 0], [-99, 99], true, wide)).toEqual([-10, 12])
+  })
+
+  it('handles negative deltas', () => {
+    const [x, z] = dragTarget([1, 1], [0.6, 0.3], false, wide)
+    expect(x).toBeCloseTo(0.5, 6) // -0.4 rounds to -2 steps
+    expect(z).toBeCloseTo(0.25, 6) // -0.7 rounds to -3 steps
   })
 })
 

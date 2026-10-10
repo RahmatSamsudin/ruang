@@ -37,7 +37,14 @@ function patchItem(patch: ScenePatch, id: string, fields: Partial<SceneItem>): S
 export function moveItem(patch: ScenePatch, item: EditableItem, x: number, z: number, bounds?: Bounds): ScenePatch {
   const px = round4(bounds ? clamp(x, bounds.minX, bounds.maxX) : x)
   const pz = round4(bounds ? clamp(z, bounds.minZ, bounds.maxZ) : z)
+  if (px === item.position[0] && pz === item.position[2]) return patch
   return patchItem(patch, item.id, { position: [px, item.position[1], pz] })
+}
+
+/** Where a dragged object lands: movement snaps to the grid relative to where it started (items that sit off the grid, such as wall-mounted ones, keep their alignment and a click with jitter is a no-op), or is free with Alt; always clamped to the bounds. */
+export function dragTarget(origin: [number, number], pointer: [number, number], free: boolean, bounds: Bounds): [number, number] {
+  const step = (from: number, to: number) => from + (free ? to - from : snap(to - from))
+  return [clamp(step(origin[0], pointer[0]), bounds.minX, bounds.maxX), clamp(step(origin[1], pointer[1]), bounds.minZ, bounds.maxZ)]
 }
 
 export const rotateItem = (patch: ScenePatch, item: EditableItem, radians: number): ScenePatch => patchItem(patch, item.id, { rotation: normalizeAngle(radians) })

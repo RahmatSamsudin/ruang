@@ -273,7 +273,8 @@ const Controls = forwardRef<ViewHandle, { panMode: boolean; keyTarget: HTMLEleme
   }, [camera, gl])
   useEffect(() => {
     const orbit = controls.current
-    if (orbit) orbit.enabled = enabled
+    // Rotate and pan only: the wheel keeps zooming while the pointer is over furniture in Edit mode.
+    if (orbit) { orbit.enableRotate = enabled; orbit.enablePan = enabled }
   }, [enabled])
   useEffect(() => { frame() }, [frame])
   useEffect(() => {
@@ -459,7 +460,7 @@ export default function Office3D({ stations, onSelect }: { stations: OfficeStati
   const occupiedSeats = new Set(stations.filter((station) => station.room === 'Workspace' && station.roomPosition !== 'meeting-area' && station.state !== 'Offline').map((station) => station.seat))
   return <div className="office-3d" ref={setKeyTarget} tabIndex={0} role="region" aria-label="3D office. Drag to rotate, right-drag or two fingers to pan, scroll to zoom, arrow keys pan when focused. Page Up and Page Down change floors." onKeyDown={(event) => {
     const typing = /^(INPUT|SELECT|TEXTAREA)$/.test((event.target as HTMLElement).tagName)
-    if (editingActive && !typing) {
+    if (editingActive && !typing && !dragging) {
       const action = editKeyAction(event)
       if (action) { event.preventDefault(); runEditAction(action); return }
     }
@@ -496,6 +497,6 @@ export default function Office3D({ stations, onSelect }: { stations: OfficeStati
       <button type="button" onClick={() => view.current?.reset()} title="Back to the starting view">↺ Reset view</button>
     </div>
     {editor.editing && <EditorBar canUndo={editor.canUndo} canRedo={editor.canRedo} dirty={editor.dirty} saving={editor.saving} error={editor.error} onUndo={editor.undo} onRedo={editor.redo} onSave={() => void editor.save()} onReset={resetEdits} onDone={finishEditing}/>}
-    {editor.editing && selected && <ObjectPanel item={selected} levels={levels} onMove={(x, z) => editor.apply((patchNow) => moveItem(patchNow, selected, x, z, bounds))} onRotate={(degrees) => editor.apply((patchNow) => rotateItem(patchNow, selected, (degrees * Math.PI) / 180))} onLevel={(next) => { editor.apply((patchNow) => setItemLevel(patchNow, selected, next)); setLevelIndex(Math.max(0, levels.indexOf(next))) }} onDelete={() => { editor.apply((patchNow) => deleteItem(patchNow, selected)); editor.select(null) }}/>}
+    {editor.editing && selected && <ObjectPanel item={selected} levels={levels} onMove={(x, z) => editor.apply((patchNow) => moveItem(patchNow, selected, x, z, bounds))} onRotate={(degrees) => editor.apply((patchNow) => rotateItem(patchNow, selected, (degrees * Math.PI) / 180))} onLevel={(next) => { editor.apply((patchNow) => setItemLevel(patchNow, selected, next)); setLevelIndex(Math.max(0, levels.indexOf(next))) }} onDelete={() => { editor.apply((patchNow) => deleteItem(patchNow, selected)); editor.select(null); keyTarget?.focus() }}/>}
   </div>
 }
