@@ -8,7 +8,7 @@ import { defaultScene } from '../scene3d/default-scene.ts'
 import { levelName } from '../scene3d/level-names.ts'
 import { applyPatch, deskSeatNumber, levelAt, levelsOf, seatPositions } from '../scene3d/scene.ts'
 import { EditTarget, type EditHandlers } from '../scene3d/edit-layer.tsx'
-import { deleteItem, editKeyAction, isEditable, moveItem, rotateBy, rotateItem, ROTATION_STEP, setItemLevel, type EditKeyAction } from '../scene3d/scene-edit.ts'
+import { canDelete, deleteItem, editKeyAction, isEditable, moveItem, rotateBy, rotateItem, ROTATION_STEP, setItemLevel, type EditKeyAction } from '../scene3d/scene-edit.ts'
 import { SceneRenderer } from '../scene3d/scene-renderer.tsx'
 import { useSceneEditor } from '../scene3d/use-scene-editor.ts'
 import { useScenePatch } from '../scene3d/use-scene.ts'
@@ -433,7 +433,7 @@ export default function Office3D({ stations, onSelect }: { stations: OfficeStati
     else if (action === 'redo') editor.redo()
     else if (action === 'deselect') editor.select(null)
     else if (!selected) return
-    else if (action === 'delete') { editor.apply((patchNow) => deleteItem(patchNow, selected)); editor.select(null) }
+    else if (action === 'delete') { if (!canDelete(selected)) return; editor.apply((patchNow) => deleteItem(patchNow, selected)); editor.select(null) }
     else editor.apply((patchNow) => rotateBy(patchNow, selected, action === 'rotate+' ? ROTATION_STEP : -ROTATION_STEP))
   }
   const finishEditing = () => {

@@ -906,6 +906,7 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
 
 
 .office-3d-editbar { align-items: center; background: rgba(18, 26, 24, 0.86); border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 8px; color: #f4efe6; display: grid; font-size: 12px; gap: 4px; justify-items: center; left: 50%; padding: 6px 10px; position: absolute; top: 10px; transform: translateX(-50%); z-index: 3; }
+.office-stage .office-3d-editbar { top: 58px; }
 .office-3d-editbar-row { align-items: center; display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
 .office-3d-editbar button, .office-3d-objpanel button { background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 6px; color: inherit; cursor: pointer; font: inherit; padding: 4px 9px; }
 .office-3d-editbar button:disabled, .office-3d-objpanel button:disabled { cursor: not-allowed; opacity: .45; }
