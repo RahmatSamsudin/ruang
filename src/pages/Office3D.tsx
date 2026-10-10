@@ -3,9 +3,11 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, 
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { officeStateBadge } from '../office-state.ts'
-import { clampTarget, createLayout, FLOOR_HEIGHT, floorOf, GAME_ROOM, idlePlan, placementFor, walkPath3, type Floor, type OfficeLayout, type Placement, type Vec3 } from '../office3d-layout.ts'
-import { Environment } from '../scene3d/environment.tsx'
-import { WorkDesk } from '../scene3d/props.tsx'
+import { clampTarget, createLayout, FLOOR_HEIGHT, GAME_ROOM, idlePlan, placementFor, walkPath3, withMovedSeats, type OfficeLayout, type Placement, type Vec3 } from '../office3d-layout.ts'
+import { defaultScene } from '../scene3d/default-scene.ts'
+import { applyPatch, levelAt, levelsOf, seatPositions } from '../scene3d/scene.ts'
+import { SceneRenderer } from '../scene3d/scene-renderer.tsx'
+import { useScenePatch } from '../scene3d/use-scene.ts'
 import { createSkinBoxGeometry, useSkinTexture, useSkins } from '../scene3d/skin.ts'
 import type { OfficeStation } from '../types.ts'
 
@@ -25,7 +27,8 @@ function Character({
   station,
   placement,
   layout,
-  floor,
+  level,
+  levels,
   onSelect,
   anchor,
   skinVersion,
@@ -33,7 +36,8 @@ function Character({
   station: OfficeStation
   placement: Placement
   layout: OfficeLayout
-  floor: Floor
+  level: number
+  levels: number[]
   onSelect: (station: OfficeStation, trigger: HTMLElement | null) => void
   anchor: (object: THREE.Object3D | null) => void
   skinVersion?: string
@@ -102,9 +106,9 @@ function Character({
         }
       }
     }
-    // Only the floor in view is drawn; from lantai 2 the agents outside on the ground stay visible.
-    const upstairs = group.position.y > FLOOR_HEIGHT / 2
-    group.visible = floor === 2 ? upstairs || outdoors(group.position.x, group.position.z, layout) : !upstairs
+    // Only the level in view is drawn; from higher levels the agents outside on the ground stay visible.
+    const standingOn = levelAt(levels, group.position.y)
+    group.visible = standingOn === level || (standingOn < level && outdoors(group.position.x, group.position.z, layout))
     if (!walking) group.rotation.y += Math.atan2(Math.sin(placement.facing - group.rotation.y), Math.cos(placement.facing - group.rotation.y)) * 0.12
     const swing = walking ? Math.sin(time * 10) * 0.6 : 0
     const arrived = !walking && path.current.length === 0
@@ -328,10 +332,12 @@ function Lighting({ theme }: { theme: 'dark' | 'light' }) {
   </>
 }
 
-const FLOORS: { floor: Floor; label: string; title: string }[] = [
-  { floor: 2, label: 'Kamar & Balkon', title: 'Lantai 2: bedroom, lesehan and balcony' },
-  { floor: 1, label: 'Kantor', title: 'Lantai 1: office, lounge, pantry and game room' },
+/** Names for the two stock levels; levels a scene adds are called "Lantai N". */
+const STOCK_LEVELS = [
+  { label: 'Kantor', title: 'Lantai 1: office, lounge, pantry and game room' },
+  { label: 'Kamar & Balkon', title: 'Lantai 2: bedroom, lesehan and balcony' },
 ]
+const levelName = (index: number) => STOCK_LEVELS[index] ?? { label: `Lantai ${index + 1}`, title: `Lantai ${index + 1}` }
 const FLOOR_KEY = 'mc.officeFloor'
 const SLEEP_KEY = 'mc.officeSleep'
 
@@ -344,13 +350,14 @@ function useStoredFlag(key: string): [boolean, (value: boolean) => void] {
   }]
 }
 
-function useFloor(): [Floor, (floor: Floor) => void] {
-  const [floor, setFloor] = useState<Floor>(() => {
-    try { return localStorage.getItem(FLOOR_KEY) === '2' ? 2 : 1 } catch { return 1 }
+/** The level in view, as an index into the scene's levels, kept per browser (stored as index + 1, like before). */
+function useLevelIndex(count: number): [number, (index: number) => void] {
+  const [stored, setStored] = useState<number>(() => {
+    try { return Math.max(0, Number(localStorage.getItem(FLOOR_KEY)) - 1) || 0 } catch { return 0 }
   })
-  return [floor, (next: Floor) => {
-    setFloor(next)
-    try { localStorage.setItem(FLOOR_KEY, String(next)) } catch { /* per-browser convenience only */ }
+  return [Math.min(stored, count - 1), (next: number) => {
+    setStored(next)
+    try { localStorage.setItem(FLOOR_KEY, String(next + 1)) } catch { /* per-browser convenience only */ }
   }]
 }
 
@@ -361,13 +368,20 @@ export default function Office3D({ stations, onSelect }: { stations: OfficeStati
   const [panMode, setPanMode] = useState(false)
   const [keyTarget, setKeyTarget] = useState<HTMLElement | null>(null)
   const theme = useThemeName()
-  const [floor, setFloor] = useFloor()
   const [sleepMode, setSleepMode] = useStoredFlag(SLEEP_KEY)
   const now = useClock(2000)
   const skinsRequest = useSkins()
   const skins = skinsRequest.status === 'ready' ? skinsRequest.data.skins : undefined
   // One unlabeled desk per agent (hot desking); the building is sized for the crew.
-  const layout = useMemo(() => createLayout(stations.length), [stations.length])
+  // The office is a scene: the stock office for this crew plus the saved edits. Agents sit at the
+  // scene's desks and beds; their other stops and walking routes are still the stock ones.
+  const patch = useScenePatch()
+  const baseLayout = useMemo(() => createLayout(stations.length), [stations.length])
+  const items = useMemo(() => applyPatch(defaultScene(baseLayout), patch), [baseLayout, patch])
+  const layout = useMemo(() => withMovedSeats(baseLayout, seatPositions(items, 'desk'), seatPositions(items, 'bed')), [baseLayout, items])
+  const levels = useMemo(() => levelsOf(items), [items])
+  const [levelIndex, setLevelIndex] = useLevelIndex(levels.length)
+  const level = levels[levelIndex] ?? 0
   // Idle agents wander between the lounge, the game room, the pantry, the street food and
   // lantai 2 (decorative only), spread so no two share a spot. With sleep mode on, every idle
   // agent goes to bed upstairs instead.
@@ -377,18 +391,17 @@ export default function Office3D({ stations, onSelect }: { stations: OfficeStati
   // Agents at the meeting table take the next free place around it.
   const meetingOrder = stations.filter((station) => station.roomPosition === 'meeting-area').map((station) => station.id)
   const placement = (station: OfficeStation) => wandering(station)?.placement ?? placementFor(station, layout, Math.max(0, meetingOrder.indexOf(station.id)))
-  const floorCount = (value: Floor) => stations.filter((station) => floorOf(placement(station).position) === value).length
+  const levelCount = (value: number) => stations.filter((station) => levelAt(levels, placement(station).position[1]) === value).length
   const occupiedSeats = new Set(stations.filter((station) => station.room === 'Workspace' && station.roomPosition !== 'meeting-area' && station.state !== 'Offline').map((station) => station.seat))
   return <div className="office-3d" ref={setKeyTarget} tabIndex={0} role="region" aria-label="3D office. Drag to rotate, right-drag or two fingers to pan, scroll to zoom, arrow keys pan when focused. Page Up and Page Down change floors." onKeyDown={(event) => {
-    if (event.key === 'PageUp' || event.key === 'PageDown') { event.preventDefault(); setFloor(event.key === 'PageUp' ? 2 : 1) }
+    if (event.key === 'PageUp' || event.key === 'PageDown') { event.preventDefault(); setLevelIndex(Math.min(Math.max(levelIndex + (event.key === 'PageUp' ? 1 : -1), 0), levels.length - 1)) }
   }}>
     <Canvas shadows dpr={[1, 2]} camera={{ position: [-3, 13, 16], fov: 40, near: 0.5, far: 150 }} gl={{ antialias: true }}>
       <Lighting theme={theme}/>
-      <Environment night={theme === 'dark'} layout={layout} floor={floor}/>
-      {floor === 1 && layout.desks.map((position, index) => <WorkDesk key={index} position={position} active={occupiedSeats.has(index + 1)} withChair/>)}
-      {stations.map((station) => <Character key={station.id} station={station} placement={placement(station)} layout={layout} floor={floor} onSelect={onSelect} anchor={register(anchors, `agent-${station.id}`)} skinVersion={skins?.[station.id]?.version}/>)}
+      <SceneRenderer items={items} level={level} night={theme === 'dark'} deskActive={(id) => occupiedSeats.has(Number(id.slice(5)))}/>
+      {stations.map((station) => <Character key={station.id} station={station} placement={placement(station)} layout={layout} level={level} levels={levels} onSelect={onSelect} anchor={register(anchors, `agent-${station.id}`)} skinVersion={skins?.[station.id]?.version}/>)}
       <LabelProjector anchors={anchors} labels={labels}/>
-      <Controls key={layout.deskCount} ref={view} panMode={panMode} keyTarget={keyTarget} layout={layout} elevation={floor === 2 ? FLOOR_HEIGHT : 0}/>
+      <Controls key={layout.deskCount} ref={view} panMode={panMode} keyTarget={keyTarget} layout={layout} elevation={level}/>
     </Canvas>
     <div className="office-3d-labels">
       {stations.map((station) => {
@@ -403,12 +416,12 @@ export default function Office3D({ stations, onSelect }: { stations: OfficeStati
       })}
     </div>
     <div className="office-3d-floors" role="group" aria-label="Floors">
-      {FLOORS.map((item) => <button key={item.floor} type="button" className={floor === item.floor ? 'active' : ''} aria-pressed={floor === item.floor} onClick={() => setFloor(item.floor)} title={`${item.title} (Page ${item.floor === 2 ? 'Up' : 'Down'})`}>
-        <b>{item.floor}</b><span>{item.label}</span><small>{floorCount(item.floor)}</small>
+      {levels.map((height, index) => ({ height, index })).reverse().map(({ height, index }) => <button key={height} type="button" className={levelIndex === index ? 'active' : ''} aria-pressed={levelIndex === index} onClick={() => setLevelIndex(index)} title={`${levelName(index).title} (Page Up and Page Down change floors)`}>
+        <b>{index + 1}</b><span>{levelName(index).label}</span><small>{levelCount(height)}</small>
       </button>)}
     </div>
     <div className="office-3d-tools">
-      <button type="button" className={sleepMode ? 'active sleep' : ''} aria-pressed={sleepMode} onClick={() => { setSleepMode(!sleepMode); if (!sleepMode && idleSeats.length > 0) setFloor(2) }} title="Send every idle agent to bed on lantai 2">💤 Tidur</button>
+      <button type="button" className={sleepMode ? 'active sleep' : ''} aria-pressed={sleepMode} onClick={() => { setSleepMode(!sleepMode); if (!sleepMode && idleSeats.length > 0) setLevelIndex(Math.max(0, levels.indexOf(FLOOR_HEIGHT))) }} title="Send every idle agent to bed on lantai 2">💤 Tidur</button>
       <button type="button" className={panMode ? 'active' : ''} aria-pressed={panMode} onClick={() => setPanMode((value) => !value)} title="Drag moves the view instead of rotating it">✥ Geser</button>
       <button type="button" onClick={() => view.current?.reset()} title="Back to the starting view">↺ Reset view</button>
     </div>
