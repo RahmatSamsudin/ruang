@@ -147,6 +147,18 @@ Unlocking one agent does not unlock the others, and **🔒 Lock again** closes i
 - A damaged lock file keeps every agent locked. Lost the PIN? On the machine: `ruang profile-lock off` (and `ruang profile-lock status`).
 - The lock covers what Ruang shows. Anyone with a shell on the machine can still read `~/.hermes` directly, and Hermes itself is unchanged.
 
+## Office scene
+
+The 3D office is rendered from a scene document: the built-in office (generated from your crew size) plus an optional saved patch of edits. The patch lives in `scene.json` under `$RUANG_DATA_DIR` (default `~/.local/share/ruang`; file mode `0600`, written atomically) and is shared by everyone who opens this Ruang. A missing, unreadable or invalid file simply means "no edits": the stock office renders.
+
+| Route | Purpose |
+|---|---|
+| `GET /api/scene` | The saved patch `{ "version": 1, "overrides": { "<item id>": { ...fields } \| null }, "added": [ ...items ] }` (empty when nothing is saved). |
+| `PUT /api/scene` | Replace the patch (`application/json`, max 256 KiB, same-origin only, strictly validated). |
+| `DELETE /api/scene` | Reset to the stock office. |
+
+`overrides` merge fields into a built-in item by id (`null` deletes it; the crew's `desk-N` and `bed-N` can be moved but not deleted). There is no editor yet: the patch is edited by hand or by a later release. Agent routes (idle stops, walking paths) do not follow moved furniture other than desks and beds.
+
 ## Agent skins
 
 Agents in the 3D office render with classic 3D character models using standard Minecraft 64x64 RGBA PNG skins (with optional second-layer overlays for hats, jackets, sleeves and pants, and classic 4px arms).
@@ -202,7 +214,7 @@ Ruang supports three backend skin generation providers:
 
 | Variable | Default | Description |
 |---|---|---|
-| `RUANG_DATA_DIR` | `~/.local/share/ruang` | Base data directory; custom skins are stored under `$RUANG_DATA_DIR/skins`. |
+| `RUANG_DATA_DIR` | `~/.local/share/ruang` | Base data directory; custom skins are stored under `$RUANG_DATA_DIR/skins` and edits to the office scene in `$RUANG_DATA_DIR/scene.json`. |
 | `RUANG_SKIN_PROVIDER` | `block` | Generation provider: `block` (BLOCK converter + Flow preview), `flow` (Google Flow direct), or `llm` (LLM pixel fallback). |
 | `RUANG_BLOCK_URL` | `http://127.0.0.1:8093` | URL of the local BLOCK skin converter service. |
 | `RUANG_BLOCK_REF_LAYOUT` | `~/block-skin/ref_layout.png` | Reference image path passed to Flow for character framing and style layout. |
