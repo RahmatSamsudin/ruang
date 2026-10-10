@@ -66,15 +66,7 @@ export function ObjectPanel({ item, levels, canDuplicate, onMove, onRotate, onLe
   const x = item.position[0]
   const z = item.position[2]
   const deletable = canDelete(item)
-  return <aside
-    className="office-3d-objpanel"
-    aria-label="Selected object"
-    ref={(el) => {
-      if (!el) return
-      el.onwheel = (event) => event.stopPropagation()
-    }}
-    onWheel={(event) => event.stopPropagation()}
-  >
+  return <aside className="office-3d-objpanel" aria-label="Selected object">
     <h3>{item.kind === 'prop' ? item.type : 'Window'} <small>{item.id}</small></h3>
     <div className="office-3d-objpanel-grid">
       <NumberField id={item.id} label="X (m)" value={x} step={0.05} onCommit={(next) => onMove(next, z)}/>
