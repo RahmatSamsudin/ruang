@@ -95,4 +95,14 @@ describe('PropPalette', () => {
     expect(head.getAttribute('aria-expanded')).toBe('false')
     expect(buttons()).toHaveLength(0)
   })
+
+  it('renders structure primitive buttons and allows picking them', async () => {
+    const { host, onPick } = await mount()
+    const structureButtons = [...host.querySelectorAll('.office-3d-palette-structures button')] as HTMLButtonElement[]
+    expect(structureButtons.map((b) => b.textContent)).toEqual(['Floor slab', 'Wall segment', 'Glass divider', 'Box shape'])
+    await act(async () => { structureButtons[0].click() })
+    expect(onPick).toHaveBeenCalledWith('floor')
+    await act(async () => { structureButtons[1].click() })
+    expect(onPick).toHaveBeenCalledWith('wall')
+  })
 })

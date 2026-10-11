@@ -2,7 +2,7 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { PropItem, WindowItem } from '../scene3d/scene.ts'
+import type { BoxItem, FloorItem, GlassItem, PropItem, WallItem, WindowItem } from '../scene3d/scene.ts'
 import { ObjectPanel } from './ObjectPanel.tsx'
 
 const testEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -147,5 +147,134 @@ describe('ObjectPanel duplicate and properties', () => {
     const { host } = await mount({ kind: 'window', id: 'w1', level: 0, position: [0, 1.5, 0] })
     expect(host.querySelector('input[type="color"]')).toBeNull()
     expect(host.querySelectorAll('input[type="number"]')).toHaveLength(3)
+  })
+})
+
+describe('ObjectPanel structure items', () => {
+  const floor: FloorItem = {
+    kind: 'floor',
+    id: 'floor-test',
+    level: 0,
+    min: [-4, -4],
+    max: [4, 4],
+    y: 0,
+    surface: { type: 'wood', repeat: [2, 2] },
+    roughness: 0.55,
+  }
+  const wall: WallItem = {
+    kind: 'wall',
+    id: 'wall-test',
+    level: 0,
+    from: [-4, 0],
+    to: [4, 0],
+    y: 0,
+    height: 2.6,
+  }
+  const glass: GlassItem = {
+    kind: 'glass',
+    id: 'glass-test',
+    level: 0,
+    from: [-2, 1],
+    to: [2, 1],
+    bottom: 0,
+    top: 2.2,
+  }
+  const box: BoxItem = {
+    kind: 'box',
+    id: 'box-test',
+    level: 0,
+    position: [1, 0.5, 2],
+    size: [2, 1, 2],
+    color: '#a0a0a0',
+    opacity: 0.8,
+    roughness: 0.4,
+    radius: 0.1,
+    shadow: true,
+  }
+
+  async function mountStructure(item: FloorItem | WallItem | GlassItem | BoxItem) {
+    const handlers = {
+      onMove: vi.fn(),
+      onRotate: vi.fn(),
+      onLevel: vi.fn(),
+      onDelete: vi.fn(),
+      onDuplicate: vi.fn(),
+      onProp: vi.fn(),
+      onView: vi.fn(),
+      onFloorBounds: vi.fn(),
+      onFloorSurface: vi.fn(),
+      onWallGeometry: vi.fn(),
+      onGlassGeometry: vi.fn(),
+      onBoxProps: vi.fn(),
+    }
+    const host = document.body.appendChild(document.createElement('div'))
+    const root = createRoot(host)
+    await act(async () => { root.render(<ObjectPanel item={item} levels={[0, 2.8]} canDuplicate={true} {...handlers}/>) })
+    const input = (label: string) => [...host.querySelectorAll('label')].find((node) => node.textContent?.startsWith(label))!.querySelector('input')!
+    const type = async (field: HTMLInputElement, value: string) => {
+      await act(async () => { field.value = value; field.dispatchEvent(new FocusEvent('focusout', { bubbles: true })) })
+    }
+    return { host, root, handlers, input, type }
+  }
+
+  it('renders floor properties and commits dimensions, elevation and surface changes', async () => {
+    const { host, handlers, input, type } = await mountStructure(floor)
+    expect(host.textContent).toContain('Floor')
+    expect(host.textContent).toContain('floor-test')
+    expect(input('Width').value).toBe('8')
+    expect(input('Depth').value).toBe('8')
+    await type(input('Width'), '10')
+    expect(handlers.onFloorBounds).toHaveBeenCalledWith([-5, -4], [5, 4], 0)
+    await type(input('Elevation Y'), '0.5')
+    expect(handlers.onFloorBounds).toHaveBeenCalledWith([-4, -4], [4, 4], 0.5)
+
+    const surfaceSelect = [...host.querySelectorAll('label')].find((l) => l.textContent?.startsWith('Surface Material'))!.querySelector('select')!
+    await act(async () => { surfaceSelect.value = 'tile'; surfaceSelect.dispatchEvent(new Event('change', { bubbles: true })) })
+    expect(handlers.onFloorSurface).toHaveBeenCalledWith({ type: 'tile', repeat: [2, 2] }, 0.55)
+  })
+
+  it('renders wall properties, presets and commits geometry and rotate 90', async () => {
+    const { host, handlers, input, type } = await mountStructure(wall)
+    expect(host.textContent).toContain('Wall')
+    expect(host.textContent).toContain('wall-test')
+    expect(input('Height').value).toBe('2.6')
+    expect(host.textContent).toContain('Length: 8 m')
+
+    const stubBtn = [...host.querySelectorAll('button')].find((b) => b.textContent?.includes('Stub'))!
+    await act(async () => { stubBtn.click() })
+    expect(handlers.onWallGeometry).toHaveBeenCalledWith([-4, 0], [4, 0], 0.55, 0)
+
+    await type(input('Height'), '3')
+    expect(handlers.onWallGeometry).toHaveBeenCalledWith([-4, 0], [4, 0], 3, 0)
+
+    const rotateBtn = [...host.querySelectorAll('button')].find((b) => b.textContent === 'Rotate 90°')!
+    await act(async () => { rotateBtn.click() })
+    expect(handlers.onRotate).toHaveBeenCalledWith(90)
+  })
+
+  it('renders glass properties and commits bottom/top elevation', async () => {
+    const { host, handlers, input, type } = await mountStructure(glass)
+    expect(host.textContent).toContain('Glass')
+    expect(host.textContent).toContain('glass-test')
+    expect(host.textContent).toContain('Height: 2.2 m')
+
+    await type(input('Top Y'), '2.5')
+    expect(handlers.onGlassGeometry).toHaveBeenCalledWith([-2, 1], [2, 1], 0, 2.5)
+  })
+
+  it('renders box properties and commits dimensions, appearance and shadow checkbox', async () => {
+    const { host, handlers, input, type } = await mountStructure(box)
+    expect(host.textContent).toContain('Box')
+    expect(host.textContent).toContain('box-test')
+    expect(input('Size X').value).toBe('2')
+    expect(input('Size Y').value).toBe('1')
+    expect(input('Size Z').value).toBe('2')
+
+    await type(input('Size X'), '3')
+    expect(handlers.onBoxProps).toHaveBeenCalledWith([3, 1, 2], '#a0a0a0', expect.objectContaining({ opacity: 0.8 }))
+
+    const shadowBox = [...host.querySelectorAll('label')].find((l) => l.textContent?.includes('Cast Shadow'))!.querySelector('input[type="checkbox"]') as HTMLInputElement
+    await act(async () => { shadowBox.click() })
+    expect(handlers.onBoxProps).toHaveBeenCalledWith([2, 1, 2], '#a0a0a0', expect.objectContaining({ shadow: false }))
   })
 })

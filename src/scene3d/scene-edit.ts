@@ -5,6 +5,7 @@ import {
   levelsOf,
   MAX_ADDED,
   type BoxItem,
+  type EditableItem,
   type FloorItem,
   type GlassItem,
   type PropItem,
@@ -18,13 +19,12 @@ import {
   type WindowItem,
 } from './scene.ts'
 
-// The editor's operations on a draft ScenePatch. Each takes the patch and the item as it is drawn
+// Pure geometric and patch operations for the scene editor. Every edit takes the scene as it is
 // now (defaults plus patch) and returns a new patch; nothing is mutated. Stock items change through
 // `overrides[id]`, items the user added are edited in place in `added`.
 
-/** Legacy type for ObjectPanel and EditTarget until Tasks 4 & 5 adapt them to structure items */
-export type EditableItem = PropItem | WindowItem
-export const isEditable = (item: SceneItem): item is EditableItem => Boolean(item)
+export type { EditableItem }
+export const isEditable = (item: SceneItem): item is EditableItem => item !== null
 /** Desks, beds, and the primary staircase cannot be deleted. */
 export const canDelete = (item: SceneItem): boolean => !isSeatId(item.id) && item.id !== 'stairs'
 
@@ -107,6 +107,7 @@ export function rotateItem(patch: ScenePatch, item: SceneItem, radians: number):
     return patchItem(patch, item.id, { min, max })
   }
   if (item.kind === 'wall' || item.kind === 'glass') {
+    if (Math.abs(radians) < 1e-6) return patch
     const mx = (item.from[0] + item.to[0]) / 2
     const mz = (item.from[1] + item.to[1]) / 2
     const dx = item.to[0] - item.from[0]
@@ -191,6 +192,97 @@ export function addProp(patch: ScenePatch, items: SceneItem[], type: PropType, x
   const id = nextAddedId(patch, items)
   const item: PropItem = { kind: 'prop', id, type, level, position: [px, round4(level + entry.y), pz], ...(entry.defaults ? { props: { ...entry.defaults } } : {}) }
   return { patch: { ...patch, added: [...patch.added, item] }, id }
+}
+
+export type StructureKind = 'floor' | 'wall' | 'glass' | 'box'
+
+/** Adds a new structure primitive (floor slab, wall segment, glass partition, box shape) with architectural defaults. */
+export function addStructureItem(
+  patch: ScenePatch,
+  items: SceneItem[],
+  kind: StructureKind,
+  x: number,
+  z: number,
+  level: number,
+  bounds: Bounds,
+): AddResult {
+  if (patch.added.length >= MAX_ADDED) return { patch, id: null }
+  const [px, pz] = placePoint([x, z], true, bounds)
+  const id = nextAddedId(patch, items)
+
+  if (kind === 'floor') {
+    const item: FloorItem = {
+      kind: 'floor',
+      id,
+      level,
+      min: [round4(px - 2), round4(pz - 2)],
+      max: [round4(px + 2), round4(pz + 2)],
+      y: round4(level + 0.005),
+      surface: { type: 'wood', repeat: [2, 2] },
+      roughness: 0.55,
+    }
+    return { patch: { ...patch, added: [...patch.added, item] }, id }
+  }
+
+  if (kind === 'wall') {
+    const item: WallItem = {
+      kind: 'wall',
+      id,
+      level,
+      from: [round4(px - 2), pz],
+      to: [round4(px + 2), pz],
+      y: level,
+      height: 2.6,
+    }
+    return { patch: { ...patch, added: [...patch.added, item] }, id }
+  }
+
+  if (kind === 'glass') {
+    const item: GlassItem = {
+      kind: 'glass',
+      id,
+      level,
+      from: [round4(px - 1.5), pz],
+      to: [round4(px + 1.5), pz],
+      bottom: level,
+      top: round4(level + 2.2),
+    }
+    return { patch: { ...patch, added: [...patch.added, item] }, id }
+  }
+
+  if (kind === 'box') {
+    const item: BoxItem = {
+      kind: 'box',
+      id,
+      level,
+      position: [px, round4(level + 0.5), pz],
+      size: [1, 1, 1],
+      color: '#a0a0a0',
+      roughness: 0.5,
+    }
+    return { patch: { ...patch, added: [...patch.added, item] }, id }
+  }
+
+  return { patch, id: null }
+}
+
+/** Produces a copy of `item` offset to the drag center [dragX, dragZ] for live rendering in the editor canvas. */
+export function dragPreviewItem(item: EditableItem, dragX: number, dragZ: number): EditableItem {
+  if (item.kind === 'floor') {
+    const cx = (item.min[0] + item.max[0]) / 2
+    const cz = (item.min[1] + item.max[1]) / 2
+    const dx = dragX - cx
+    const dz = dragZ - cz
+    return { ...item, min: [round4(item.min[0] + dx), round4(item.min[1] + dz)], max: [round4(item.max[0] + dx), round4(item.max[1] + dz)] }
+  }
+  if (item.kind === 'wall' || item.kind === 'glass') {
+    const cx = (item.from[0] + item.to[0]) / 2
+    const cz = (item.from[1] + item.to[1]) / 2
+    const dx = dragX - cx
+    const dz = dragZ - cz
+    return { ...item, from: [round4(item.from[0] + dx), round4(item.from[1] + dz)], to: [round4(item.to[0] + dx), round4(item.to[1] + dz)] }
+  }
+  return { ...item, position: [dragX, item.position[1], dragZ] }
 }
 
 /** A copy of an editable item as drawn now, half a metre over; the bounds are widened to include the original so items outside them (trees) can be copied. */
@@ -336,12 +428,14 @@ export function setItemProp(patch: ScenePatch, item: SceneItem, key: string, val
   return patchItem(patch, item.id, { props: { ...item.props, [key]: value } })
 }
 
-export function setFloorBounds(patch: ScenePatch, item: SceneItem, min: [number, number], max: [number, number]): ScenePatch {
+export function setFloorBounds(patch: ScenePatch, item: SceneItem, min: [number, number], max: [number, number], y?: number): ScenePatch {
   if (item.kind !== 'floor') return patch
   const normMin: [number, number] = [round4(Math.min(min[0], max[0])), round4(Math.min(min[1], max[1]))]
   const normMax: [number, number] = [round4(Math.max(min[0], max[0])), round4(Math.max(min[1], max[1]))]
-  if (normMin[0] === item.min[0] && normMin[1] === item.min[1] && normMax[0] === item.max[0] && normMax[1] === item.max[1]) return patch
-  return patchItem(patch, item.id, { min: normMin, max: normMax })
+  if (normMin[0] === item.min[0] && normMin[1] === item.min[1] && normMax[0] === item.max[0] && normMax[1] === item.max[1] && (y === undefined || y === item.y)) return patch
+  const fields: Partial<FloorItem> = { min: normMin, max: normMax }
+  if (y !== undefined) fields.y = round4(y)
+  return patchItem(patch, item.id, fields)
 }
 
 export function setFloorSurface(patch: ScenePatch, item: SceneItem, surface: Surface, roughness?: number): ScenePatch {
@@ -375,6 +469,7 @@ export interface BoxPropsOptions {
   roughness?: number
   opacity?: number
   shadow?: boolean
+  position?: Vec3
 }
 
 export function setBoxProps(patch: ScenePatch, item: SceneItem, size: Vec3, color: string, options?: BoxPropsOptions): ScenePatch {
@@ -383,6 +478,7 @@ export function setBoxProps(patch: ScenePatch, item: SceneItem, size: Vec3, colo
   const fields: Partial<BoxItem> = {
     size: normSize,
     color,
+    ...(options?.position !== undefined ? { position: [round4(options.position[0]), round4(options.position[1]), round4(options.position[2])] as Vec3 } : {}),
     ...(options?.radius !== undefined ? { radius: round4(options.radius) } : {}),
     ...(options?.roughness !== undefined ? { roughness: round4(clamp(options.roughness, 0, 1)) } : {}),
     ...(options?.opacity !== undefined ? { opacity: round4(clamp(options.opacity, 0, 1)) } : {}),

@@ -4,7 +4,7 @@ import * as THREE from 'three'
 import { PROP_CATALOG } from './prop-catalog.ts'
 import { PROP_COMPONENTS } from './scene-renderer.tsx'
 import { dragTarget, placePoint, type Bounds, type EditableItem } from './scene-edit.ts'
-import type { PropType } from './scene.ts'
+import { isStructureType, itemCenter, type PlaceableType, type PropType } from './scene.ts'
 
 /** What the 3D layer needs from the editor session (Office3D builds this from useSceneEditor). */
 export interface EditHandlers {
@@ -36,7 +36,8 @@ function SelectionBox({ target }: { target: RefObject<THREE.Group | null> }) {
 export function EditTarget({ item, edit, children }: { item: EditableItem; edit: EditHandlers; children: ReactNode }) {
   const { camera, gl } = useThree()
   const group = useRef<THREE.Group>(null)
-  const height = item.position[1]
+  const [cx, cy, cz] = itemCenter(item)
+  const height = cy
   const plane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), [])
   const ray = useMemo(() => new THREE.Raycaster(), [])
   const hit = useMemo(() => new THREE.Vector3(), [])
@@ -58,8 +59,8 @@ export function EditTarget({ item, edit, children }: { item: EditableItem; edit:
     edit.select(item.id)
     const start = pointOnPlane(event.nativeEvent.clientX, event.nativeEvent.clientY)
     if (!start) return
-    const offset: [number, number] = [item.position[0] - start[0], item.position[2] - start[1]]
-    const origin: [number, number] = [item.position[0], item.position[2]]
+    const offset: [number, number] = [cx - start[0], cz - start[1]]
+    const origin: [number, number] = [cx, cz]
     let last = origin
     const pointerId = event.nativeEvent.pointerId
     edit.setDragging(true)
@@ -114,10 +115,10 @@ const OUTSIDE_SLACK = 1
  * Right-click (without dragging) or Esc (handled by the page) leaves placing. Listeners sit on the canvas
  * element, not on scene objects, so existing items never take the click.
  */
-export function PlacementLayer({ type, level, bounds, night, onPlace, onExit }: { type: PropType; level: number; bounds: Bounds; night: boolean; onPlace: (x: number, z: number) => void; onExit: () => void }) {
+export function PlacementLayer({ type, level, bounds, night, onPlace, onExit }: { type: PlaceableType; level: number; bounds: Bounds; night: boolean; onPlace: (x: number, z: number) => void; onExit: () => void }) {
   const { camera, gl } = useThree()
-  const entry = PROP_CATALOG[type]
-  const Component = PROP_COMPONENTS[type]
+  const entry = isStructureType(type) ? null : PROP_CATALOG[type as PropType]
+  const Component = isStructureType(type) ? null : PROP_COMPONENTS[type as PropType]
   const ghost = useRef<THREE.Group>(null)
   const plane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), [])
   const ray = useMemo(() => new THREE.Raycaster(), [])
@@ -184,6 +185,30 @@ export function PlacementLayer({ type, level, bounds, night, onPlace, onExit }: 
   }, [camera, gl, hit, level, plane, ray])
 
   return <group ref={ghost} visible={false}>
-    <Component {...entry.defaults} position={[0, entry.y, 0]} night={night} active={false}/>
+    {type === 'floor' && (
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.01, 0]}>
+        <planeGeometry args={[4, 4]} />
+        <meshStandardMaterial color="#e5e7eb" transparent opacity={0.55} />
+      </mesh>
+    )}
+    {type === 'wall' && (
+      <mesh position={[0, 1.3, 0]}>
+        <boxGeometry args={[4, 2.6, 0.2]} />
+        <meshStandardMaterial color="#cbd5e1" transparent opacity={0.55} />
+      </mesh>
+    )}
+    {type === 'glass' && (
+      <mesh position={[0, 1.1, 0]}>
+        <boxGeometry args={[3, 2.2, 0.1]} />
+        <meshStandardMaterial color="#38bdf8" transparent opacity={0.45} />
+      </mesh>
+    )}
+    {type === 'box' && (
+      <mesh position={[0, 0.5, 0]}>
+        <boxGeometry args={[1, 1, 1]} />
+        <meshStandardMaterial color="#a0a0a0" transparent opacity={0.55} />
+      </mesh>
+    )}
+    {Component && entry && <Component {...entry.defaults} position={[0, entry.y, 0]} night={night} active={false}/>}
   </group>
 }

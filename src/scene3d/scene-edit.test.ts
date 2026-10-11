@@ -13,8 +13,10 @@ import {
 import {
   addProp,
   addStorey,
+  addStructureItem,
   canDelete,
   deleteItem,
+  dragPreviewItem,
   dragTarget,
   duplicateItem,
   editKeyAction,
@@ -692,5 +694,63 @@ describe('addStorey', () => {
     expect(id).toBeNull()
     expect(level).toBe(2.8)
     expect(nextPatch.added).toHaveLength(MAX_ADDED)
+  })
+})
+
+describe('addStructureItem and dragPreviewItem', () => {
+  it('adds floor with correct bounds and defaults', () => {
+    const { patch: next, id } = addStructureItem(EMPTY_PATCH, [], 'floor', 2, 4, 0, bounds)
+    expect(id).toBe('added-1')
+    expect(next.added).toHaveLength(1)
+    const added = next.added[0] as FloorItem
+    expect(added.kind).toBe('floor')
+    expect(added.min).toEqual([0, 2])
+    expect(added.max).toEqual([4, 6])
+    expect(added.y).toBe(0.005)
+    expect(added.surface.type).toBe('wood')
+  })
+
+  it('adds wall with default 4m width and height 2.6', () => {
+    const { patch: next, id } = addStructureItem(EMPTY_PATCH, [], 'wall', 0, 0, 0, bounds)
+    expect(id).toBe('added-1')
+    const added = next.added[0] as WallItem
+    expect(added.kind).toBe('wall')
+    expect(added.from).toEqual([-2, 0])
+    expect(added.to).toEqual([2, 0])
+    expect(added.height).toBe(2.6)
+  })
+
+  it('adds glass with default 3m width and bottom/top elevation', () => {
+    const { patch: next, id } = addStructureItem(EMPTY_PATCH, [], 'glass', 0, 0, 2.8, bounds)
+    expect(id).toBe('added-1')
+    const added = next.added[0] as GlassItem
+    expect(added.kind).toBe('glass')
+    expect(added.bottom).toBe(2.8)
+    expect(added.top).toBe(5)
+  })
+
+  it('adds box with 1x1x1 size and position', () => {
+    const { patch: next, id } = addStructureItem(EMPTY_PATCH, [], 'box', 1, 2, 0, bounds)
+    expect(id).toBe('added-1')
+    const added = next.added[0] as BoxItem
+    expect(added.kind).toBe('box')
+    expect(added.position).toEqual([1, 0.5, 2])
+    expect(added.size).toEqual([1, 1, 1])
+  })
+
+  it('dragPreviewItem offsets floor, wall, glass, and box centers', () => {
+    const f: FloorItem = { kind: 'floor', id: 'f1', level: 0, min: [0, 0], max: [4, 4], y: 0, surface: { type: 'wood', repeat: [1, 1] } }
+    const draggedF = dragPreviewItem(f, 4, 4) as FloorItem
+    expect(draggedF.min).toEqual([2, 2])
+    expect(draggedF.max).toEqual([6, 6])
+
+    const w: WallItem = { kind: 'wall', id: 'w1', level: 0, from: [-2, 0], to: [2, 0], y: 0, height: 2.8 }
+    const draggedW = dragPreviewItem(w, 5, 5) as WallItem
+    expect(draggedW.from).toEqual([3, 5])
+    expect(draggedW.to).toEqual([7, 5])
+
+    const b: BoxItem = { kind: 'box', id: 'b1', level: 0, position: [1, 0.5, 1], size: [1, 1, 1], color: '#fff' }
+    const draggedB = dragPreviewItem(b, 5, 8) as BoxItem
+    expect(draggedB.position).toEqual([5, 0.5, 8])
   })
 })

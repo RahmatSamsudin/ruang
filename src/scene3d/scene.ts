@@ -34,12 +34,25 @@ export type SceneItem = PropItem | FloorItem | WallItem | GlassItem | WindowItem
 
 export type EditableItem = PropItem | WindowItem | FloorItem | WallItem | GlassItem | BoxItem
 
+export const STRUCTURE_TYPES = ['floor', 'wall', 'glass', 'box'] as const
+export type StructureType = typeof STRUCTURE_TYPES[number]
+export const isStructureType = (value: unknown): value is StructureType => typeof value === 'string' && (STRUCTURE_TYPES as readonly string[]).includes(value)
+export type PlaceableType = PropType | StructureType
+
 export const isFloor = (item: SceneItem): item is FloorItem => item.kind === 'floor'
 export const isWall = (item: SceneItem): item is WallItem => item.kind === 'wall'
 export const isGlass = (item: SceneItem): item is GlassItem => item.kind === 'glass'
 export const isBox = (item: SceneItem): item is BoxItem => item.kind === 'box'
 export const isProp = (item: SceneItem): item is PropItem => item.kind === 'prop'
 export const isWindow = (item: SceneItem): item is WindowItem => item.kind === 'window'
+
+/** Returns the center coordinate [x, y, z] of an item. */
+export function itemCenter(item: EditableItem): [number, number, number] {
+  if (item.kind === 'floor') return [(item.min[0] + item.max[0]) / 2, item.y, (item.min[1] + item.max[1]) / 2]
+  if (item.kind === 'wall') return [(item.from[0] + item.to[0]) / 2, item.y, (item.from[1] + item.to[1]) / 2]
+  if (item.kind === 'glass') return [(item.from[0] + item.to[0]) / 2, item.bottom, (item.from[1] + item.to[1]) / 2]
+  return [item.position[0], item.position[1], item.position[2]]
+}
 
 export interface ScenePatch {
   version: 1
@@ -50,10 +63,11 @@ export interface ScenePatch {
 export const EMPTY_PATCH: ScenePatch = { version: 1, overrides: {}, added: [] }
 
 /** Viewing `active` draws its cut-away items and the shell items of the levels below it. */
-export function visibleAt(item: SceneItem, active: number): boolean {
+export function visibleAt(item: SceneItem, active: number, mode: 'cutaway' | 'shell' = 'cutaway'): boolean {
   if (item.level > active) return false
   const view = item.view ?? 'cutaway'
-  return item.level === active ? view !== 'shell' : view !== 'cutaway'
+  if (item.level === active) return mode === 'shell' ? view !== 'cutaway' : view !== 'shell'
+  return view !== 'cutaway'
 }
 
 export const levelsOf = (items: SceneItem[]): number[] => [...new Set(items.map((item) => item.level))].sort((a, b) => a - b)
