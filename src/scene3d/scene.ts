@@ -32,6 +32,15 @@ export interface WindowItem extends Base { kind: 'window'; position: Vec3; rotat
 export interface BoxItem extends Base { kind: 'box'; position: Vec3; size: Vec3; color: string; radius?: number; roughness?: number; opacity?: number; shadow?: boolean }
 export type SceneItem = PropItem | FloorItem | WallItem | GlassItem | WindowItem | BoxItem
 
+export type EditableItem = PropItem | WindowItem | FloorItem | WallItem | GlassItem | BoxItem
+
+export const isFloor = (item: SceneItem): item is FloorItem => item.kind === 'floor'
+export const isWall = (item: SceneItem): item is WallItem => item.kind === 'wall'
+export const isGlass = (item: SceneItem): item is GlassItem => item.kind === 'glass'
+export const isBox = (item: SceneItem): item is BoxItem => item.kind === 'box'
+export const isProp = (item: SceneItem): item is PropItem => item.kind === 'prop'
+export const isWindow = (item: SceneItem): item is WindowItem => item.kind === 'window'
+
 export interface ScenePatch {
   version: 1
   /** Fields to merge into the item with that id; `null` deletes it (desks and beds cannot be deleted). */
