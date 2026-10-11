@@ -255,9 +255,9 @@ When a structure item is selected, `ObjectPanel` displays specialized controls b
 
 ---
 
-## Open Questions
+## Decisions (formerly Open Questions)
 
-The following questions require stakeholder decisions. Each question includes a recommended default:
+Approved by the user on 2026-10-10: all recommended defaults below are accepted as-is.
 
 ### 1. Agents seated on a deleted floor
 - **Question:** If a user deletes a floor slab that holds agent desks or beds, what happens to the agents?
