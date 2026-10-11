@@ -12,11 +12,13 @@ import {
 } from './scene.ts'
 import {
   addProp,
+  addStorey,
   canDelete,
   deleteItem,
   dragTarget,
   duplicateItem,
   editKeyAction,
+  generateStoreyShell,
   GRID,
   isEditable,
   moveItem,
@@ -34,6 +36,7 @@ import {
   setItemView,
   setWallGeometry,
   snap,
+  WALL_HEIGHT,
 } from './scene-edit.ts'
 
 const sofa: PropItem = { kind: 'prop', id: 'sofa', level: 0, type: 'Sofa', position: [4.6, 0, -1.3], rotation: Math.PI }
@@ -526,5 +529,168 @@ describe('structure property setters', () => {
     const res = setFloorBounds(patchWithFloor, addedFloor, [-1, -1], [6, 6])
     expect(res.added[0]).toMatchObject({ id: 'added-1', min: [-1, -1], max: [6, 6] })
     expect(res.overrides).toEqual({})
+  })
+})
+
+describe('generateStoreyShell', () => {
+  const wallN: WallItem = { kind: 'wall', id: 'wall-n', level: 0, from: [-10, 12], to: [10, 12], y: 0, height: 2.0 }
+  const wallS: WallItem = { kind: 'wall', id: 'wall-s', level: 0, from: [-10, -6], to: [10, -6], y: 0, height: 2.0 }
+  const wallW: WallItem = { kind: 'wall', id: 'wall-w', level: 0, from: [-10, -6], to: [-10, 12], y: 0, height: 2.0 }
+  const wallE: WallItem = { kind: 'wall', id: 'wall-e', level: 0, from: [10, -6], to: [10, 12], y: 0, height: 2.0 }
+  const wallInner: WallItem = { kind: 'wall', id: 'wall-in', level: 0, from: [0, -6], to: [0, 0], y: 0, height: 2.0 }
+  const storeWalls = [wallN, wallS, wallW, wallE, wallInner]
+
+  it('returns untouched patch when there are no walls', () => {
+    const p = deepFreeze({ ...EMPTY_PATCH })
+    expect(generateStoreyShell(p, [floor])).toBe(p)
+  })
+
+  it('creates shell walls for perimeter walls but not interior walls', () => {
+    const p = deepFreeze({ ...EMPTY_PATCH })
+    const res = generateStoreyShell(p, storeWalls, 0, bounds)
+
+    const shellAdded = res.added.filter((item): item is WallItem => item.kind === 'wall' && item.view === 'shell')
+    expect(shellAdded).toHaveLength(4)
+    expect(shellAdded.every((w) => w.level === 0 && w.height === WALL_HEIGHT && w.y === 0)).toBe(true)
+
+    const shellIds = shellAdded.map((w) => w.id)
+    expect(shellIds).toContain('wall-n-shell')
+    expect(shellIds).toContain('wall-s-shell')
+    expect(shellIds).toContain('wall-w-shell')
+    expect(shellIds).toContain('wall-e-shell')
+    expect(shellIds).not.toContain('wall-in-shell')
+  })
+
+  it('does not duplicate existing shell walls covering perimeter walls', () => {
+    const existingShell: WallItem = {
+      kind: 'wall',
+      id: 'existing-n-shell',
+      level: 0,
+      from: [-10, 12],
+      to: [10, 12],
+      y: 0,
+      height: WALL_HEIGHT,
+      view: 'shell',
+    }
+    const items = [...storeWalls, existingShell]
+    const res = generateStoreyShell(EMPTY_PATCH, items, 0, bounds)
+
+    const shellAdded = res.added.filter((item): item is WallItem => item.kind === 'wall' && item.view === 'shell')
+    // wallN is already covered by existingShell; only wallS, wallW, wallE need shells
+    expect(shellAdded).toHaveLength(3)
+    const shellIds = shellAdded.map((w) => w.id)
+    expect(shellIds).not.toContain('wall-n-shell')
+    expect(shellIds).toContain('wall-s-shell')
+  })
+
+  it('updates existing shell wall height if it is not WALL_HEIGHT', () => {
+    const shortShell: WallItem = {
+      kind: 'wall',
+      id: 'wall-n-shell',
+      level: 0,
+      from: [-10, 12],
+      to: [10, 12],
+      y: 0,
+      height: 1.5,
+      view: 'shell',
+    }
+    const res = generateStoreyShell(EMPTY_PATCH, [wallN, shortShell], 0, bounds)
+    expect(res.overrides['wall-n-shell']).toEqual({ height: WALL_HEIGHT, y: 0 })
+  })
+
+  it('skips walls deleted in patch overrides', () => {
+    const patchWithDelete: ScenePatch = {
+      ...EMPTY_PATCH,
+      overrides: { 'wall-n': null },
+    }
+    const res = generateStoreyShell(patchWithDelete, storeWalls, 0, bounds)
+    const shellAdded = res.added.filter((item): item is WallItem => item.kind === 'wall' && item.view === 'shell')
+    expect(shellAdded).toHaveLength(3)
+    expect(shellAdded.some((w) => w.id === 'wall-n-shell')).toBe(false)
+  })
+
+  it('generates shell wall for perimeter walls added in patch', () => {
+    const addedWall: WallItem = {
+      kind: 'wall',
+      id: 'added-w',
+      level: 0,
+      from: [-10, 12],
+      to: [10, 12],
+      y: 0,
+      height: 2.0,
+    }
+    const patchWithAdded: ScenePatch = {
+      ...EMPTY_PATCH,
+      added: [addedWall],
+    }
+    const res = generateStoreyShell(patchWithAdded, [], 0, bounds)
+    const shellAdded = res.added.filter((item): item is WallItem => item.kind === 'wall' && item.view === 'shell')
+    expect(shellAdded).toHaveLength(1)
+    expect(shellAdded[0].from).toEqual([-10, 12])
+    expect(shellAdded[0].to).toEqual([10, 12])
+    expect(shellAdded[0].height).toBe(WALL_HEIGHT)
+  })
+
+  it('infers bounds when bounds parameter is omitted', () => {
+    const res = generateStoreyShell(EMPTY_PATCH, storeWalls, 0)
+    const shellAdded = res.added.filter((item): item is WallItem => item.kind === 'wall' && item.view === 'shell')
+    expect(shellAdded).toHaveLength(4)
+  })
+})
+
+describe('addStorey', () => {
+  const wallN: WallItem = { kind: 'wall', id: 'wall-n', level: 0, from: [-10, 12], to: [10, 12], y: 0, height: 2.0 }
+  const wallS: WallItem = { kind: 'wall', id: 'wall-s', level: 0, from: [-10, -6], to: [10, -6], y: 0, height: 2.0 }
+  const wallW: WallItem = { kind: 'wall', id: 'wall-w', level: 0, from: [-10, -6], to: [-10, 12], y: 0, height: 2.0 }
+  const wallE: WallItem = { kind: 'wall', id: 'wall-e', level: 0, from: [10, -6], to: [10, 12], y: 0, height: 2.0 }
+  const groundItems = [floor, wallN, wallS, wallW, wallE]
+
+  it('adds a storey above level 0 at 2.8m with floor slab and shell walls below', () => {
+    const p = deepFreeze({ ...EMPTY_PATCH })
+    const { patch: nextPatch, level: newLevel, id } = addStorey(p, groundItems, bounds)
+
+    expect(newLevel).toBe(2.8)
+    expect(id).toMatch(/^added-\d+$/)
+
+    // Floor slab on new level
+    const newFloor = nextPatch.added.find((item) => item.id === id) as FloorItem
+    expect(newFloor).toBeDefined()
+    expect(newFloor.kind).toBe('floor')
+    expect(newFloor.level).toBe(2.8)
+    expect(newFloor.y).toBe(2.8)
+    expect(newFloor.min).toEqual([-10, -6])
+    expect(newFloor.max).toEqual([10, 12])
+    expect(newFloor.surface).toEqual({ type: 'wood', repeat: [4, 4] })
+    expect(newFloor.roughness).toBe(0.55)
+
+    // Shell walls on level 0
+    const shellWalls = nextPatch.added.filter((item): item is WallItem => item.kind === 'wall' && item.view === 'shell')
+    expect(shellWalls).toHaveLength(4)
+    expect(shellWalls.every((w) => w.level === 0 && w.height === WALL_HEIGHT)).toBe(true)
+  })
+
+  it('calculates 5.6m when adding a storey above level 2.8', () => {
+    const floorL2: FloorItem = { kind: 'floor', id: 'floor-2', level: 2.8, min: [-10, -6], max: [10, 12], y: 2.8, surface: { type: 'wood', repeat: [1, 1] } }
+    const items = [...groundItems, floorL2]
+    const { level: newLevel } = addStorey(EMPTY_PATCH, items, bounds)
+    expect(newLevel).toBe(5.6)
+  })
+
+  it('respects MAX_ADDED limit and returns id null when full', () => {
+    const fullPatch: ScenePatch = {
+      ...EMPTY_PATCH,
+      added: Array.from({ length: MAX_ADDED }, (_, i) => ({
+        kind: 'prop',
+        id: `added-${i + 1}`,
+        level: 0,
+        type: 'Plant',
+        position: [0, 0, 0],
+      }) as PropItem),
+    }
+
+    const { patch: nextPatch, level, id } = addStorey(fullPatch, groundItems, bounds)
+    expect(id).toBeNull()
+    expect(level).toBe(2.8)
+    expect(nextPatch.added).toHaveLength(MAX_ADDED)
   })
 })

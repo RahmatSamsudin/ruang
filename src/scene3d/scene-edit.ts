@@ -1,7 +1,8 @@
-import type { Vec3 } from '../office3d-layout.ts'
+import { BUILDING, FLOOR_HEIGHT, type Vec3 } from '../office3d-layout.ts'
 import { PROP_CATALOG } from './prop-catalog.ts'
 import {
   isSeatId,
+  levelsOf,
   MAX_ADDED,
   type BoxItem,
   type FloorItem,
@@ -29,6 +30,7 @@ export const canDelete = (item: SceneItem): boolean => !isSeatId(item.id) && ite
 
 export const GRID = 0.25
 export const ROTATION_STEP = Math.PI / 12
+export const WALL_HEIGHT = 2.6
 export interface Bounds { minX: number; maxX: number; minZ: number; maxZ: number }
 
 const TAU = Math.PI * 2
@@ -408,4 +410,243 @@ export function editKeyAction(event: { key: string; ctrlKey: boolean; metaKey: b
   if (key === 'delete' || key === 'backspace') return 'delete'
   if (key === 'r') return event.shiftKey ? 'rotate-' : 'rotate+'
   return key === 'escape' ? 'deselect' : null
+}
+
+function appendItem(patch: ScenePatch, item: SceneItem): ScenePatch {
+  if (patch.added.length >= MAX_ADDED) return patch
+  return { ...patch, added: [...patch.added, item] }
+}
+
+function wallCovers(sw: WallItem, w: WallItem, eps = 0.05): boolean {
+  if (sw.level !== w.level) return false
+  if (sw.id === `${w.id}-shell`) return true
+
+  // Exact endpoint match (either direction)
+  const matchDirect =
+    Math.abs(sw.from[0] - w.from[0]) <= eps &&
+    Math.abs(sw.from[1] - w.from[1]) <= eps &&
+    Math.abs(sw.to[0] - w.to[0]) <= eps &&
+    Math.abs(sw.to[1] - w.to[1]) <= eps
+  const matchRev =
+    Math.abs(sw.from[0] - w.to[0]) <= eps &&
+    Math.abs(sw.from[1] - w.to[1]) <= eps &&
+    Math.abs(sw.to[0] - w.from[0]) <= eps &&
+    Math.abs(sw.to[1] - w.from[1]) <= eps
+  if (matchDirect || matchRev) return true
+
+  // Both on constant X (vertical on 2D plane)
+  const swX = Math.abs(sw.from[0] - sw.to[0]) <= eps
+  const wX = Math.abs(w.from[0] - w.to[0]) <= eps
+  if (swX && wX && Math.abs(sw.from[0] - w.from[0]) <= eps) {
+    const swMinZ = Math.min(sw.from[1], sw.to[1])
+    const swMaxZ = Math.max(sw.from[1], sw.to[1])
+    const wMinZ = Math.min(w.from[1], w.to[1])
+    const wMaxZ = Math.max(w.from[1], w.to[1])
+    return swMinZ <= wMinZ + eps && swMaxZ >= wMaxZ - eps
+  }
+
+  // Both on constant Z (horizontal on 2D plane)
+  const swZ = Math.abs(sw.from[1] - sw.to[1]) <= eps
+  const wZ = Math.abs(w.from[1] - w.to[1]) <= eps
+  if (swZ && wZ && Math.abs(sw.from[1] - w.from[1]) <= eps) {
+    const swMinX = Math.min(sw.from[0], sw.to[0])
+    const swMaxX = Math.max(sw.from[0], sw.to[0])
+    const wMinX = Math.min(w.from[0], w.to[0])
+    const wMaxX = Math.max(w.from[0], w.to[0])
+    return swMinX <= wMinX + eps && swMaxX >= wMaxX - eps
+  }
+
+  return false
+}
+
+/**
+ * Inspects items on `fromLevel` and ensures perimeter walls have matching full-height (2.6m) shell walls
+ * with `view: 'shell'`, so lower storeys appear closed when viewed from above.
+ */
+export function generateStoreyShell(
+  patch: ScenePatch,
+  items: readonly SceneItem[] = [],
+  fromLevel?: number,
+  bounds?: Bounds,
+): ScenePatch {
+  const allItems: SceneItem[] = [
+    ...(items ?? []).filter((it) => patch.overrides[it.id] !== null),
+    ...patch.added,
+  ]
+
+  const targetLevel = fromLevel ?? (levelsOf(allItems).length > 0 ? Math.max(...levelsOf(allItems)) : 0)
+
+  // Collect all walls on targetLevel, respecting patch overrides
+  const activeWalls: WallItem[] = []
+  for (const item of items ?? []) {
+    if (item.kind !== 'wall' || item.level !== targetLevel) continue
+    if (patch.overrides[item.id] === null) continue // deleted
+    const override = patch.overrides[item.id]
+    if (override && typeof override === 'object') {
+      activeWalls.push({ ...item, ...override } as WallItem)
+    } else {
+      activeWalls.push(item)
+    }
+  }
+  for (const item of patch.added) {
+    if (item.kind === 'wall' && item.level === targetLevel) {
+      activeWalls.push(item)
+    }
+  }
+
+  if (activeWalls.length === 0) return patch
+
+  let b = bounds
+  if (!b) {
+    b = {
+      minX: Math.min(...activeWalls.flatMap((w) => [w.from[0], w.to[0]])),
+      maxX: Math.max(...activeWalls.flatMap((w) => [w.from[0], w.to[0]])),
+      minZ: Math.min(...activeWalls.flatMap((w) => [w.from[1], w.to[1]])),
+      maxZ: Math.max(...activeWalls.flatMap((w) => [w.from[1], w.to[1]])),
+    }
+  }
+
+  const EPSILON = 0.05
+  let nextPatch = patch
+
+  for (const w of activeWalls) {
+    const isPerimeter =
+      (Math.abs(w.from[0] - b.minX) <= EPSILON && Math.abs(w.to[0] - b.minX) <= EPSILON) ||
+      (Math.abs(w.from[0] - b.maxX) <= EPSILON && Math.abs(w.to[0] - b.maxX) <= EPSILON) ||
+      (Math.abs(w.from[1] - b.minZ) <= EPSILON && Math.abs(w.to[1] - b.minZ) <= EPSILON) ||
+      (Math.abs(w.from[1] - b.maxZ) <= EPSILON && Math.abs(w.to[1] - b.maxZ) <= EPSILON)
+
+    if (!isPerimeter) continue
+
+    // If w is already a shell wall:
+    if (w.view === 'shell') {
+      if (w.height !== WALL_HEIGHT || w.y !== targetLevel) {
+        nextPatch = patchItem(nextPatch, w.id, { height: WALL_HEIGHT, y: targetLevel })
+      }
+      continue
+    }
+
+    // If w is already full height visible in both cutaway and shell views:
+    if (w.view === 'both' && w.height === WALL_HEIGHT) {
+      continue
+    }
+
+    // Check if an existing shell wall already covers w in activeWalls
+    const existingShell = activeWalls.find(
+      (sw) => sw.view === 'shell' && wallCovers(sw, w, EPSILON),
+    )
+    if (existingShell) {
+      if (existingShell.height !== WALL_HEIGHT || existingShell.y !== targetLevel) {
+        nextPatch = patchItem(nextPatch, existingShell.id, { height: WALL_HEIGHT, y: targetLevel })
+      }
+      continue
+    }
+
+    // Otherwise create a new matching shell wall
+    let shellId = `${w.id}-shell`
+    const used = new Set<string>([
+      ...(items ?? []).map((it) => it.id),
+      ...nextPatch.added.map((it) => it.id),
+      ...Object.keys(nextPatch.overrides),
+    ])
+    if (used.has(shellId)) {
+      shellId = nextAddedId(nextPatch, (items ?? []) as SceneItem[])
+    }
+
+    const shellWall: WallItem = {
+      kind: 'wall',
+      id: shellId,
+      level: targetLevel,
+      from: [w.from[0], w.from[1]],
+      to: [w.to[0], w.to[1]],
+      y: targetLevel,
+      height: WALL_HEIGHT,
+      view: 'shell',
+    }
+    nextPatch = appendItem(nextPatch, shellWall)
+    activeWalls.push(shellWall)
+  }
+
+  return nextPatch
+}
+
+export interface AddStoreyResult {
+  patch: ScenePatch
+  level: number
+  id: string | null
+}
+
+/**
+ * Adds a new storey:
+ * 1. Calculates new level = highest level + FLOOR_HEIGHT (2.8m).
+ * 2. Generates closed shell walls for the storey below so it renders properly when viewed from above.
+ * 3. Adds a base floor slab on the new level spanning bounds (or storey below bounds).
+ * Returns `{ patch, level, id }`.
+ */
+export function addStorey(
+  patch: ScenePatch,
+  items: readonly SceneItem[] = [],
+  bounds?: Bounds,
+): AddStoreyResult {
+  const allItems: SceneItem[] = [
+    ...(items ?? []).filter((it) => patch.overrides[it.id] !== null),
+    ...patch.added,
+  ]
+  const levels = levelsOf(allItems)
+  const highest = levels.length > 0 ? Math.max(...levels) : 0
+  const newLevel = round4(highest + FLOOR_HEIGHT)
+  const fromLevel = highest
+
+  // 1. Generate closed shell walls for the storey below
+  let nextPatch = generateStoreyShell(patch, allItems, fromLevel, bounds)
+
+  // 2. Determine bounds for the new floor slab
+  let b = bounds
+  if (!b) {
+    const storeyFloors = allItems.filter((it): it is FloorItem => it.level === fromLevel && it.kind === 'floor')
+    if (storeyFloors.length > 0) {
+      b = {
+        minX: Math.min(...storeyFloors.map((f) => f.min[0])),
+        maxX: Math.max(...storeyFloors.map((f) => f.max[0])),
+        minZ: Math.min(...storeyFloors.map((f) => f.min[1])),
+        maxZ: Math.max(...storeyFloors.map((f) => f.max[1])),
+      }
+    } else {
+      const storeyWalls = allItems.filter((it): it is WallItem => it.level === fromLevel && it.kind === 'wall')
+      if (storeyWalls.length > 0) {
+        b = {
+          minX: Math.min(...storeyWalls.flatMap((w) => [w.from[0], w.to[0]])),
+          maxX: Math.max(...storeyWalls.flatMap((w) => [w.from[0], w.to[0]])),
+          minZ: Math.min(...storeyWalls.flatMap((w) => [w.from[1], w.to[1]])),
+          maxZ: Math.max(...storeyWalls.flatMap((w) => [w.from[1], w.to[1]])),
+        }
+      } else {
+        b = BUILDING
+      }
+    }
+  }
+
+  if (b.minX === b.maxX || b.minZ === b.maxZ) {
+    b = BUILDING
+  }
+
+  // 3. Add base floor slab on newLevel
+  if (nextPatch.added.length >= MAX_ADDED) {
+    return { patch: nextPatch, level: newLevel, id: null }
+  }
+
+  const floorId = nextAddedId(nextPatch, (items ?? []) as SceneItem[])
+  const newFloor: FloorItem = {
+    kind: 'floor',
+    id: floorId,
+    level: newLevel,
+    min: [round4(b.minX), round4(b.minZ)],
+    max: [round4(b.maxX), round4(b.maxZ)],
+    y: newLevel,
+    surface: { type: 'wood', repeat: [4, 4] },
+    roughness: 0.55,
+  }
+
+  nextPatch = appendItem(nextPatch, newFloor)
+  return { patch: nextPatch, level: newLevel, id: floorId }
 }
