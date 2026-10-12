@@ -1,6 +1,45 @@
 import { describe, expect, it } from 'vitest'
-import { EMPTY_PATCH, MAX_ADDED, type BoxItem, type PropItem, type ScenePatch, type WindowItem } from './scene.ts'
-import { addProp, canDelete, deleteItem, dragTarget, duplicateItem, editKeyAction, GRID, isEditable, moveItem, nextAddedId, placePoint, ROTATION_STEP, rotateBy, rotateItem, setItemLevel, setItemProp, snap } from './scene-edit.ts'
+import {
+  EMPTY_PATCH,
+  MAX_ADDED,
+  type BoxItem,
+  type FloorItem,
+  type GlassItem,
+  type PropItem,
+  type ScenePatch,
+  type WallItem,
+  type WindowItem,
+} from './scene.ts'
+import {
+  addProp,
+  addStorey,
+  addStructureItem,
+  canDelete,
+  deleteItem,
+  dragPreviewItem,
+  dragTarget,
+  duplicateItem,
+  editKeyAction,
+  generateStoreyShell,
+  GRID,
+  isEditable,
+  moveItem,
+  nextAddedId,
+  placePoint,
+  ROTATION_STEP,
+  rotateBy,
+  rotateItem,
+  setBoxProps,
+  setFloorBounds,
+  setFloorSurface,
+  setGlassGeometry,
+  setItemLevel,
+  setItemProp,
+  setItemView,
+  setWallGeometry,
+  snap,
+  WALL_HEIGHT,
+} from './scene-edit.ts'
 
 const sofa: PropItem = { kind: 'prop', id: 'sofa', level: 0, type: 'Sofa', position: [4.6, 0, -1.3], rotation: Math.PI }
 const lamp: PropItem = { kind: 'prop', id: 'my-lamp', level: 0, type: 'Plant', position: [1, 0, 1] }
@@ -8,6 +47,10 @@ const bed: PropItem = { kind: 'prop', id: 'bed-1', level: 2.8, type: 'Bed', posi
 const desk: PropItem = { kind: 'prop', id: 'desk-2', level: 0, type: 'WorkDesk', position: [-2, 0, -3.5] }
 const window1: WindowItem = { kind: 'window', id: 'window-back-1', level: 0, position: [-7, 1.55, -5.06] }
 const box: BoxItem = { kind: 'box', id: 'game-roof', level: 0, position: [0, 2.7, 0], size: [1, 1, 1], color: '#999999' }
+const floor: FloorItem = { kind: 'floor', id: 'floor-0', level: 0, min: [-10, -6], max: [10, 12], y: 0, surface: { type: 'wood', repeat: [1, 1], color: '#ffffff' }, roughness: 0.8 }
+const wall: WallItem = { kind: 'wall', id: 'wall-1', level: 0, from: [-10, -6], to: [10, -6], y: 0, height: 2.8 }
+const glass: GlassItem = { kind: 'glass', id: 'glass-1', level: 0, from: [-5, 0], to: [5, 0], bottom: 0.5, top: 2.5 }
+const stairsProp: PropItem = { kind: 'prop', id: 'stairs', level: 0, type: 'Staircase', position: [0, 0, 0] }
 const withAdded: ScenePatch = { ...EMPTY_PATCH, added: [lamp] }
 const bounds = { minX: -10, maxX: 10, minZ: -6, maxZ: 12 }
 
@@ -31,13 +74,21 @@ describe('snap', () => {
 })
 
 describe('which items the editor touches', () => {
-  it('edits props and windows only, and never deletes desks or beds', () => {
+  it('allows all items, protects desks, beds, and stock stairs from deletion', () => {
     expect(isEditable(sofa)).toBe(true)
     expect(isEditable(window1)).toBe(true)
-    expect(isEditable(box)).toBe(false)
+    expect(isEditable(box)).toBe(true)
+    expect(isEditable(floor)).toBe(true)
+    expect(isEditable(wall)).toBe(true)
+    expect(isEditable(glass)).toBe(true)
     expect(canDelete(sofa)).toBe(true)
+    expect(canDelete(floor)).toBe(true)
+    expect(canDelete(wall)).toBe(true)
+    expect(canDelete(glass)).toBe(true)
+    expect(canDelete(box)).toBe(true)
     expect(canDelete(desk)).toBe(false)
     expect(canDelete(bed)).toBe(false)
+    expect(canDelete(stairsProp)).toBe(false)
     expect(canDelete({ ...sofa, id: 'tree-1' })).toBe(true)
   })
 })
@@ -74,6 +125,29 @@ describe('moveItem', () => {
   it('returns the same patch when the position does not change (no empty undo step)', () => {
     expect(moveItem(EMPTY_PATCH, sofa, 4.6, -1.3)).toBe(EMPTY_PATCH)
     expect(moveItem(EMPTY_PATCH, sofa, 99, -1.3, { minX: -10, maxX: 4.6, minZ: -6, maxZ: 12 })).toBe(EMPTY_PATCH)
+  })
+
+  it('translates floor min and max coordinates around center', () => {
+    // floor center is [0, 3] -> move to [2, 5] means dx=2, dz=2
+    const moved = moveItem(EMPTY_PATCH, floor, 2, 5)
+    expect(moved.overrides['floor-0']).toEqual({ min: [-8, -4], max: [12, 14] })
+  })
+
+  it('translates wall from and to coordinates around midpoint', () => {
+    // wall midpoint is [0, -6] -> move to [1, -4] means dx=1, dz=2
+    const moved = moveItem(EMPTY_PATCH, wall, 1, -4)
+    expect(moved.overrides['wall-1']).toEqual({ from: [-9, -4], to: [11, -4] })
+  })
+
+  it('translates glass from and to coordinates around midpoint', () => {
+    // glass midpoint is [0, 0] -> move to [2, 3] means dx=2, dz=3
+    const moved = moveItem(EMPTY_PATCH, glass, 2, 3)
+    expect(moved.overrides['glass-1']).toEqual({ from: [-3, 3], to: [7, 3] })
+  })
+
+  it('translates box position coordinates', () => {
+    const moved = moveItem(EMPTY_PATCH, box, 3, 4)
+    expect(moved.overrides['game-roof']).toEqual({ position: [3, 2.7, 4] })
   })
 })
 
@@ -143,6 +217,26 @@ describe('rotateItem and rotateBy', () => {
     expect(rotateBy(EMPTY_PATCH, lamp, ROTATION_STEP).overrides['my-lamp']).toEqual({ rotation: 0.2618 })
     expect(rotateBy(EMPTY_PATCH, sofa, -ROTATION_STEP).overrides.sofa).toEqual({ rotation: 2.8798 })
   })
+
+  it('swaps floor width and depth around center', () => {
+    // floor center is [0, 3], width is 20 (hw=10), depth is 18 (hd=9)
+    // swapped: hw=9, hd=10 -> min: [-9, -7], max: [9, 13]
+    const rotated = rotateItem(EMPTY_PATCH, floor, Math.PI / 2)
+    expect(rotated.overrides['floor-0']).toEqual({ min: [-9, -7], max: [9, 13] })
+  })
+
+  it('pivots wall endpoints 90° around midpoint', () => {
+    // wall from [-10, -6] to [10, -6], midpoint [0, -6]
+    // rotate 90°: dx=20, dz=0 -> rdx=0, rdz=20 -> from [0, -16], to [0, 4]
+    const rotated = rotateItem(EMPTY_PATCH, wall, Math.PI / 2)
+    expect(rotated.overrides['wall-1']).toEqual({ from: [0, -16], to: [0, 4] })
+  })
+
+  it('swaps box size x and z', () => {
+    const wideBox: BoxItem = { ...box, size: [2, 1, 4] }
+    const rotated = rotateItem(EMPTY_PATCH, wideBox, Math.PI / 2)
+    expect(rotated.overrides['game-roof']).toEqual({ size: [4, 1, 2] })
+  })
 })
 
 describe('deleteItem', () => {
@@ -166,6 +260,13 @@ describe('setItemLevel', () => {
     expect(setItemLevel(EMPTY_PATCH, sofa, 2.8).overrides.sofa).toEqual({ level: 2.8, position: [4.6, 2.8, -1.3] })
     expect(setItemLevel(EMPTY_PATCH, bed, 0).overrides['bed-1']).toEqual({ level: 0, position: [-4, 0, -4.1] })
     expect(setItemLevel(EMPTY_PATCH, window1, 2.8).overrides['window-back-1']).toEqual({ level: 2.8, position: [-7, 4.35, -5.06] })
+  })
+
+  it('shifts height for floor, wall, glass, and box', () => {
+    expect(setItemLevel(EMPTY_PATCH, floor, 2.8).overrides['floor-0']).toEqual({ level: 2.8, y: 2.8 })
+    expect(setItemLevel(EMPTY_PATCH, wall, 2.8).overrides['wall-1']).toEqual({ level: 2.8, y: 2.8 })
+    expect(setItemLevel(EMPTY_PATCH, glass, 2.8).overrides['glass-1']).toEqual({ level: 2.8, bottom: 3.3, top: 5.3 })
+    expect(setItemLevel(EMPTY_PATCH, box, 2.8).overrides['game-roof']).toEqual({ level: 2.8, position: [0, 5.5, 0] })
   })
 
   it('does nothing for the level the item is already on', () => {
@@ -295,6 +396,47 @@ describe('duplicateItem', () => {
     expect((duplicateItem(EMPTY_PATCH, [tree], tree, bounds).patch.added[0] as PropItem).position).toEqual([1.5, 0, -8])
   })
 
+  it('duplicates floor, wall, glass, and box offset by 0.5m', () => {
+    const smallFloor: FloorItem = { ...floor, min: [-5, -3], max: [5, 3] }
+    const fRes = duplicateItem(EMPTY_PATCH, [smallFloor], smallFloor, bounds)
+    expect(fRes.id).toBe('added-1')
+    expect(fRes.patch.added[0]).toMatchObject({
+      kind: 'floor',
+      id: 'added-1',
+      min: [-4.5, -2.5],
+      max: [5.5, 3.5],
+    })
+
+    const smallWall: WallItem = { ...wall, from: [-5, -6], to: [5, -6] }
+    const wRes = duplicateItem(EMPTY_PATCH, [smallWall], smallWall, bounds)
+    expect(wRes.id).toBe('added-1')
+    expect(wRes.patch.added[0]).toMatchObject({
+      kind: 'wall',
+      id: 'added-1',
+      from: [-4.5, -5.5],
+      to: [5.5, -5.5],
+    })
+
+    const gRes = duplicateItem(EMPTY_PATCH, [glass], glass, bounds)
+    expect(gRes.id).toBe('added-1')
+    expect(gRes.patch.added[0]).toMatchObject({
+      kind: 'glass',
+      id: 'added-1',
+      from: [-4.5, 0.5],
+      to: [5.5, 0.5],
+    })
+
+    const bRes = duplicateItem(EMPTY_PATCH, [box], box, bounds)
+    expect(bRes.id).toBe('added-1')
+    expect(bRes.patch.added[0]).toMatchObject({
+      kind: 'box',
+      id: 'added-1',
+      position: [0.5, 2.7, 0.5],
+      size: [1, 1, 1],
+      color: '#999999',
+    })
+  })
+
   it('refuses at the limit', () => {
     const full = { ...EMPTY_PATCH, added: Array.from({ length: MAX_ADDED }, (_, n) => ({ ...lamp, id: `added-${n + 1}` })) }
     const result = duplicateItem(full, [], sofa, bounds)
@@ -335,5 +477,280 @@ describe('editKeyAction duplicate', () => {
     expect(editKeyAction({ key: 'd', ctrlKey: true, metaKey: false, shiftKey: false })).toBe('duplicate')
     expect(editKeyAction({ key: 'D', ctrlKey: false, metaKey: true, shiftKey: false })).toBe('duplicate')
     expect(editKeyAction({ key: 'd', ctrlKey: false, metaKey: false, shiftKey: false })).toBeNull()
+  })
+})
+
+describe('structure property setters', () => {
+  it('setFloorBounds updates floor min and max and normalizes them', () => {
+    const next = setFloorBounds(EMPTY_PATCH, floor, [5, 4], [-2, -3])
+    expect(next.overrides['floor-0']).toEqual({ min: [-2, -3], max: [5, 4] })
+    expect(setFloorBounds(EMPTY_PATCH, floor, [-10, -6], [10, 12])).toBe(EMPTY_PATCH)
+    expect(setFloorBounds(EMPTY_PATCH, wall, [0, 0], [1, 1])).toBe(EMPTY_PATCH)
+  })
+
+  it('setFloorSurface updates surface and roughness', () => {
+    const next = setFloorSurface(EMPTY_PATCH, floor, { type: 'tile', repeat: [2, 2], color: '#333333' }, 0.5)
+    expect(next.overrides['floor-0']).toEqual({ surface: { type: 'tile', repeat: [2, 2], color: '#333333' }, roughness: 0.5 })
+    expect(setFloorSurface(EMPTY_PATCH, sofa, { type: 'wood', repeat: [1, 1] })).toBe(EMPTY_PATCH)
+  })
+
+  it('setWallGeometry updates from, to, height, and optional y', () => {
+    const next = setWallGeometry(EMPTY_PATCH, wall, [-2, -2], [2, 2], 3.0, 0.5)
+    expect(next.overrides['wall-1']).toEqual({ from: [-2, -2], to: [2, 2], height: 3.0, y: 0.5 })
+    expect(setWallGeometry(EMPTY_PATCH, floor, [0, 0], [1, 1], 2)).toBe(EMPTY_PATCH)
+  })
+
+  it('setGlassGeometry updates from, to, bottom, and top', () => {
+    const next = setGlassGeometry(EMPTY_PATCH, glass, [-1, -1], [1, 1], 0.2, 2.0)
+    expect(next.overrides['glass-1']).toEqual({ from: [-1, -1], to: [1, 1], bottom: 0.2, top: 2.0 })
+    expect(setGlassGeometry(EMPTY_PATCH, sofa, [0, 0], [1, 1], 0, 1)).toBe(EMPTY_PATCH)
+  })
+
+  it('setBoxProps updates size, color, and options', () => {
+    const next = setBoxProps(EMPTY_PATCH, box, [2, 3, 4], '#ff0000', { roughness: 0.2, radius: 0.1, shadow: false, opacity: 0.8 })
+    expect(next.overrides['game-roof']).toEqual({
+      size: [2, 3, 4],
+      color: '#ff0000',
+      roughness: 0.2,
+      radius: 0.1,
+      shadow: false,
+      opacity: 0.8,
+    })
+    expect(setBoxProps(EMPTY_PATCH, sofa, [1, 1, 1], '#000')).toBe(EMPTY_PATCH)
+  })
+
+  it('setItemView updates view on any item', () => {
+    const next = setItemView(EMPTY_PATCH, wall, 'cutaway')
+    expect(next.overrides['wall-1']).toEqual({ view: 'cutaway' })
+    expect(setItemView(EMPTY_PATCH, wall, undefined)).toBe(EMPTY_PATCH)
+  })
+
+  it('edits added structure items in place', () => {
+    const addedFloor: FloorItem = { kind: 'floor', id: 'added-1', level: 0, min: [0, 0], max: [5, 5], y: 0, surface: { type: 'wood', repeat: [1, 1] } }
+    const patchWithFloor: ScenePatch = { ...EMPTY_PATCH, added: [addedFloor] }
+    const res = setFloorBounds(patchWithFloor, addedFloor, [-1, -1], [6, 6])
+    expect(res.added[0]).toMatchObject({ id: 'added-1', min: [-1, -1], max: [6, 6] })
+    expect(res.overrides).toEqual({})
+  })
+})
+
+describe('generateStoreyShell', () => {
+  const wallN: WallItem = { kind: 'wall', id: 'wall-n', level: 0, from: [-10, 12], to: [10, 12], y: 0, height: 2.0 }
+  const wallS: WallItem = { kind: 'wall', id: 'wall-s', level: 0, from: [-10, -6], to: [10, -6], y: 0, height: 2.0 }
+  const wallW: WallItem = { kind: 'wall', id: 'wall-w', level: 0, from: [-10, -6], to: [-10, 12], y: 0, height: 2.0 }
+  const wallE: WallItem = { kind: 'wall', id: 'wall-e', level: 0, from: [10, -6], to: [10, 12], y: 0, height: 2.0 }
+  const wallInner: WallItem = { kind: 'wall', id: 'wall-in', level: 0, from: [0, -6], to: [0, 0], y: 0, height: 2.0 }
+  const storeWalls = [wallN, wallS, wallW, wallE, wallInner]
+
+  it('returns untouched patch when there are no walls', () => {
+    const p = deepFreeze({ ...EMPTY_PATCH })
+    expect(generateStoreyShell(p, [floor])).toBe(p)
+  })
+
+  it('creates shell walls for perimeter walls but not interior walls', () => {
+    const p = deepFreeze({ ...EMPTY_PATCH })
+    const res = generateStoreyShell(p, storeWalls, 0, bounds)
+
+    const shellAdded = res.added.filter((item): item is WallItem => item.kind === 'wall' && item.view === 'shell')
+    expect(shellAdded).toHaveLength(4)
+    expect(shellAdded.every((w) => w.level === 0 && w.height === WALL_HEIGHT && w.y === 0)).toBe(true)
+
+    const shellIds = shellAdded.map((w) => w.id)
+    expect(shellIds).toContain('wall-n-shell')
+    expect(shellIds).toContain('wall-s-shell')
+    expect(shellIds).toContain('wall-w-shell')
+    expect(shellIds).toContain('wall-e-shell')
+    expect(shellIds).not.toContain('wall-in-shell')
+  })
+
+  it('does not duplicate existing shell walls covering perimeter walls', () => {
+    const existingShell: WallItem = {
+      kind: 'wall',
+      id: 'existing-n-shell',
+      level: 0,
+      from: [-10, 12],
+      to: [10, 12],
+      y: 0,
+      height: WALL_HEIGHT,
+      view: 'shell',
+    }
+    const items = [...storeWalls, existingShell]
+    const res = generateStoreyShell(EMPTY_PATCH, items, 0, bounds)
+
+    const shellAdded = res.added.filter((item): item is WallItem => item.kind === 'wall' && item.view === 'shell')
+    // wallN is already covered by existingShell; only wallS, wallW, wallE need shells
+    expect(shellAdded).toHaveLength(3)
+    const shellIds = shellAdded.map((w) => w.id)
+    expect(shellIds).not.toContain('wall-n-shell')
+    expect(shellIds).toContain('wall-s-shell')
+  })
+
+  it('updates existing shell wall height if it is not WALL_HEIGHT', () => {
+    const shortShell: WallItem = {
+      kind: 'wall',
+      id: 'wall-n-shell',
+      level: 0,
+      from: [-10, 12],
+      to: [10, 12],
+      y: 0,
+      height: 1.5,
+      view: 'shell',
+    }
+    const res = generateStoreyShell(EMPTY_PATCH, [wallN, shortShell], 0, bounds)
+    expect(res.overrides['wall-n-shell']).toEqual({ height: WALL_HEIGHT, y: 0 })
+  })
+
+  it('skips walls deleted in patch overrides', () => {
+    const patchWithDelete: ScenePatch = {
+      ...EMPTY_PATCH,
+      overrides: { 'wall-n': null },
+    }
+    const res = generateStoreyShell(patchWithDelete, storeWalls, 0, bounds)
+    const shellAdded = res.added.filter((item): item is WallItem => item.kind === 'wall' && item.view === 'shell')
+    expect(shellAdded).toHaveLength(3)
+    expect(shellAdded.some((w) => w.id === 'wall-n-shell')).toBe(false)
+  })
+
+  it('generates shell wall for perimeter walls added in patch', () => {
+    const addedWall: WallItem = {
+      kind: 'wall',
+      id: 'added-w',
+      level: 0,
+      from: [-10, 12],
+      to: [10, 12],
+      y: 0,
+      height: 2.0,
+    }
+    const patchWithAdded: ScenePatch = {
+      ...EMPTY_PATCH,
+      added: [addedWall],
+    }
+    const res = generateStoreyShell(patchWithAdded, [], 0, bounds)
+    const shellAdded = res.added.filter((item): item is WallItem => item.kind === 'wall' && item.view === 'shell')
+    expect(shellAdded).toHaveLength(1)
+    expect(shellAdded[0].from).toEqual([-10, 12])
+    expect(shellAdded[0].to).toEqual([10, 12])
+    expect(shellAdded[0].height).toBe(WALL_HEIGHT)
+  })
+
+  it('infers bounds when bounds parameter is omitted', () => {
+    const res = generateStoreyShell(EMPTY_PATCH, storeWalls, 0)
+    const shellAdded = res.added.filter((item): item is WallItem => item.kind === 'wall' && item.view === 'shell')
+    expect(shellAdded).toHaveLength(4)
+  })
+})
+
+describe('addStorey', () => {
+  const wallN: WallItem = { kind: 'wall', id: 'wall-n', level: 0, from: [-10, 12], to: [10, 12], y: 0, height: 2.0 }
+  const wallS: WallItem = { kind: 'wall', id: 'wall-s', level: 0, from: [-10, -6], to: [10, -6], y: 0, height: 2.0 }
+  const wallW: WallItem = { kind: 'wall', id: 'wall-w', level: 0, from: [-10, -6], to: [-10, 12], y: 0, height: 2.0 }
+  const wallE: WallItem = { kind: 'wall', id: 'wall-e', level: 0, from: [10, -6], to: [10, 12], y: 0, height: 2.0 }
+  const groundItems = [floor, wallN, wallS, wallW, wallE]
+
+  it('adds a storey above level 0 at 2.8m with floor slab and shell walls below', () => {
+    const p = deepFreeze({ ...EMPTY_PATCH })
+    const { patch: nextPatch, level: newLevel, id } = addStorey(p, groundItems, bounds)
+
+    expect(newLevel).toBe(2.8)
+    expect(id).toMatch(/^added-\d+$/)
+
+    // Floor slab on new level
+    const newFloor = nextPatch.added.find((item) => item.id === id) as FloorItem
+    expect(newFloor).toBeDefined()
+    expect(newFloor.kind).toBe('floor')
+    expect(newFloor.level).toBe(2.8)
+    expect(newFloor.y).toBe(2.8)
+    expect(newFloor.min).toEqual([-10, -6])
+    expect(newFloor.max).toEqual([10, 12])
+    expect(newFloor.surface).toEqual({ type: 'wood', repeat: [4, 4] })
+    expect(newFloor.roughness).toBe(0.55)
+
+    // Shell walls on level 0
+    const shellWalls = nextPatch.added.filter((item): item is WallItem => item.kind === 'wall' && item.view === 'shell')
+    expect(shellWalls).toHaveLength(4)
+    expect(shellWalls.every((w) => w.level === 0 && w.height === WALL_HEIGHT)).toBe(true)
+  })
+
+  it('calculates 5.6m when adding a storey above level 2.8', () => {
+    const floorL2: FloorItem = { kind: 'floor', id: 'floor-2', level: 2.8, min: [-10, -6], max: [10, 12], y: 2.8, surface: { type: 'wood', repeat: [1, 1] } }
+    const items = [...groundItems, floorL2]
+    const { level: newLevel } = addStorey(EMPTY_PATCH, items, bounds)
+    expect(newLevel).toBe(5.6)
+  })
+
+  it('respects MAX_ADDED limit and returns id null when full', () => {
+    const fullPatch: ScenePatch = {
+      ...EMPTY_PATCH,
+      added: Array.from({ length: MAX_ADDED }, (_, i) => ({
+        kind: 'prop',
+        id: `added-${i + 1}`,
+        level: 0,
+        type: 'Plant',
+        position: [0, 0, 0],
+      }) as PropItem),
+    }
+
+    const { patch: nextPatch, level, id } = addStorey(fullPatch, groundItems, bounds)
+    expect(id).toBeNull()
+    expect(level).toBe(2.8)
+    expect(nextPatch.added).toHaveLength(MAX_ADDED)
+  })
+})
+
+describe('addStructureItem and dragPreviewItem', () => {
+  it('adds floor with correct bounds and defaults', () => {
+    const { patch: next, id } = addStructureItem(EMPTY_PATCH, [], 'floor', 2, 4, 0, bounds)
+    expect(id).toBe('added-1')
+    expect(next.added).toHaveLength(1)
+    const added = next.added[0] as FloorItem
+    expect(added.kind).toBe('floor')
+    expect(added.min).toEqual([0, 2])
+    expect(added.max).toEqual([4, 6])
+    expect(added.y).toBe(0.005)
+    expect(added.surface.type).toBe('wood')
+  })
+
+  it('adds wall with default 4m width and height 2.6', () => {
+    const { patch: next, id } = addStructureItem(EMPTY_PATCH, [], 'wall', 0, 0, 0, bounds)
+    expect(id).toBe('added-1')
+    const added = next.added[0] as WallItem
+    expect(added.kind).toBe('wall')
+    expect(added.from).toEqual([-2, 0])
+    expect(added.to).toEqual([2, 0])
+    expect(added.height).toBe(2.6)
+  })
+
+  it('adds glass with default 3m width and bottom/top elevation', () => {
+    const { patch: next, id } = addStructureItem(EMPTY_PATCH, [], 'glass', 0, 0, 2.8, bounds)
+    expect(id).toBe('added-1')
+    const added = next.added[0] as GlassItem
+    expect(added.kind).toBe('glass')
+    expect(added.bottom).toBe(2.8)
+    expect(added.top).toBe(5)
+  })
+
+  it('adds box with 1x1x1 size and position', () => {
+    const { patch: next, id } = addStructureItem(EMPTY_PATCH, [], 'box', 1, 2, 0, bounds)
+    expect(id).toBe('added-1')
+    const added = next.added[0] as BoxItem
+    expect(added.kind).toBe('box')
+    expect(added.position).toEqual([1, 0.5, 2])
+    expect(added.size).toEqual([1, 1, 1])
+  })
+
+  it('dragPreviewItem offsets floor, wall, glass, and box centers', () => {
+    const f: FloorItem = { kind: 'floor', id: 'f1', level: 0, min: [0, 0], max: [4, 4], y: 0, surface: { type: 'wood', repeat: [1, 1] } }
+    const draggedF = dragPreviewItem(f, 4, 4) as FloorItem
+    expect(draggedF.min).toEqual([2, 2])
+    expect(draggedF.max).toEqual([6, 6])
+
+    const w: WallItem = { kind: 'wall', id: 'w1', level: 0, from: [-2, 0], to: [2, 0], y: 0, height: 2.8 }
+    const draggedW = dragPreviewItem(w, 5, 5) as WallItem
+    expect(draggedW.from).toEqual([3, 5])
+    expect(draggedW.to).toEqual([7, 5])
+
+    const b: BoxItem = { kind: 'box', id: 'b1', level: 0, position: [1, 0.5, 1], size: [1, 1, 1], color: '#fff' }
+    const draggedB = dragPreviewItem(b, 5, 8) as BoxItem
+    expect(draggedB.position).toEqual([5, 0.5, 8])
   })
 })

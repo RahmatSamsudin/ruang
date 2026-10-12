@@ -96,9 +96,9 @@ function SceneNode({ item, night, active }: { item: SceneItem; night: boolean; a
  * occupied. `wrap` lets the editor surround an item's node (for picking) without the renderer
  * knowing about editing.
  */
-export function SceneRenderer({ items, level, night, deskActive, wrap }: { items: SceneItem[]; level: number; night: boolean; deskActive?: (id: string) => boolean; wrap?: (item: SceneItem, node: ReactNode) => ReactNode }) {
+export function SceneRenderer({ items, level, night, deskActive, wrap, viewMode = 'cutaway' }: { items: SceneItem[]; level: number; night: boolean; deskActive?: (id: string) => boolean; wrap?: (item: SceneItem, node: ReactNode) => ReactNode; viewMode?: 'cutaway' | 'shell' }) {
   return <group>
-    {items.filter((item) => visibleAt(item, level)).map((item) => {
+    {items.filter((item) => visibleAt(item, level, viewMode)).map((item) => {
       const node = <SceneNode item={item} night={night} active={deskActive?.(item.id) ?? false}/>
       return <Fragment key={item.id}>{wrap ? wrap(item, node) : node}</Fragment>
     })}

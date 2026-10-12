@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
-import { EMPTY_PATCH, type PropType, type ScenePatch } from './scene.ts'
+import { EMPTY_PATCH, type PlaceableType, type ScenePatch } from './scene.ts'
 import type { AddResult } from './scene-edit.ts'
 
 // The editing session for the 3D office: a draft ScenePatch with undo/redo, a live drag position,
@@ -16,7 +16,7 @@ interface State {
   future: ScenePatch[]
   selectedId: string | null
   drag: { id: string; x: number; z: number } | null
-  placing: PropType | null
+  placing: PlaceableType | null
   saving: boolean
   error: string | null
 }
@@ -34,7 +34,7 @@ export interface SceneEditor {
   draft: ScenePatch
   selectedId: string | null
   drag: { id: string; x: number; z: number } | null
-  placing: PropType | null
+  placing: PlaceableType | null
   canUndo: boolean
   canRedo: boolean
   dirty: boolean
@@ -46,7 +46,7 @@ export interface SceneEditor {
   apply: (change: (patch: ScenePatch) => ScenePatch) => void
   undo: () => void
   redo: () => void
-  startPlacing: (type: PropType) => void
+  startPlacing: (type: PlaceableType) => void
   stopPlacing: () => void
   /** Applies an add (place or duplicate) as one undo step and selects the new item. */
   addWith: (make: (patch: ScenePatch) => AddResult) => void
@@ -71,7 +71,7 @@ export function useSceneEditor(saved: ScenePatch, refresh: () => void, request?:
   const enter = useCallback(() => setState({ ...fresh(savedRef.current), editing: true }), [])
   const exit = useCallback(() => setState((s) => fresh(s.baseline)), [])
   const select = useCallback((id: string | null) => setState((s) => ({ ...s, selectedId: id })), [])
-  const startPlacing = useCallback((type: PropType) => setState((s) => ({ ...s, placing: type, selectedId: null })), [])
+  const startPlacing = useCallback((type: PlaceableType) => setState((s) => ({ ...s, placing: type, selectedId: null })), [])
   const stopPlacing = useCallback(() => setState((s) => (s.placing ? { ...s, placing: null } : s)), [])
   const addWith = useCallback((make: (patch: ScenePatch) => AddResult) => setState((s) => {
     const { patch, id } = make(s.draft)

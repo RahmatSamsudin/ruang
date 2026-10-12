@@ -36,4 +36,13 @@ describe('EditorBar', () => {
   it('leaves Done enabled when not saving', () => {
     expect(bar()).not.toMatch(/<button[^>]*disabled[^>]*>Done/)
   })
+
+  it('renders view mode button and add storey button when provided', () => {
+    const markup = bar({ viewMode: 'cutaway', onViewModeChange: noop, onAddStorey: noop })
+    expect(markup).toContain('Cutaway')
+    expect(markup).toContain('+ Add Storey')
+
+    const shellMarkup = bar({ viewMode: 'shell', onViewModeChange: noop })
+    expect(shellMarkup).toContain('Shell')
+  })
 })
