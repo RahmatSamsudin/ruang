@@ -656,17 +656,21 @@ export function generateStoreyShell(
 
   if (activeWalls.length === 0) return patch
 
-  let b = bounds
-  if (!b) {
-    b = {
-      minX: Math.min(...activeWalls.flatMap((w) => [w.from[0], w.to[0]])),
-      maxX: Math.max(...activeWalls.flatMap((w) => [w.from[0], w.to[0]])),
-      minZ: Math.min(...activeWalls.flatMap((w) => [w.from[1], w.to[1]])),
-      maxZ: Math.max(...activeWalls.flatMap((w) => [w.from[1], w.to[1]])),
-    }
-  }
-
   const EPSILON = 0.05
+  const wallBounds = {
+    minX: Math.min(...activeWalls.flatMap((w) => [w.from[0], w.to[0]])),
+    maxX: Math.max(...activeWalls.flatMap((w) => [w.from[0], w.to[0]])),
+    minZ: Math.min(...activeWalls.flatMap((w) => [w.from[1], w.to[1]])),
+    maxZ: Math.max(...activeWalls.flatMap((w) => [w.from[1], w.to[1]])),
+  }
+  const isOuterBounds = Boolean(bounds && (
+    bounds.minX < wallBounds.minX - EPSILON ||
+    bounds.maxX > wallBounds.maxX + EPSILON ||
+    bounds.minZ < wallBounds.minZ - EPSILON ||
+    bounds.maxZ > wallBounds.maxZ + EPSILON
+  ))
+  const b = (!bounds || isOuterBounds) ? wallBounds : bounds
+
   let nextPatch = patch
 
   for (const w of activeWalls) {
@@ -766,30 +770,35 @@ export function addStorey(
   // 1. Generate closed shell walls for the storey below
   let nextPatch = generateStoreyShell(patch, allItems, fromLevel, bounds)
 
-  // 2. Determine bounds for the new floor slab
-  let b = bounds
-  if (!b) {
-    const storeyFloors = allItems.filter((it): it is FloorItem => it.level === fromLevel && it.kind === 'floor')
-    if (storeyFloors.length > 0) {
-      b = {
-        minX: Math.min(...storeyFloors.map((f) => f.min[0])),
-        maxX: Math.max(...storeyFloors.map((f) => f.max[0])),
-        minZ: Math.min(...storeyFloors.map((f) => f.min[1])),
-        maxZ: Math.max(...storeyFloors.map((f) => f.max[1])),
-      }
-    } else {
-      const storeyWalls = allItems.filter((it): it is WallItem => it.level === fromLevel && it.kind === 'wall')
-      if (storeyWalls.length > 0) {
-        b = {
-          minX: Math.min(...storeyWalls.flatMap((w) => [w.from[0], w.to[0]])),
-          maxX: Math.max(...storeyWalls.flatMap((w) => [w.from[0], w.to[0]])),
-          minZ: Math.min(...storeyWalls.flatMap((w) => [w.from[1], w.to[1]])),
-          maxZ: Math.max(...storeyWalls.flatMap((w) => [w.from[1], w.to[1]])),
-        }
-      } else {
-        b = BUILDING
-      }
+  // 2. Determine bounds for the new floor slab matching storey below
+  const storeyWalls = allItems.filter((it): it is WallItem => it.level === fromLevel && it.kind === 'wall')
+  const storeyFloors = allItems.filter((it): it is FloorItem => it.level === fromLevel && it.kind === 'floor')
+
+  let storeyB: Bounds | null = null
+  if (storeyWalls.length > 0) {
+    storeyB = {
+      minX: Math.min(...storeyWalls.flatMap((w) => [w.from[0], w.to[0]])),
+      maxX: Math.max(...storeyWalls.flatMap((w) => [w.from[0], w.to[0]])),
+      minZ: Math.min(...storeyWalls.flatMap((w) => [w.from[1], w.to[1]])),
+      maxZ: Math.max(...storeyWalls.flatMap((w) => [w.from[1], w.to[1]])),
     }
+  } else if (storeyFloors.length > 0) {
+    storeyB = {
+      minX: Math.min(...storeyFloors.map((f) => f.min[0])),
+      maxX: Math.max(...storeyFloors.map((f) => f.max[0])),
+      minZ: Math.min(...storeyFloors.map((f) => f.min[1])),
+      maxZ: Math.max(...storeyFloors.map((f) => f.max[1])),
+    }
+  }
+
+  let b = bounds
+  if (!b || (storeyB && (
+    b.minX < storeyB.minX - 0.05 ||
+    b.maxX > storeyB.maxX + 0.05 ||
+    b.minZ < storeyB.minZ - 0.05 ||
+    b.maxZ > storeyB.maxZ + 0.05
+  ))) {
+    b = storeyB ?? bounds ?? BUILDING
   }
 
   if (b.minX === b.maxX || b.minZ === b.maxZ) {

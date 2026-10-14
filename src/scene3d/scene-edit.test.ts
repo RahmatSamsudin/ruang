@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { createLayout } from '../office3d-layout.ts'
+import { defaultScene } from './default-scene.ts'
 import {
   EMPTY_PATCH,
   MAX_ADDED,
@@ -829,6 +831,35 @@ describe('addStorey', () => {
       const overlapsHole = slab.min[0] < customHole.maxX && slab.max[0] > customHole.minX && slab.min[1] < customHole.maxZ && slab.max[1] > customHole.minZ
       expect(overlapsHole).toBe(false)
     }
+  })
+
+  it('creates shell walls and slab matching building footprint on real default scene with layout.pan', () => {
+    const layout = createLayout(3)
+    const items = defaultScene(layout)
+    const { patch: nextPatch, level: newLevel, id } = addStorey(EMPTY_PATCH, items, layout.pan)
+    expect(newLevel).toBe(5.6)
+    expect(id).toBe('added-1')
+
+    // Shell walls generated on level 2.8
+    const shellWalls = nextPatch.added.filter(
+      (it): it is WallItem => it.kind === 'wall' && it.level === 2.8 && it.view === 'shell',
+    )
+    expect(shellWalls.length).toBeGreaterThan(0)
+    for (const sw of shellWalls) {
+      expect(sw.height).toBe(WALL_HEIGHT)
+      expect(sw.view).toBe('shell')
+    }
+
+    // Floor slab added on new level 5.6 matching building footprint, not layout.pan
+    const floorSlabs = nextPatch.added.filter(
+      (it): it is FloorItem => it.kind === 'floor' && it.level === 5.6,
+    )
+    expect(floorSlabs.length).toBeGreaterThan(0)
+    const slab = floorSlabs[0]
+    expect(slab.min[0]).toBe(layout.building.minX)
+    expect(slab.max[0]).toBe(layout.building.maxX)
+    expect(slab.min[1]).toBe(layout.building.minZ)
+    expect(slab.max[1]).toBe(layout.building.maxZ)
   })
 })
 

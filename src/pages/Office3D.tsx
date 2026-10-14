@@ -437,7 +437,7 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
     cancelDrag: editor.endDrag,
   }
   const handleAddStorey = () => {
-    editor.addWith((patchNow) => addStorey(patchNow, items, bounds))
+    editor.addWith((patchNow) => addStorey(patchNow, items, layout.building))
     setLevelIndex(levels.length)
   }
   const selectAgent: typeof onSelect = editingActive ? () => {} : onSelect
