@@ -302,9 +302,10 @@ Approved by the user on 2026-10-10: all recommended defaults below are accepted 
 - **Recommended Default:**
   - The "Add Storey" action performs two coordinated operations:
     1. Creates a base floor slab (`floor`) on the new level (`y = highestLevel + FLOOR_HEIGHT`) matching the
-       bounding box of the storey below, leaving a default cutout for the stairwell.
-    2. Inspects the storey below. If the storey below has no exterior shell walls (`view: 'shell'`), it clones
-       the perimeter walls of that storey with full height (2.6 m) and tags them `view: 'shell'`.
+       bounding box of the storey below. When stairwell cutout is enabled (`options.stairwellCutout`), leaves
+       cutout matching the stairwell hole; when omitted or false, a single continuous floor slab is created.
+    2. Inspects the storey below. If the storey below has missing exterior shell walls (`view: 'shell'`), it clones
+       the perimeter walls of that storey with full height (2.6 m) and tags them `view: 'shell'`, skipping existing shell walls.
   - This ensures that navigating to the new storey immediately presents a complete, closed building shell below.
 
 ### 6. Undo granularity

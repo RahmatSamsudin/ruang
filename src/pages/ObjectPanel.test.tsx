@@ -148,6 +148,12 @@ describe('ObjectPanel duplicate and properties', () => {
     expect(host.querySelector('input[type="color"]')).toBeNull()
     expect(host.querySelectorAll('input[type="number"]')).toHaveLength(3)
   })
+
+  it('shows decorative disclaimer notice for Staircase prop', async () => {
+    const staircase: PropItem = { kind: 'prop', id: 'stair-1', level: 0, type: 'Staircase', position: [0, 0, 0] }
+    const { host } = await mount(staircase)
+    expect(host.textContent).toContain('Decorative in 2c')
+  })
 })
 
 describe('ObjectPanel structure items', () => {
@@ -192,7 +198,7 @@ describe('ObjectPanel structure items', () => {
     shadow: true,
   }
 
-  async function mountStructure(item: FloorItem | WallItem | GlassItem | BoxItem) {
+  async function mountStructure(item: FloorItem | WallItem | GlassItem | BoxItem, extraHandlers: Record<string, unknown> = {}) {
     const handlers = {
       onMove: vi.fn(),
       onRotate: vi.fn(),
@@ -206,6 +212,7 @@ describe('ObjectPanel structure items', () => {
       onWallGeometry: vi.fn(),
       onGlassGeometry: vi.fn(),
       onBoxProps: vi.fn(),
+      ...extraHandlers,
     }
     const host = document.body.appendChild(document.createElement('div'))
     const root = createRoot(host)
@@ -231,6 +238,18 @@ describe('ObjectPanel structure items', () => {
     const surfaceSelect = [...host.querySelectorAll('label')].find((l) => l.textContent?.startsWith('Surface Material'))!.querySelector('select')!
     await act(async () => { surfaceSelect.value = 'tile'; surfaceSelect.dispatchEvent(new Event('change', { bubbles: true })) })
     expect(handlers.onFloorSurface).toHaveBeenCalledWith({ type: 'tile', repeat: [2, 2] }, 0.55)
+  })
+
+  it('FloorPanel on Lantai 3 editing width keeps storey y', async () => {
+    const floorL3: FloorItem = {
+      ...floor,
+      id: 'floor-l3',
+      level: 5.6,
+      y: 5.6,
+    }
+    const { handlers, input, type } = await mountStructure(floorL3)
+    await type(input('Width'), '10')
+    expect(handlers.onFloorBounds).toHaveBeenCalledWith([-5, -4], [5, 4], 5.6)
   })
 
   it('renders wall properties, presets and commits geometry and rotate 90', async () => {
@@ -276,5 +295,62 @@ describe('ObjectPanel structure items', () => {
     const shadowBox = [...host.querySelectorAll('label')].find((l) => l.textContent?.includes('Cast Shadow'))!.querySelector('input[type="checkbox"]') as HTMLInputElement
     await act(async () => { shadowBox.click() })
     expect(handlers.onBoxProps).toHaveBeenCalledWith([2, 1, 2], '#a0a0a0', expect.objectContaining({ shadow: false }))
+  })
+
+  it('triggers onSurfaceChange and supports carpet color picker', async () => {
+    const onSurfaceChange = vi.fn()
+    const { host, root, handlers } = await mountStructure(floor, { onSurfaceChange })
+    const surfaceSelect = [...host.querySelectorAll('label')].find((l) => l.textContent?.startsWith('Surface Material'))!.querySelector('select')!
+    await act(async () => {
+      surfaceSelect.value = 'carpet'
+      surfaceSelect.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    expect(onSurfaceChange).toHaveBeenCalledWith({ type: 'carpet', repeat: [2, 2], color: '#687787' }, 0.55)
+
+    const carpetFloor: FloorItem = { ...floor, surface: { type: 'carpet', repeat: [2, 2], color: '#687787' } }
+    await act(async () => { root.render(<ObjectPanel item={carpetFloor} levels={[0, 2.8]} canDuplicate {...handlers} onSurfaceChange={onSurfaceChange}/>) })
+    const colorInput = host.querySelector('input[type="color"]') as HTMLInputElement
+    expect(colorInput).not.toBeNull()
+    await act(async () => {
+      colorInput.value = '#ff0000'
+      colorInput.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    expect(onSurfaceChange).toHaveBeenCalledWith({ type: 'carpet', repeat: [2, 2], color: '#ff0000' }, 0.55)
+  })
+
+  it('triggers onViewChange or onView with shell or cutaway', async () => {
+    const onViewChange = vi.fn()
+    const { host } = await mountStructure(wall, { onViewChange })
+    const viewSelect = [...host.querySelectorAll('label')].find((l) => l.textContent?.trim().startsWith('View'))!.querySelector('select')!
+    await act(async () => {
+      viewSelect.value = 'shell'
+      viewSelect.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    expect(onViewChange).toHaveBeenCalledWith('shell')
+    await act(async () => {
+      viewSelect.value = 'cutaway'
+      viewSelect.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    expect(onViewChange).toHaveBeenCalledWith('cutaway')
+  })
+
+  it('allows duplicate and delete for structure items', async () => {
+    const { host, handlers } = await mountStructure(glass)
+    const dupBtn = [...host.querySelectorAll('button')].find((b) => b.textContent === 'Duplicate')!
+    await act(async () => { dupBtn.click() })
+    expect(handlers.onDuplicate).toHaveBeenCalled()
+
+    const delBtn = [...host.querySelectorAll('button')].find((b) => b.textContent === 'Delete')!
+    expect(delBtn.disabled).toBe(false)
+    await act(async () => { delBtn.click() })
+    expect(handlers.onDelete).toHaveBeenCalled()
+  })
+
+  it('reverts invalid or non-numeric input on blur in structure fields and alerts', async () => {
+    const { host, handlers, input, type } = await mountStructure(floor)
+    await type(input('Width'), 'invalid')
+    expect(input('Width').value).toBe('8')
+    expect(handlers.onFloorBounds).not.toHaveBeenCalled()
+    expect(host.textContent).toContain('Invalid number')
   })
 })

@@ -425,16 +425,20 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
     const drag = editor.drag
     return drag ? items.map((item) => (item.id === drag.id && isEditable(item) ? (dragPreviewItem(item, drag.x, drag.z) as SceneItem) : item)) : items
   }, [items, editor.drag])
-  const bounds = layout.pan
+  const panBounds = layout.pan
   const edit: EditHandlers = {
     selectedId: selected?.id ?? null,
-    bounds,
+    bounds: panBounds,
     select: editor.select,
     setHover: setHovering,
     setDragging,
     previewDrag: editor.previewDrag,
-    commitMove: (item, x, z) => { editor.apply((patchNow) => moveItem(patchNow, item, x, z, bounds)); editor.endDrag() },
+    commitMove: (item, x, z) => { editor.apply((patchNow) => moveItem(patchNow, item, x, z, panBounds)); editor.endDrag() },
     cancelDrag: editor.endDrag,
+  }
+  const handleAddStorey = () => {
+    editor.addWith((patchNow) => addStorey(patchNow, items, layout.building))
+    setLevelIndex(levels.length)
   }
   const selectAgent: typeof onSelect = editingActive ? () => {} : onSelect
   const runEditAction = (action: EditKeyAction) => {
@@ -442,7 +446,7 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
     else if (action === 'redo') editor.redo()
     else if (action === 'deselect') { if (editor.placing) editor.stopPlacing(); else editor.select(null) }
     else if (!selected) return
-    else if (action === 'duplicate') { if (!limitReached) editor.addWith((patchNow) => duplicateItem(patchNow, items, selected, bounds)) }
+    else if (action === 'duplicate') { if (!limitReached) editor.addWith((patchNow) => duplicateItem(patchNow, items, selected, panBounds)) }
     else if (action === 'delete') { if (!canDelete(selected)) return; editor.apply((patchNow) => deleteItem(patchNow, selected)); editor.select(null) }
     else editor.apply((patchNow) => rotateBy(patchNow, selected, action === 'rotate+' ? ROTATION_STEP : -ROTATION_STEP))
   }
@@ -489,11 +493,11 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
     <Canvas shadows dpr={[1, 2]} camera={{ position: [-3, 13, 16], fov: 40, near: 0.5, far: 150 }} gl={{ antialias: true }} onPointerMissed={editingActive && !placing ? () => editor.select(null) : undefined}>
       <Lighting theme={theme}/>
       <SceneRenderer items={drawItems} level={level} night={theme === 'dark'} deskActive={(id) => occupiedSeats.has(deskSeatNumber(id) ?? -1)} wrap={editingActive && !placing ? (item, node) => (isEditable(item) ? <EditTarget item={item} edit={edit}>{node}</EditTarget> : node) : undefined} viewMode={viewMode}/>
-      {placing && <PlacementLayer type={placing} level={level} bounds={bounds} night={theme === 'dark'} onPlace={(x, z) => {
+      {placing && <PlacementLayer type={placing} level={level} bounds={panBounds} night={theme === 'dark'} onPlace={(x, z) => {
         if (isStructureType(placing)) {
-          editor.addWith((patchNow) => addStructureItem(patchNow, items, placing as StructureKind, x, z, level, bounds))
+          editor.addWith((patchNow) => addStructureItem(patchNow, items, placing as StructureKind, x, z, level, panBounds))
         } else {
-          editor.addWith((patchNow) => addProp(patchNow, items, placing, x, z, level, bounds))
+          editor.addWith((patchNow) => addProp(patchNow, items, placing, x, z, level, panBounds))
         }
       }} onExit={editor.stopPlacing}/>}
       {stations.map((station) => <Character key={station.id} station={station} placement={placement(station)} layout={layout} level={level} levels={levels} onSelect={selectAgent} anchor={register(anchors, `agent-${station.id}`)} skinVersion={skins?.[station.id]?.version}/>)}
@@ -516,6 +520,16 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
       {levels.map((height, index) => ({ height, index })).reverse().map(({ height, index }) => <button key={height} type="button" className={levelIndex === index ? 'active' : ''} aria-pressed={levelIndex === index} onClick={() => setLevelIndex(index)} title={`${levelName(height, index).title} (Page Up and Page Down change floors)`}>
         <b>{index + 1}</b><span>{levelName(height, index).label}</span><small>{levelCount(height)}</small>
       </button>)}
+      {editor.editing && (
+        <button
+          type="button"
+          onClick={handleAddStorey}
+          title="Add a new storey above the current top level"
+          style={{ gridTemplateColumns: '26px auto' }}
+        >
+          <b>+</b><span>+ Lantai</span>
+        </button>
+      )}
     </div>
     <div className="office-3d-tools">
       <button type="button" className={`edit-toggle${editor.editing ? ' active' : ''}`} aria-pressed={editor.editing} disabled={!editor.editing && !sceneReady} onClick={() => (editor.editing ? finishEditing() : editor.enter())} title={!editor.editing && !sceneReady ? 'Loading the saved layout…' : 'Rearrange the office'}>✎ Edit</button>
@@ -523,8 +537,8 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
       <button type="button" className={panMode ? 'active' : ''} aria-pressed={panMode} onClick={() => setPanMode((value) => !value)} title="Drag moves the view instead of rotating it">✥ Geser</button>
       <button type="button" onClick={() => view.current?.reset()} title="Back to the starting view">↺ Reset view</button>
     </div>
-    {editor.editing && <EditorBar canUndo={editor.canUndo} canRedo={editor.canRedo} dirty={editor.dirty} saving={editor.saving} error={editor.error} viewMode={viewMode} onViewModeChange={setViewMode} onAddStorey={() => editor.apply((patchNow) => addStorey(patchNow, items).patch)} onUndo={editor.undo} onRedo={editor.redo} onSave={() => void editor.save()} onReset={resetEdits} onDone={finishEditing}/>}
+    {editor.editing && <EditorBar canUndo={editor.canUndo} canRedo={editor.canRedo} dirty={editor.dirty} saving={editor.saving} error={editor.error} viewMode={viewMode} onViewModeChange={setViewMode} onAddStorey={handleAddStorey} onUndo={editor.undo} onRedo={editor.redo} onSave={() => void editor.save()} onReset={resetEdits} onDone={finishEditing}/>}
     {editor.editing && <PropPalette placing={placing} limitReached={limitReached} onPick={(type) => (type ? editor.startPlacing(type) : editor.stopPlacing())}/>}
-    {editor.editing && selected && <ObjectPanel item={selected} levels={levels} canDuplicate={!limitReached} onDuplicate={() => editor.addWith((patchNow) => duplicateItem(patchNow, items, selected, bounds))} onProp={(key, value) => editor.apply((patchNow) => setItemProp(patchNow, selected, key, value))} onMove={(x, z) => editor.apply((patchNow) => moveItem(patchNow, selected, x, z, bounds))} onRotate={(degrees) => editor.apply((patchNow) => rotateItem(patchNow, selected, (degrees * Math.PI) / 180))} onLevel={(next) => { editor.apply((patchNow) => setItemLevel(patchNow, selected, next)); setLevelIndex(Math.max(0, levels.indexOf(next))) }} onDelete={() => { editor.apply((patchNow) => deleteItem(patchNow, selected)); editor.select(null); keyTarget?.focus() }} onView={(v) => editor.apply((patchNow) => setItemView(patchNow, selected, v))} onFloorBounds={(min, max, y) => editor.apply((patchNow) => setFloorBounds(patchNow, selected, min, max, y))} onFloorSurface={(surface, roughness) => editor.apply((patchNow) => setFloorSurface(patchNow, selected, surface, roughness))} onWallGeometry={(from, to, height, y) => editor.apply((patchNow) => setWallGeometry(patchNow, selected, from, to, height, y))} onGlassGeometry={(from, to, bottom, top) => editor.apply((patchNow) => setGlassGeometry(patchNow, selected, from, to, bottom, top))} onBoxProps={(size, color, options) => editor.apply((patchNow) => setBoxProps(patchNow, selected, size, color, options))}/>}
+    {editor.editing && selected && <ObjectPanel item={selected} levels={levels} canDuplicate={!limitReached} onDuplicate={() => editor.addWith((patchNow) => duplicateItem(patchNow, items, selected, panBounds))} onProp={(key, value) => editor.apply((patchNow) => setItemProp(patchNow, selected, key, value))} onMove={(x, z) => editor.apply((patchNow) => moveItem(patchNow, selected, x, z, panBounds))} onRotate={(degrees) => editor.apply((patchNow) => rotateItem(patchNow, selected, (degrees * Math.PI) / 180))} onLevel={(next) => { editor.apply((patchNow) => setItemLevel(patchNow, selected, next)); setLevelIndex(Math.max(0, levels.indexOf(next))) }} onDelete={() => { editor.apply((patchNow) => deleteItem(patchNow, selected)); editor.select(null); keyTarget?.focus() }} onView={(v) => editor.apply((patchNow) => setItemView(patchNow, selected, v))} onFloorBounds={(min, max, y) => editor.apply((patchNow) => setFloorBounds(patchNow, selected, min, max, y))} onFloorSurface={(surface, roughness) => editor.apply((patchNow) => setFloorSurface(patchNow, selected, surface, roughness))} onWallGeometry={(from, to, height, y) => editor.apply((patchNow) => setWallGeometry(patchNow, selected, from, to, height, y))} onGlassGeometry={(from, to, bottom, top) => editor.apply((patchNow) => setGlassGeometry(patchNow, selected, from, to, bottom, top))} onBoxProps={(size, color, options) => editor.apply((patchNow) => setBoxProps(patchNow, selected, size, color, options))}/>}
   </div>
 }

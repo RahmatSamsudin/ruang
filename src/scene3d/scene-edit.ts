@@ -37,6 +37,7 @@ const TAU = Math.PI * 2
 // Four decimals keeps saved numbers small; `+ 0` turns -0 into 0.
 const round4 = (value: number): number => Number(value.toFixed(4)) + 0
 export const clamp = (value: number, min: number, max: number): number => Math.min(Math.max(value, min), max)
+const safeNum = (value: number, fallback = 0): number => (Number.isFinite(value) ? value : fallback)
 // Some stock items (trees) sit outside the pan bounds: widen them to include where the item is now, so an untouched axis never jumps.
 const clampAround = (value: number, min: number, max: number, current: number): number => clamp(value, Math.min(min, current), Math.max(max, current))
 
@@ -209,15 +210,16 @@ export function addStructureItem(
   if (patch.added.length >= MAX_ADDED) return { patch, id: null }
   const [px, pz] = placePoint([x, z], true, bounds)
   const id = nextAddedId(patch, items)
+  const safeLevel = round4(safeNum(level, 0))
 
   if (kind === 'floor') {
     const item: FloorItem = {
       kind: 'floor',
       id,
-      level,
+      level: safeLevel,
       min: [round4(px - 2), round4(pz - 2)],
       max: [round4(px + 2), round4(pz + 2)],
-      y: round4(level + 0.005),
+      y: round4(safeLevel + 0.005),
       surface: { type: 'wood', repeat: [2, 2] },
       roughness: 0.55,
     }
@@ -228,10 +230,10 @@ export function addStructureItem(
     const item: WallItem = {
       kind: 'wall',
       id,
-      level,
-      from: [round4(px - 2), pz],
-      to: [round4(px + 2), pz],
-      y: level,
+      level: safeLevel,
+      from: [round4(px - 2), round4(pz)],
+      to: [round4(px + 2), round4(pz)],
+      y: safeLevel,
       height: 2.6,
     }
     return { patch: { ...patch, added: [...patch.added, item] }, id }
@@ -241,11 +243,11 @@ export function addStructureItem(
     const item: GlassItem = {
       kind: 'glass',
       id,
-      level,
-      from: [round4(px - 1.5), pz],
-      to: [round4(px + 1.5), pz],
-      bottom: level,
-      top: round4(level + 2.2),
+      level: safeLevel,
+      from: [round4(px - 1.5), round4(pz)],
+      to: [round4(px + 1.5), round4(pz)],
+      bottom: safeLevel,
+      top: round4(safeLevel + 2.2),
     }
     return { patch: { ...patch, added: [...patch.added, item] }, id }
   }
@@ -254,8 +256,8 @@ export function addStructureItem(
     const item: BoxItem = {
       kind: 'box',
       id,
-      level,
-      position: [px, round4(level + 0.5), pz],
+      level: safeLevel,
+      position: [px, round4(safeLevel + 0.5), pz],
       size: [1, 1, 1],
       color: '#a0a0a0',
       roughness: 0.5,
@@ -291,14 +293,14 @@ export function duplicateItem(patch: ScenePatch, items: SceneItem[], item: Scene
   const id = nextAddedId(patch, items)
 
   if (item.kind === 'floor') {
-    const min: [number, number] = [
-      round4(clampAround(item.min[0] + DUPLICATE_OFFSET, bounds.minX, bounds.maxX, item.min[0])),
-      round4(clampAround(item.min[1] + DUPLICATE_OFFSET, bounds.minZ, bounds.maxZ, item.min[1])),
-    ]
-    const max: [number, number] = [
-      round4(clampAround(item.max[0] + DUPLICATE_OFFSET, bounds.minX, bounds.maxX, item.max[0])),
-      round4(clampAround(item.max[1] + DUPLICATE_OFFSET, bounds.minZ, bounds.maxZ, item.max[1])),
-    ]
+    const effMinX = Math.min(bounds.minX, item.min[0])
+    const effMaxX = Math.max(bounds.maxX, item.max[0])
+    const effMinZ = Math.min(bounds.minZ, item.min[1])
+    const effMaxZ = Math.max(bounds.maxZ, item.max[1])
+    const dx = clamp(DUPLICATE_OFFSET, effMinX - item.min[0], effMaxX - item.max[0])
+    const dz = clamp(DUPLICATE_OFFSET, effMinZ - item.min[1], effMaxZ - item.max[1])
+    const min: [number, number] = [round4(item.min[0] + dx), round4(item.min[1] + dz)]
+    const max: [number, number] = [round4(item.max[0] + dx), round4(item.max[1] + dz)]
     const copy: FloorItem = {
       kind: 'floor',
       id,
@@ -314,14 +316,18 @@ export function duplicateItem(patch: ScenePatch, items: SceneItem[], item: Scene
   }
 
   if (item.kind === 'wall') {
-    const from: [number, number] = [
-      round4(clampAround(item.from[0] + DUPLICATE_OFFSET, bounds.minX, bounds.maxX, item.from[0])),
-      round4(clampAround(item.from[1] + DUPLICATE_OFFSET, bounds.minZ, bounds.maxZ, item.from[1])),
-    ]
-    const to: [number, number] = [
-      round4(clampAround(item.to[0] + DUPLICATE_OFFSET, bounds.minX, bounds.maxX, item.to[0])),
-      round4(clampAround(item.to[1] + DUPLICATE_OFFSET, bounds.minZ, bounds.maxZ, item.to[1])),
-    ]
+    const minX = Math.min(item.from[0], item.to[0])
+    const maxX = Math.max(item.from[0], item.to[0])
+    const minZ = Math.min(item.from[1], item.to[1])
+    const maxZ = Math.max(item.from[1], item.to[1])
+    const effMinX = Math.min(bounds.minX, minX)
+    const effMaxX = Math.max(bounds.maxX, maxX)
+    const effMinZ = Math.min(bounds.minZ, minZ)
+    const effMaxZ = Math.max(bounds.maxZ, maxZ)
+    const dx = clamp(DUPLICATE_OFFSET, effMinX - minX, effMaxX - maxX)
+    const dz = clamp(DUPLICATE_OFFSET, effMinZ - minZ, effMaxZ - maxZ)
+    const from: [number, number] = [round4(item.from[0] + dx), round4(item.from[1] + dz)]
+    const to: [number, number] = [round4(item.to[0] + dx), round4(item.to[1] + dz)]
     const copy: WallItem = {
       kind: 'wall',
       id,
@@ -336,14 +342,18 @@ export function duplicateItem(patch: ScenePatch, items: SceneItem[], item: Scene
   }
 
   if (item.kind === 'glass') {
-    const from: [number, number] = [
-      round4(clampAround(item.from[0] + DUPLICATE_OFFSET, bounds.minX, bounds.maxX, item.from[0])),
-      round4(clampAround(item.from[1] + DUPLICATE_OFFSET, bounds.minZ, bounds.maxZ, item.from[1])),
-    ]
-    const to: [number, number] = [
-      round4(clampAround(item.to[0] + DUPLICATE_OFFSET, bounds.minX, bounds.maxX, item.to[0])),
-      round4(clampAround(item.to[1] + DUPLICATE_OFFSET, bounds.minZ, bounds.maxZ, item.to[1])),
-    ]
+    const minX = Math.min(item.from[0], item.to[0])
+    const maxX = Math.max(item.from[0], item.to[0])
+    const minZ = Math.min(item.from[1], item.to[1])
+    const maxZ = Math.max(item.from[1], item.to[1])
+    const effMinX = Math.min(bounds.minX, minX)
+    const effMaxX = Math.max(bounds.maxX, maxX)
+    const effMinZ = Math.min(bounds.minZ, minZ)
+    const effMaxZ = Math.max(bounds.maxZ, maxZ)
+    const dx = clamp(DUPLICATE_OFFSET, effMinX - minX, effMaxX - maxX)
+    const dz = clamp(DUPLICATE_OFFSET, effMinZ - minZ, effMaxZ - maxZ)
+    const from: [number, number] = [round4(item.from[0] + dx), round4(item.from[1] + dz)]
+    const to: [number, number] = [round4(item.to[0] + dx), round4(item.to[1] + dz)]
     const copy: GlassItem = {
       kind: 'glass',
       id,
@@ -430,38 +440,89 @@ export function setItemProp(patch: ScenePatch, item: SceneItem, key: string, val
 
 export function setFloorBounds(patch: ScenePatch, item: SceneItem, min: [number, number], max: [number, number], y?: number): ScenePatch {
   if (item.kind !== 'floor') return patch
-  const normMin: [number, number] = [round4(Math.min(min[0], max[0])), round4(Math.min(min[1], max[1]))]
-  const normMax: [number, number] = [round4(Math.max(min[0], max[0])), round4(Math.max(min[1], max[1]))]
-  if (normMin[0] === item.min[0] && normMin[1] === item.min[1] && normMax[0] === item.max[0] && normMax[1] === item.max[1] && (y === undefined || y === item.y)) return patch
+  const minX = Math.min(safeNum(min[0]), safeNum(max[0]))
+  const maxX = Math.max(safeNum(min[0]), safeNum(max[0]))
+  const minZ = Math.min(safeNum(min[1]), safeNum(max[1]))
+  const maxZ = Math.max(safeNum(min[1]), safeNum(max[1]))
+  const width = clamp(maxX - minX, 0.5, 100)
+  const depth = clamp(maxZ - minZ, 0.5, 100)
+  const normMin: [number, number] = [round4(minX), round4(minZ)]
+  const normMax: [number, number] = [round4(minX + width), round4(minZ + depth)]
+  const clampedY = y !== undefined ? round4(item.level + clamp(safeNum(y, item.y) - item.level, -5, 5)) : undefined
+  if (normMin[0] === item.min[0] && normMin[1] === item.min[1] && normMax[0] === item.max[0] && normMax[1] === item.max[1] && (clampedY === undefined || clampedY === item.y)) return patch
   const fields: Partial<FloorItem> = { min: normMin, max: normMax }
-  if (y !== undefined) fields.y = round4(y)
+  if (clampedY !== undefined) fields.y = clampedY
   return patchItem(patch, item.id, fields)
 }
 
 export function setFloorSurface(patch: ScenePatch, item: SceneItem, surface: Surface, roughness?: number): ScenePatch {
   if (item.kind !== 'floor') return patch
   const fields: Partial<FloorItem> = { surface: { ...surface } }
-  if (roughness !== undefined) fields.roughness = round4(clamp(roughness, 0, 1))
+  if (roughness !== undefined) fields.roughness = round4(clamp(safeNum(roughness), 0, 1))
   return patchItem(patch, item.id, fields)
 }
 
 export function setWallGeometry(patch: ScenePatch, item: SceneItem, from: [number, number], to: [number, number], height: number, y?: number): ScenePatch {
   if (item.kind !== 'wall') return patch
-  const normFrom: [number, number] = [round4(from[0]), round4(from[1])]
-  const normTo: [number, number] = [round4(to[0]), round4(to[1])]
-  const h = round4(height)
+  const normFrom: [number, number] = [round4(safeNum(from[0])), round4(safeNum(from[1]))]
+  let toX = safeNum(to[0])
+  let toZ = safeNum(to[1])
+  const dx = toX - normFrom[0]
+  const dz = toZ - normFrom[1]
+  const len = Math.hypot(dx, dz)
+  if (len === 0) {
+    toX = normFrom[0] + 0.25
+    toZ = normFrom[1]
+  } else if (len < 0.25) {
+    toX = normFrom[0] + (dx / len) * 0.25
+    toZ = normFrom[1] + (dz / len) * 0.25
+  } else if (len > 100) {
+    toX = normFrom[0] + (dx / len) * 100
+    toZ = normFrom[1] + (dz / len) * 100
+  }
+  const normTo: [number, number] = [round4(toX), round4(toZ)]
+  const h = round4(clamp(safeNum(height, 0.1), 0.1, 10.0))
   const fields: Partial<WallItem> = { from: normFrom, to: normTo, height: h }
-  if (y !== undefined) fields.y = round4(y)
+  if (y !== undefined) fields.y = round4(safeNum(y))
   return patchItem(patch, item.id, fields)
 }
 
 export function setGlassGeometry(patch: ScenePatch, item: SceneItem, from: [number, number], to: [number, number], bottom: number, top: number): ScenePatch {
   if (item.kind !== 'glass') return patch
-  const normFrom: [number, number] = [round4(from[0]), round4(from[1])]
-  const normTo: [number, number] = [round4(to[0]), round4(to[1])]
-  const b = round4(Math.min(bottom, top))
-  const t = round4(Math.max(bottom, top))
-  return patchItem(patch, item.id, { from: normFrom, to: normTo, bottom: b, top: t })
+  const normFrom: [number, number] = [round4(safeNum(from[0])), round4(safeNum(from[1]))]
+  let toX = safeNum(to[0])
+  let toZ = safeNum(to[1])
+  const dx = toX - normFrom[0]
+  const dz = toZ - normFrom[1]
+  const len = Math.hypot(dx, dz)
+  if (len === 0) {
+    toX = normFrom[0] + 0.25
+    toZ = normFrom[1]
+  } else if (len < 0.25) {
+    toX = normFrom[0] + (dx / len) * 0.25
+    toZ = normFrom[1] + (dz / len) * 0.25
+  } else if (len > 100) {
+    toX = normFrom[0] + (dx / len) * 100
+    toZ = normFrom[1] + (dz / len) * 100
+  }
+  const normTo: [number, number] = [round4(toX), round4(toZ)]
+
+  let bRel = clamp(safeNum(bottom, item.bottom) - item.level, -20, 20)
+  let tRel = clamp(safeNum(top, item.top) - item.level, -20, 20)
+  if (bRel > tRel) {
+    const tmp = bRel
+    bRel = tRel
+    tRel = tmp
+  }
+  if (tRel - bRel < 0.1) {
+    if (bRel + 0.1 <= 20) {
+      tRel = bRel + 0.1
+    } else {
+      bRel = tRel - 0.1
+    }
+  }
+
+  return patchItem(patch, item.id, { from: normFrom, to: normTo, bottom: round4(item.level + bRel), top: round4(item.level + tRel) })
 }
 
 export interface BoxPropsOptions {
@@ -474,24 +535,27 @@ export interface BoxPropsOptions {
 
 export function setBoxProps(patch: ScenePatch, item: SceneItem, size: Vec3, color: string, options?: BoxPropsOptions): ScenePatch {
   if (item.kind !== 'box') return patch
-  const normSize: Vec3 = [round4(size[0]), round4(size[1]), round4(size[2])]
+  const normSize: Vec3 = [
+    round4(clamp(safeNum(size[0], 0.05), 0.05, 50.0)),
+    round4(clamp(safeNum(size[1], 0.05), 0.05, 50.0)),
+    round4(clamp(safeNum(size[2], 0.05), 0.05, 50.0)),
+  ]
   const fields: Partial<BoxItem> = {
     size: normSize,
     color,
-    ...(options?.position !== undefined ? { position: [round4(options.position[0]), round4(options.position[1]), round4(options.position[2])] as Vec3 } : {}),
-    ...(options?.radius !== undefined ? { radius: round4(options.radius) } : {}),
-    ...(options?.roughness !== undefined ? { roughness: round4(clamp(options.roughness, 0, 1)) } : {}),
-    ...(options?.opacity !== undefined ? { opacity: round4(clamp(options.opacity, 0, 1)) } : {}),
+    ...(options?.position !== undefined ? { position: [round4(safeNum(options.position[0])), round4(safeNum(options.position[1])), round4(safeNum(options.position[2]))] as Vec3 } : {}),
+    ...(options?.radius !== undefined ? { radius: round4(clamp(safeNum(options.radius), 0, 0.5)) } : {}),
+    ...(options?.roughness !== undefined ? { roughness: round4(clamp(safeNum(options.roughness), 0, 1)) } : {}),
+    ...(options?.opacity !== undefined ? { opacity: round4(clamp(safeNum(options.opacity), 0, 1)) } : {}),
     ...(options?.shadow !== undefined ? { shadow: options.shadow } : {}),
   }
   return patchItem(patch, item.id, fields)
 }
 
-export const setBoxTransform = setBoxProps
-
-export function setItemView(patch: ScenePatch, item: SceneItem, view?: SceneView): ScenePatch {
-  if (item.view === view) return patch
-  return patchItem(patch, item.id, { view })
+export function setItemView(patch: ScenePatch, item: SceneItem, view: SceneView = 'cutaway'): ScenePatch {
+  const targetView: SceneView = view ?? 'cutaway'
+  if (item.view === targetView) return patch
+  return patchItem(patch, item.id, { view: targetView })
 }
 
 export type EditKeyAction = 'undo' | 'redo' | 'delete' | 'rotate+' | 'rotate-' | 'deselect' | 'duplicate'
@@ -559,6 +623,77 @@ function wallCovers(sw: WallItem, w: WallItem, eps = 0.05): boolean {
  * Inspects items on `fromLevel` and ensures perimeter walls have matching full-height (2.6m) shell walls
  * with `view: 'shell'`, so lower storeys appear closed when viewed from above.
  */
+/**
+ * Resolves the bounding box for a storey's footprint.
+ * Derives from the union of active floors and walls on that level.
+ * On a degenerate extent (e.g. single axis-aligned wall or 0 depth/width),
+ * uses passed bounds before hardcoded BUILDING.
+ */
+export function resolveStoreyBounds(
+  items: readonly SceneItem[],
+  level: number,
+  bounds?: Bounds,
+): Bounds {
+  const EPSILON = 0.05
+  const storeyWalls = items.filter((it): it is WallItem => it.level === level && it.kind === 'wall')
+  const storeyFloors = items.filter(
+    (it): it is FloorItem =>
+      it.level === level &&
+      it.kind === 'floor' &&
+      !/balcony|lawn|sidewalk|road|gang/i.test(it.id),
+  )
+
+  const xs = [
+    ...storeyFloors.flatMap((f) => [f.min[0], f.max[0]]),
+    ...storeyWalls.flatMap((w) => [w.from[0], w.to[0]]),
+  ]
+  const zs = [
+    ...storeyFloors.flatMap((f) => [f.min[1], f.max[1]]),
+    ...storeyWalls.flatMap((w) => [w.from[1], w.to[1]]),
+  ]
+
+  let storeyB: Bounds | null = null
+  if (xs.length > 0 && zs.length > 0) {
+    storeyB = {
+      minX: Math.min(...xs),
+      maxX: Math.max(...xs),
+      minZ: Math.min(...zs),
+      maxZ: Math.max(...zs),
+    }
+  }
+
+  const isDegenerate = (box?: Bounds | null): boolean =>
+    !box || Math.abs(box.maxX - box.minX) <= EPSILON || Math.abs(box.maxZ - box.minZ) <= EPSILON
+
+  // On degenerate or missing extent, use passed bounds before hardcoded BUILDING
+  if (!storeyB || isDegenerate(storeyB)) {
+    return bounds && !isDegenerate(bounds) ? bounds : BUILDING
+  }
+
+  // If outer bounds like camera pan was passed, prefer storey footprint
+  if (bounds && !isDegenerate(bounds)) {
+    const isOuterBounds =
+      bounds.minX < storeyB.minX - EPSILON ||
+      bounds.maxX > storeyB.maxX + EPSILON ||
+      bounds.minZ < storeyB.minZ - EPSILON ||
+      bounds.maxZ > storeyB.maxZ + EPSILON
+    if (isOuterBounds) {
+      return storeyB
+    }
+    const isStoreyExpanded =
+      storeyB.minX < bounds.minX - EPSILON ||
+      storeyB.maxX > bounds.maxX + EPSILON ||
+      storeyB.minZ < bounds.minZ - EPSILON ||
+      storeyB.maxZ > bounds.maxZ + EPSILON
+    if (isStoreyExpanded) {
+      return storeyB
+    }
+    return bounds
+  }
+
+  return storeyB
+}
+
 export function generateStoreyShell(
   patch: ScenePatch,
   items: readonly SceneItem[] = [],
@@ -566,43 +701,24 @@ export function generateStoreyShell(
   bounds?: Bounds,
 ): ScenePatch {
   const allItems: SceneItem[] = [
-    ...(items ?? []).filter((it) => patch.overrides[it.id] !== null),
+    ...(items ?? []).flatMap((it) => {
+      const o = patch.overrides[it.id]
+      if (o === null) return []
+      if (o && typeof o === 'object') return [{ ...it, ...o } as SceneItem]
+      return [it]
+    }),
     ...patch.added,
   ]
 
   const targetLevel = fromLevel ?? (levelsOf(allItems).length > 0 ? Math.max(...levelsOf(allItems)) : 0)
 
   // Collect all walls on targetLevel, respecting patch overrides
-  const activeWalls: WallItem[] = []
-  for (const item of items ?? []) {
-    if (item.kind !== 'wall' || item.level !== targetLevel) continue
-    if (patch.overrides[item.id] === null) continue // deleted
-    const override = patch.overrides[item.id]
-    if (override && typeof override === 'object') {
-      activeWalls.push({ ...item, ...override } as WallItem)
-    } else {
-      activeWalls.push(item)
-    }
-  }
-  for (const item of patch.added) {
-    if (item.kind === 'wall' && item.level === targetLevel) {
-      activeWalls.push(item)
-    }
-  }
-
+  const activeWalls = allItems.filter((it): it is WallItem => it.kind === 'wall' && it.level === targetLevel)
   if (activeWalls.length === 0) return patch
 
-  let b = bounds
-  if (!b) {
-    b = {
-      minX: Math.min(...activeWalls.flatMap((w) => [w.from[0], w.to[0]])),
-      maxX: Math.max(...activeWalls.flatMap((w) => [w.from[0], w.to[0]])),
-      minZ: Math.min(...activeWalls.flatMap((w) => [w.from[1], w.to[1]])),
-      maxZ: Math.max(...activeWalls.flatMap((w) => [w.from[1], w.to[1]])),
-    }
-  }
-
   const EPSILON = 0.05
+  const b = resolveStoreyBounds(allItems, targetLevel, bounds)
+
   let nextPatch = patch
 
   for (const w of activeWalls) {
@@ -616,9 +732,6 @@ export function generateStoreyShell(
 
     // If w is already a shell wall:
     if (w.view === 'shell') {
-      if (w.height !== WALL_HEIGHT || w.y !== targetLevel) {
-        nextPatch = patchItem(nextPatch, w.id, { height: WALL_HEIGHT, y: targetLevel })
-      }
       continue
     }
 
@@ -632,9 +745,6 @@ export function generateStoreyShell(
       (sw) => sw.view === 'shell' && wallCovers(sw, w, EPSILON),
     )
     if (existingShell) {
-      if (existingShell.height !== WALL_HEIGHT || existingShell.y !== targetLevel) {
-        nextPatch = patchItem(nextPatch, existingShell.id, { height: WALL_HEIGHT, y: targetLevel })
-      }
       continue
     }
 
@@ -666,6 +776,17 @@ export function generateStoreyShell(
   return nextPatch
 }
 
+export const DEFAULT_STAIRWELL_CUTOUT: Bounds = {
+  minX: 1.8,
+  maxX: 4.7,
+  minZ: 2.95,
+  maxZ: 3.95,
+}
+
+export interface AddStoreyOptions {
+  stairwellCutout?: boolean | Bounds
+}
+
 export interface AddStoreyResult {
   patch: ScenePatch
   level: number
@@ -676,16 +797,22 @@ export interface AddStoreyResult {
  * Adds a new storey:
  * 1. Calculates new level = highest level + FLOOR_HEIGHT (2.8m).
  * 2. Generates closed shell walls for the storey below so it renders properly when viewed from above.
- * 3. Adds a base floor slab on the new level spanning bounds (or storey below bounds).
+ * 3. Adds a base floor slab on the new level spanning bounds (or storey below bounds), optionally leaving a stairwell cutout.
  * Returns `{ patch, level, id }`.
  */
 export function addStorey(
   patch: ScenePatch,
   items: readonly SceneItem[] = [],
   bounds?: Bounds,
+  options?: AddStoreyOptions,
 ): AddStoreyResult {
   const allItems: SceneItem[] = [
-    ...(items ?? []).filter((it) => patch.overrides[it.id] !== null),
+    ...(items ?? []).flatMap((it) => {
+      const o = patch.overrides[it.id]
+      if (o === null) return []
+      if (o && typeof o === 'object') return [{ ...it, ...o } as SceneItem]
+      return [it]
+    }),
     ...patch.added,
   ]
   const levels = levelsOf(allItems)
@@ -696,39 +823,60 @@ export function addStorey(
   // 1. Generate closed shell walls for the storey below
   let nextPatch = generateStoreyShell(patch, allItems, fromLevel, bounds)
 
-  // 2. Determine bounds for the new floor slab
-  let b = bounds
-  if (!b) {
-    const storeyFloors = allItems.filter((it): it is FloorItem => it.level === fromLevel && it.kind === 'floor')
-    if (storeyFloors.length > 0) {
-      b = {
-        minX: Math.min(...storeyFloors.map((f) => f.min[0])),
-        maxX: Math.max(...storeyFloors.map((f) => f.max[0])),
-        minZ: Math.min(...storeyFloors.map((f) => f.min[1])),
-        maxZ: Math.max(...storeyFloors.map((f) => f.max[1])),
-      }
-    } else {
-      const storeyWalls = allItems.filter((it): it is WallItem => it.level === fromLevel && it.kind === 'wall')
-      if (storeyWalls.length > 0) {
-        b = {
-          minX: Math.min(...storeyWalls.flatMap((w) => [w.from[0], w.to[0]])),
-          maxX: Math.max(...storeyWalls.flatMap((w) => [w.from[0], w.to[0]])),
-          minZ: Math.min(...storeyWalls.flatMap((w) => [w.from[1], w.to[1]])),
-          maxZ: Math.max(...storeyWalls.flatMap((w) => [w.from[1], w.to[1]])),
-        }
-      } else {
-        b = BUILDING
-      }
-    }
-  }
-
-  if (b.minX === b.maxX || b.minZ === b.maxZ) {
-    b = BUILDING
-  }
+  // 2. Determine bounds for the new floor slab matching storey below
+  const b = resolveStoreyBounds(allItems, fromLevel, bounds)
 
   // 3. Add base floor slab on newLevel
   if (nextPatch.added.length >= MAX_ADDED) {
     return { patch: nextPatch, level: newLevel, id: null }
+  }
+
+  const cutout = options?.stairwellCutout === true
+    ? DEFAULT_STAIRWELL_CUTOUT
+    : typeof options?.stairwellCutout === 'object' && options.stairwellCutout !== null
+      ? options.stairwellCutout
+      : null
+
+  if (cutout) {
+    const cutMinX = Math.min(cutout.minX, cutout.maxX)
+    const cutMaxX = Math.max(cutout.minX, cutout.maxX)
+    const cutMinZ = Math.min(cutout.minZ, cutout.maxZ)
+    const cutMaxZ = Math.max(cutout.minZ, cutout.maxZ)
+
+    const overlaps = cutMinX < b.maxX && cutMaxX > b.minX && cutMinZ < b.maxZ && cutMaxZ > b.minZ
+    if (overlaps) {
+      const hx1 = Math.max(b.minX, cutMinX)
+      const hx2 = Math.min(b.maxX, cutMaxX)
+      const hz1 = Math.max(b.minZ, cutMinZ)
+      const hz2 = Math.min(b.maxZ, cutMaxZ)
+
+      const rects: [number, number, number, number][] = []
+      if (hz1 > b.minZ) rects.push([b.minX, b.maxX, b.minZ, hz1])
+      if (b.maxZ > hz2) rects.push([b.minX, b.maxX, hz2, b.maxZ])
+      if (hx1 > b.minX && hz2 > hz1) rects.push([b.minX, hx1, hz1, hz2])
+      if (b.maxX > hx2 && hz2 > hz1) rects.push([hx2, b.maxX, hz1, hz2])
+
+      let primaryId: string | null = null
+      for (const [x1, x2, z1, z2] of rects) {
+        if (x2 - x1 < 0.05 || z2 - z1 < 0.05) continue
+        if (nextPatch.added.length >= MAX_ADDED) break
+        const floorId = nextAddedId(nextPatch, (items ?? []) as SceneItem[])
+        if (!primaryId) primaryId = floorId
+        const slabFloor: FloorItem = {
+          kind: 'floor',
+          id: floorId,
+          level: newLevel,
+          min: [round4(x1), round4(z1)],
+          max: [round4(x2), round4(z2)],
+          y: newLevel,
+          surface: { type: 'wood', repeat: [4, 4] },
+          roughness: 0.55,
+        }
+        nextPatch = appendItem(nextPatch, slabFloor)
+      }
+
+      return { patch: nextPatch, level: newLevel, id: primaryId }
+    }
   }
 
   const floorId = nextAddedId(nextPatch, (items ?? []) as SceneItem[])
