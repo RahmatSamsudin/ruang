@@ -29,6 +29,7 @@ import {
   moveItem,
   nextAddedId,
   placePoint,
+  resolveStoreyBounds,
   ROTATION_STEP,
   rotateBy,
   rotateItem,
@@ -860,6 +861,125 @@ describe('addStorey', () => {
     expect(slab.max[0]).toBe(layout.building.maxX)
     expect(slab.min[1]).toBe(layout.building.minZ)
     expect(slab.max[1]).toBe(layout.building.maxZ)
+  })
+
+  it('keeps full 32m footprint on L4 when adding storey after adding 2 walls on L3', () => {
+    const layout = createLayout(16)
+    const items = defaultScene(layout)
+    // 16-desk layout building width is ~32.0m: minX: -22.5, maxX: 9.5
+    expect(layout.building.maxX - layout.building.minX).toBeCloseTo(32.0, 1)
+
+    // Add Storey -> L3 (level 5.6)
+    const resL3 = addStorey(EMPTY_PATCH, items, layout.building)
+    expect(resL3.level).toBe(5.6)
+    const l3Slab = resL3.patch.added.find(
+      (it): it is FloorItem => it.kind === 'floor' && it.level === 5.6,
+    )
+    expect(l3Slab).toBeDefined()
+    expect(l3Slab!.max[0] - l3Slab!.min[0]).toBeCloseTo(32.0, 1)
+
+    // Add 2 walls on L3
+    const wall1: WallItem = {
+      kind: 'wall',
+      id: 'added-l3-wall1',
+      level: 5.6,
+      from: [0, 0],
+      to: [5, 0],
+      y: 5.6,
+      height: 2.0,
+      view: 'both',
+    }
+    const wall2: WallItem = {
+      kind: 'wall',
+      id: 'added-l3-wall2',
+      level: 5.6,
+      from: [5, 0],
+      to: [5, 3],
+      y: 5.6,
+      height: 2.0,
+      view: 'both',
+    }
+    const patchWithWalls: ScenePatch = {
+      ...resL3.patch,
+      added: [...resL3.patch.added, wall1, wall2],
+    }
+
+    // Add Storey again -> L4 (level 8.4)
+    const resL4 = addStorey(patchWithWalls, items, layout.building)
+    expect(resL4.level).toBe(8.4)
+
+    const l4Slab = resL4.patch.added.find(
+      (it): it is FloorItem => it.kind === 'floor' && it.level === 8.4,
+    )
+    expect(l4Slab).toBeDefined()
+    expect(l4Slab!.min[0]).toBe(layout.building.minX)
+    expect(l4Slab!.max[0]).toBe(layout.building.maxX)
+    expect(l4Slab!.min[1]).toBe(layout.building.minZ)
+    expect(l4Slab!.max[1]).toBe(layout.building.maxZ)
+    expect(l4Slab!.max[0] - l4Slab!.min[0]).toBeCloseTo(32.0, 1)
+  })
+
+  it('uses passed bounds instead of falling to BUILDING for a single axis-aligned wall', () => {
+    const layout = createLayout(16)
+    const singleAxisWall: WallItem = {
+      kind: 'wall',
+      id: 'test-wall',
+      level: 0,
+      from: [-10, 0],
+      to: [10, 0],
+      y: 0,
+      height: 2.0,
+      view: 'both',
+    }
+    // Only a single axis-aligned wall on level 0 (degenerate extent)
+    const { patch: nextPatch, level: newLevel } = addStorey(
+      EMPTY_PATCH,
+      [singleAxisWall],
+      layout.building,
+    )
+    expect(newLevel).toBe(2.8)
+    const slab = nextPatch.added.find(
+      (it): it is FloorItem => it.kind === 'floor' && it.level === 2.8,
+    )
+    expect(slab).toBeDefined()
+    // Must use passed layout.building (32m), NOT hardcoded BUILDING (19m)
+    expect(slab!.min[0]).toBe(layout.building.minX)
+    expect(slab!.max[0]).toBe(layout.building.maxX)
+    expect(slab!.max[0] - slab!.min[0]).toBeCloseTo(32.0, 1)
+  })
+
+  it('resolveStoreyBounds derives from union of floors and walls, using passed bounds when degenerate', () => {
+    const layout = createLayout(16)
+    const floor: FloorItem = {
+      kind: 'floor',
+      id: 'f1',
+      level: 0,
+      min: [-10, -5],
+      max: [10, 5],
+      y: 0,
+      surface: { type: 'wood', repeat: [1, 1] },
+    }
+    const wall: WallItem = {
+      kind: 'wall',
+      id: 'w1',
+      level: 0,
+      from: [0, 0],
+      to: [15, 0],
+      y: 0,
+      height: 2,
+      view: 'both',
+    }
+    // Union should extend maxX to 15 from the wall, and keep minX -10 from the floor
+    const b = resolveStoreyBounds([floor, wall], 0, layout.building)
+    expect(b.minX).toBe(-10)
+    expect(b.maxX).toBe(15)
+    expect(b.minZ).toBe(-5)
+    expect(b.maxZ).toBe(5)
+
+    // Degenerate (single wall) should use layout.building
+    const bDegen = resolveStoreyBounds([wall], 0, layout.building)
+    expect(bDegen.minX).toBe(layout.building.minX)
+    expect(bDegen.maxX).toBe(layout.building.maxX)
   })
 })
 
