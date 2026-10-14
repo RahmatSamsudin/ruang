@@ -8,6 +8,7 @@ import {
   type EditableItem,
   type FloorItem,
   type GlassItem,
+  type ModelItem,
   type PropItem,
   type PropType,
   type PropValue,
@@ -80,7 +81,7 @@ export function moveItem(patch: ScenePatch, item: SceneItem, x: number, z: numbe
     const to: [number, number] = [round4(item.to[0] + dx), round4(item.to[1] + dz)]
     return patchItem(patch, item.id, { from, to })
   }
-  if (item.kind === 'box' || item.kind === 'prop' || item.kind === 'window') {
+  if (item.kind === 'box' || item.kind === 'prop' || item.kind === 'window' || item.kind === 'model') {
     const px = round4(bounds ? clampAround(x, bounds.minX, bounds.maxX, item.position[0]) : x)
     const pz = round4(bounds ? clampAround(z, bounds.minZ, bounds.maxZ, item.position[2]) : z)
     if (px === item.position[0] && pz === item.position[2]) return patch
@@ -124,7 +125,7 @@ export function rotateItem(patch: ScenePatch, item: SceneItem, radians: number):
     const size: Vec3 = [item.size[2], item.size[1], item.size[0]]
     return patchItem(patch, item.id, { size })
   }
-  if (item.kind === 'prop' || item.kind === 'window') {
+  if (item.kind === 'prop' || item.kind === 'window' || item.kind === 'model') {
     const norm = normalizeAngle(radians)
     if (norm === (item.rotation ?? 0)) return patch
     return patchItem(patch, item.id, { rotation: norm })
@@ -133,7 +134,7 @@ export function rotateItem(patch: ScenePatch, item: SceneItem, radians: number):
 }
 
 export function rotateBy(patch: ScenePatch, item: SceneItem, delta: number): ScenePatch {
-  if (item.kind === 'prop' || item.kind === 'window') {
+  if (item.kind === 'prop' || item.kind === 'window' || item.kind === 'model') {
     return rotateItem(patch, item, (item.rotation ?? 0) + delta)
   }
   return rotateItem(patch, item, delta)
@@ -158,7 +159,7 @@ export function setItemLevel(patch: ScenePatch, item: SceneItem, level: number):
   if (item.kind === 'glass') {
     return patchItem(patch, item.id, { level, bottom: round4(item.bottom + dy), top: round4(item.top + dy) })
   }
-  if (item.kind === 'box' || item.kind === 'prop' || item.kind === 'window') {
+  if (item.kind === 'box' || item.kind === 'prop' || item.kind === 'window' || item.kind === 'model') {
     const [x, y, z] = item.position
     return patchItem(patch, item.id, { level, position: [x, round4(y + dy), z] })
   }
@@ -264,6 +265,31 @@ export function addStructureItem(
   }
 
   return { patch, id: null }
+}
+
+/** Adds a custom 3D model instance into the scene patch. */
+export function addModelItem(
+  patch: ScenePatch,
+  items: SceneItem[],
+  modelId: string,
+  x: number,
+  z: number,
+  level: number,
+  bounds: Bounds,
+  scale = 1.0,
+): AddResult {
+  if (patch.added.length >= MAX_ADDED) return { patch, id: null }
+  const [px, pz] = placePoint([x, z], true, bounds)
+  const id = nextAddedId(patch, items)
+  const item: ModelItem = {
+    kind: 'model',
+    id,
+    level,
+    modelId,
+    position: [px, level, pz],
+    scale: round4(scale),
+  }
+  return { patch: { ...patch, added: [...patch.added, item] }, id }
 }
 
 /** Produces a copy of `item` offset to the drag center [dragX, dragZ] for live rendering in the editor canvas. */
@@ -419,7 +445,35 @@ export function duplicateItem(patch: ScenePatch, items: SceneItem[], item: Scene
     return { patch: { ...patch, added: [...patch.added, copy] }, id }
   }
 
+  if (item.kind === 'model') {
+    const [x, y, z] = item.position
+    const position: Vec3 = [
+      round4(clampAround(x + DUPLICATE_OFFSET, bounds.minX, bounds.maxX, x)),
+      y,
+      round4(clampAround(z + DUPLICATE_OFFSET, bounds.minZ, bounds.maxZ, z)),
+    ]
+    const copy: ModelItem = {
+      kind: 'model',
+      id,
+      level: item.level,
+      modelId: item.modelId,
+      position,
+      ...(item.rotation !== undefined ? { rotation: item.rotation } : {}),
+      ...(item.scale !== undefined ? { scale: item.scale } : {}),
+      ...(item.view ? { view: item.view } : {}),
+    }
+    return { patch: { ...patch, added: [...patch.added, copy] }, id }
+  }
+
   return { patch, id: null }
+}
+
+/** Sets the scale factor of a custom 3D model item (clamped to 0.01 - 100). */
+export function setItemScale(patch: ScenePatch, item: SceneItem, scale: number): ScenePatch {
+  if (item.kind !== 'model') return patch
+  const clampedScale = round4(clamp(scale, 0.01, 100))
+  if (item.scale === clampedScale) return patch
+  return patchItem(patch, item.id, { scale: clampedScale })
 }
 
 /** Sets one prop (size, length, colour...) of a prop item. The whole props object is written, so a stock item's override replaces its props with the edited copy. */

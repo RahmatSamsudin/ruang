@@ -22,7 +22,7 @@ export const SCENE_PROP_TYPES = [
 export const SCENE_SURFACES = ['wood', 'tile', 'carpet', 'grass', 'asphalt', 'paving']
 
 export interface ScenePatch {
-  version: 1
+  version: 2
   overrides: Record<string, Record<string, unknown> | null>
   added: Record<string, unknown>[]
 }
@@ -49,6 +49,10 @@ const color: Check = (value) => typeof value === 'string' && /^#[0-9a-fA-F]{6}$/
 const surface: Check = (value) => isRecord(value) && Object.keys(value).every((key) => ['type', 'repeat', 'color'].includes(key)) && oneOf(SCENE_SURFACES)(value.type) && tuple(2, positive)(value.repeat) && (value.color === undefined || color(value.color))
 const propValues: Check = (value) => isRecord(value) && Object.keys(value).length <= 16 && Object.entries(value).every(([key, item]) => /^[A-Za-z]{1,24}$/.test(key) && ((num(item) && Math.abs(item as number) <= 100) || bool(item) || (typeof item === 'string' && item.length <= 64)))
 
+const MODEL_ID = /^m-[0-9a-f]{12}$/
+const modelIdCheck: Check = (value) => typeof value === 'string' && MODEL_ID.test(value)
+const scaleCheck: Check = (value) => typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= 100
+
 const FIELDS: Record<string, Record<string, Check>> = {
   prop: { type: oneOf(SCENE_PROP_TYPES), position: tuple(3), rotation: num, props: propValues },
   floor: { min: tuple(2), max: tuple(2), y: num, surface, roughness: unit },
@@ -56,10 +60,12 @@ const FIELDS: Record<string, Record<string, Check>> = {
   glass: { from: tuple(2), to: tuple(2), bottom: num, top: num },
   window: { position: tuple(3), rotation: num, width: positive },
   box: { position: tuple(3), size: tuple(3, positive), color, radius: num, roughness: unit, opacity: unit, shadow: bool },
+  model: { modelId: modelIdCheck, position: tuple(3), rotation: num, scale: scaleCheck },
 }
 const REQUIRED: Record<string, string[]> = {
   prop: ['type', 'position'], floor: ['min', 'max', 'y', 'surface'], wall: ['from', 'to', 'y', 'height'],
   glass: ['from', 'to', 'bottom', 'top'], window: ['position'], box: ['position', 'size', 'color'],
+  model: ['modelId', 'position'],
 }
 const COMMON: Record<string, Check> = { level: num, view: oneOf(['cutaway', 'shell', 'both']) }
 // Overrides do not know the kind of the item they patch, so any field of any kind is allowed.
@@ -90,7 +96,7 @@ function validateOverride(id: string, value: unknown): Record<string, unknown> |
   if (value === null) return null
   if (!isRecord(value)) throw new SceneError(`overrides.${id}: must be an object or null.`)
   for (const [key, field] of Object.entries(value)) {
-    if (key === 'id' || key === 'kind') throw new SceneError(`overrides.${id}: ${key} cannot be changed.`)
+    if (key === 'id' || key === 'kind' || key === 'modelId') throw new SceneError(`overrides.${id}: ${key} cannot be changed.`)
     const check = checkOf(ANY_FIELD, key)
     if (!check || !check(field)) throw new SceneError(`overrides.${id}: invalid ${key}.`)
   }
@@ -98,7 +104,7 @@ function validateOverride(id: string, value: unknown): Record<string, unknown> |
 }
 
 export function validatePatch(input: unknown): ScenePatch {
-  if (!isRecord(input) || input.version !== 1) throw new SceneError('A scene patch is an object with version 1.')
+  if (!isRecord(input) || (input.version !== 1 && input.version !== 2)) throw new SceneError('A scene patch is an object with version 1 or 2.')
   if (Object.keys(input).some((key) => !['version', 'overrides', 'added'].includes(key))) throw new SceneError('Unknown field in the scene patch.')
   const overrides = input.overrides ?? {}
   const added = input.added ?? []
@@ -110,10 +116,10 @@ export function validatePatch(input: unknown): ScenePatch {
   for (const id of ids) if (!validId(id)) throw new SceneError(`overrides: invalid id ${JSON.stringify(id)}.`)
   const items = added.map((item, index) => validateItem(item, `added[${index}]`))
   if (new Set(items.map((item) => item.id)).size !== items.length) throw new SceneError('added: duplicate ids.')
-  return { version: 1, overrides: Object.fromEntries(ids.map((id) => [id, validateOverride(id, overrides[id])])), added: items }
+  return { version: 2, overrides: Object.fromEntries(ids.map((id) => [id, validateOverride(id, overrides[id])])), added: items }
 }
 
-const emptyPatch = (): ScenePatch => ({ version: 1, overrides: {}, added: [] })
+const emptyPatch = (): ScenePatch => ({ version: 2, overrides: {}, added: [] })
 
 export class SceneStore {
   constructor(readonly file: string = sceneFile()) {}

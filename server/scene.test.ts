@@ -7,39 +7,52 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installScene, MAX_ADDED, MAX_OVERRIDES, MAX_SCENE_BYTES, SCENE_PROP_TYPES, SCENE_SURFACES, SceneStore, validatePatch } from './scene.js'
 
 const sofa = { id: 'my-sofa', kind: 'prop', level: 0, type: 'Sofa', position: [1, 0, 2] }
-const good = { version: 1, overrides: { sofa: { position: [3, 0, 4], rotation: 1.5 }, 'wall-back': null }, added: [sofa] }
+const validModel = { id: 'model-1', kind: 'model', level: 0, modelId: 'm-0123456789ab', position: [1, 0, 2], rotation: 1.5, scale: 2 }
+const good = { version: 2, overrides: { sofa: { position: [3, 0, 4], rotation: 1.5 }, 'wall-back': null }, added: [sofa] }
+const goodV1 = { version: 1, overrides: { sofa: { position: [3, 0, 4], rotation: 1.5 }, 'wall-back': null }, added: [sofa] }
 
 describe('scene patch validation', () => {
   it('accepts a normal patch and the empty patch', () => {
     expect(validatePatch(good)).toEqual(good)
-    expect(validatePatch({ version: 1 })).toEqual({ version: 1, overrides: {}, added: [] })
+    expect(validatePatch(goodV1)).toEqual(good)
+    expect(validatePatch({ version: 1 })).toEqual({ version: 2, overrides: {}, added: [] })
+    expect(validatePatch({ version: 2 })).toEqual({ version: 2, overrides: {}, added: [] })
   })
 
   const bad: [string, unknown][] = [
     ['not an object', []],
-    ['wrong version', { version: 2 }],
-    ['unknown top-level key', { version: 1, extra: true }],
-    ['unknown kind', { version: 1, added: [{ ...sofa, kind: 'rocket' }] }],
-    ['inherited kind name', { version: 1, added: [{ ...sofa, kind: 'constructor' }] }],
-    ['unknown prop type', { version: 1, added: [{ ...sofa, type: 'Rocket' }] }],
-    ['short position', { version: 1, added: [{ ...sofa, position: [1, 2] }] }],
-    ['overflowing number', { version: 1, added: [{ ...sofa, position: [Number('1e999'), 0, 0] }] }],
-    ['huge number', { version: 1, added: [{ ...sofa, position: [1e6, 0, 0] }] }],
-    ['unknown field', { version: 1, added: [{ ...sofa, hacked: 1 }] }],
-    ['missing required field', { version: 1, added: [{ id: 'x', kind: 'prop', level: 0, type: 'Sofa' }] }],
-    ['bad id', { version: 1, added: [{ ...sofa, id: '../x' }] }],
-    ['generated seat id', { version: 1, added: [{ ...sofa, id: 'desk-9' }] }],
-    ['duplicate added ids', { version: 1, added: [sofa, sofa] }],
-    ['override changing kind', { version: 1, overrides: { sofa: { kind: 'wall' } } }],
-    ['override changing id', { version: 1, overrides: { sofa: { id: 'x' } } }],
-    ['override with a bad value', { version: 1, overrides: { sofa: { position: 'here' } } }],
-    ['override that is not an object', { version: 1, overrides: { sofa: 5 } }],
-    ['prototype id in overrides', JSON.parse('{"version":1,"overrides":{"__proto__":null}}')],
-    ['bad colour', { version: 1, added: [{ id: 'b', kind: 'box', level: 0, position: [0, 0, 0], size: [1, 1, 1], color: 'red' }] }],
-    ['bad surface', { version: 1, added: [{ id: 'f', kind: 'floor', level: 0, y: 0, min: [0, 0], max: [1, 1], surface: { type: 'lava', repeat: [1, 1] } }] }],
-    ['prop value over the cap', { version: 1, added: [{ ...sofa, type: 'Railing', props: { length: 101 } }] }],
-    ['too many overrides', { version: 1, overrides: Object.fromEntries(Array.from({ length: MAX_OVERRIDES + 1 }, (_, index) => [`o${index}`, null])) }],
-    ['too many added items', { version: 1, added: Array.from({ length: 501 }, (_, index) => ({ ...sofa, id: `s${index}` })) }],
+    ['wrong version', { version: 3 }],
+    ['unknown top-level key', { version: 2, extra: true }],
+    ['unknown kind', { version: 2, added: [{ ...sofa, kind: 'rocket' }] }],
+    ['inherited kind name', { version: 2, added: [{ ...sofa, kind: 'constructor' }] }],
+    ['unknown prop type', { version: 2, added: [{ ...sofa, type: 'Rocket' }] }],
+    ['short position', { version: 2, added: [{ ...sofa, position: [1, 2] }] }],
+    ['overflowing number', { version: 2, added: [{ ...sofa, position: [Number('1e999'), 0, 0] }] }],
+    ['huge number', { version: 2, added: [{ ...sofa, position: [1e6, 0, 0] }] }],
+    ['unknown field', { version: 2, added: [{ ...sofa, hacked: 1 }] }],
+    ['missing required field', { version: 2, added: [{ id: 'x', kind: 'prop', level: 0, type: 'Sofa' }] }],
+    ['bad id', { version: 2, added: [{ ...sofa, id: '../x' }] }],
+    ['generated seat id', { version: 2, added: [{ ...sofa, id: 'desk-9' }] }],
+    ['duplicate added ids', { version: 2, added: [sofa, sofa] }],
+    ['override changing kind', { version: 2, overrides: { sofa: { kind: 'wall' } } }],
+    ['override changing id', { version: 2, overrides: { sofa: { id: 'x' } } }],
+    ['override changing modelId', { version: 2, overrides: { 'model-1': { modelId: 'm-111111111111' } } }],
+    ['override with a bad value', { version: 2, overrides: { sofa: { position: 'here' } } }],
+    ['override that is not an object', { version: 2, overrides: { sofa: 5 } }],
+    ['prototype id in overrides', JSON.parse('{"version":2,"overrides":{"__proto__":null}}')],
+    ['bad colour', { version: 2, added: [{ id: 'b', kind: 'box', level: 0, position: [0, 0, 0], size: [1, 1, 1], color: 'red' }] }],
+    ['bad surface', { version: 2, added: [{ id: 'f', kind: 'floor', level: 0, y: 0, min: [0, 0], max: [1, 1], surface: { type: 'lava', repeat: [1, 1] } }] }],
+    ['prop value over the cap', { version: 2, added: [{ ...sofa, type: 'Railing', props: { length: 101 } }] }],
+    ['model missing modelId', { version: 2, added: [{ id: 'm1', kind: 'model', level: 0, position: [0, 0, 0] }] }],
+    ['model bad modelId pattern short', { version: 2, added: [{ id: 'm1', kind: 'model', level: 0, modelId: 'm-1234', position: [0, 0, 0] }] }],
+    ['model bad modelId uppercase', { version: 2, added: [{ id: 'm1', kind: 'model', level: 0, modelId: 'm-0123456789AB', position: [0, 0, 0] }] }],
+    ['model bad modelId prefix', { version: 2, added: [{ id: 'm1', kind: 'model', level: 0, modelId: 'x-0123456789ab', position: [0, 0, 0] }] }],
+    ['model missing position', { version: 2, added: [{ id: 'm1', kind: 'model', level: 0, modelId: 'm-0123456789ab' }] }],
+    ['model scale zero', { version: 2, added: [{ id: 'm1', kind: 'model', level: 0, modelId: 'm-0123456789ab', position: [0, 0, 0], scale: 0 }] }],
+    ['model scale negative', { version: 2, added: [{ id: 'm1', kind: 'model', level: 0, modelId: 'm-0123456789ab', position: [0, 0, 0], scale: -1 }] }],
+    ['model scale over 100', { version: 2, added: [{ id: 'm1', kind: 'model', level: 0, modelId: 'm-0123456789ab', position: [0, 0, 0], scale: 101 }] }],
+    ['too many overrides', { version: 2, overrides: Object.fromEntries(Array.from({ length: MAX_OVERRIDES + 1 }, (_, index) => [`o${index}`, null])) }],
+    ['too many added items', { version: 2, added: Array.from({ length: 501 }, (_, index) => ({ ...sofa, id: `s${index}` })) }],
   ]
   for (const [name, input] of bad) {
     it(`rejects ${name}`, () => {
@@ -48,8 +61,17 @@ describe('scene patch validation', () => {
   }
 
   it('accepts prop values up to 100 and exactly MAX_OVERRIDES overrides', () => {
-    expect(() => validatePatch({ version: 1, added: [{ ...sofa, type: 'Railing', props: { length: 100 } }] })).not.toThrow()
-    expect(() => validatePatch({ version: 1, overrides: Object.fromEntries(Array.from({ length: MAX_OVERRIDES }, (_, index) => [`o${index}`, null])) })).not.toThrow()
+    expect(() => validatePatch({ version: 2, added: [{ ...sofa, type: 'Railing', props: { length: 100 } }] })).not.toThrow()
+    expect(() => validatePatch({ version: 2, overrides: Object.fromEntries(Array.from({ length: MAX_OVERRIDES }, (_, index) => [`o${index}`, null])) })).not.toThrow()
+  })
+
+  it('accepts valid model items and model overrides', () => {
+    expect(validatePatch({ version: 2, added: [validModel] })).toEqual({ version: 2, overrides: {}, added: [validModel] })
+    expect(validatePatch({ version: 2, overrides: { [validModel.id]: { position: [5, 1, 5], rotation: 3.14, scale: 0.5 } } })).toEqual({
+      version: 2,
+      overrides: { [validModel.id]: { position: [5, 1, 5], rotation: 3.14, scale: 0.5 } },
+      added: [],
+    })
   })
 
   it('keeps its surface list in step with the UI', async () => {
@@ -109,7 +131,7 @@ describe('scene api routes', () => {
   })
 
   it('starts empty, saves, reads back, and resets idempotently', async () => {
-    expect(await (await fetch(`${base}/api/scene`)).json()).toEqual({ version: 1, overrides: {}, added: [] })
+    expect(await (await fetch(`${base}/api/scene`)).json()).toEqual({ version: 2, overrides: {}, added: [] })
     const saved = await put(good)
     expect(saved.status).toBe(200)
     expect(await saved.json()).toEqual(good)
@@ -121,7 +143,14 @@ describe('scene api routes', () => {
       expect(reset.status).toBe(200)
       expect(await reset.json()).toEqual({ ok: true })
     }
-    expect(await (await fetch(`${base}/api/scene`)).json()).toEqual({ version: 1, overrides: {}, added: [] })
+    expect(await (await fetch(`${base}/api/scene`)).json()).toEqual({ version: 2, overrides: {}, added: [] })
+  })
+
+  it('accepts v1 patches and saves them upgraded to v2', async () => {
+    const saved = await put(goodV1)
+    expect(saved.status).toBe(200)
+    expect(await saved.json()).toEqual(good)
+    expect(await (await fetch(`${base}/api/scene`)).json()).toEqual(good)
   })
 
   it('refuses writes without a matching origin', async () => {
@@ -133,9 +162,9 @@ describe('scene api routes', () => {
 
   it('answers 415 for non-JSON, 413 for oversized and 400 for broken or invalid bodies, and writes nothing', async () => {
     expect((await put('hello', { 'content-type': 'text/plain' })).status).toBe(415)
-    expect((await put(JSON.stringify({ version: 1, pad: 'a'.repeat(MAX_SCENE_BYTES + 10) }))).status).toBe(413)
+    expect((await put(JSON.stringify({ version: 2, pad: 'a'.repeat(MAX_SCENE_BYTES + 10) }))).status).toBe(413)
     expect((await put('{not json')).status).toBe(400)
-    expect((await put({ version: 1, added: [{ ...sofa, type: 'Rocket' }] })).status).toBe(400)
+    expect((await put({ version: 2, added: [{ ...sofa, type: 'Rocket' }] })).status).toBe(400)
     expect((await put('')).status).toBe(400)
     await expect(stat(file)).rejects.toThrow()
   })
@@ -158,10 +187,10 @@ describe('scene api routes', () => {
     try {
       await put(good)
       await writeFile(file, '{corrupt')
-      expect(await (await fetch(`${base}/api/scene`)).json()).toEqual({ version: 1, overrides: {}, added: [] })
+      expect(await (await fetch(`${base}/api/scene`)).json()).toEqual({ version: 2, overrides: {}, added: [] })
       expect(warn).toHaveBeenCalledTimes(1)
-      await writeFile(file, JSON.stringify({ version: 1, added: [{ ...sofa, type: 'Rocket' }] }))
-      expect(await (await fetch(`${base}/api/scene`)).json()).toEqual({ version: 1, overrides: {}, added: [] })
+      await writeFile(file, JSON.stringify({ version: 2, added: [{ ...sofa, type: 'Rocket' }] }))
+      expect(await (await fetch(`${base}/api/scene`)).json()).toEqual({ version: 2, overrides: {}, added: [] })
       expect(warn).toHaveBeenCalledTimes(2)
     } finally {
       warn.mockRestore()
@@ -171,7 +200,7 @@ describe('scene api routes', () => {
   it('does not warn when the file is simply missing', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
-      expect(await new SceneStore(join(tmp, 'nope', 'scene.json')).read()).toEqual({ version: 1, overrides: {}, added: [] })
+      expect(await new SceneStore(join(tmp, 'nope', 'scene.json')).read()).toEqual({ version: 2, overrides: {}, added: [] })
       expect(warn).not.toHaveBeenCalled()
     } finally {
       warn.mockRestore()

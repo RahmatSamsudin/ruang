@@ -117,8 +117,9 @@ const OUTSIDE_SLACK = 1
  */
 export function PlacementLayer({ type, level, bounds, night, onPlace, onExit }: { type: PlaceableType; level: number; bounds: Bounds; night: boolean; onPlace: (x: number, z: number) => void; onExit: () => void }) {
   const { camera, gl } = useThree()
-  const entry = isStructureType(type) ? null : PROP_CATALOG[type as PropType]
-  const Component = isStructureType(type) ? null : PROP_COMPONENTS[type as PropType]
+  const isModel = typeof type === 'string' && type.startsWith('model:')
+  const entry = isStructureType(type) || isModel ? null : PROP_CATALOG[type as PropType]
+  const Component = isStructureType(type) || isModel ? null : PROP_COMPONENTS[type as PropType]
   const ghost = useRef<THREE.Group>(null)
   const plane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), [])
   const ray = useMemo(() => new THREE.Raycaster(), [])
@@ -207,6 +208,12 @@ export function PlacementLayer({ type, level, bounds, night, onPlace, onExit }: 
       <mesh position={[0, 0.5, 0]}>
         <boxGeometry args={[1, 1, 1]} />
         <meshStandardMaterial color="#a0a0a0" transparent opacity={0.55} />
+      </mesh>
+    )}
+    {isModel && (
+      <mesh position={[0, 0.75, 0]}>
+        <boxGeometry args={[1.5, 1.5, 1.5]} />
+        <meshStandardMaterial color="#888888" wireframe transparent opacity={0.5} />
       </mesh>
     )}
     {Component && entry && <Component {...entry.defaults} position={[0, entry.y, 0]} night={night} active={false}/>}

@@ -30,14 +30,16 @@ export interface WallItem extends Base { kind: 'wall'; from: [number, number]; t
 export interface GlassItem extends Base { kind: 'glass'; from: [number, number]; to: [number, number]; bottom: number; top: number }
 export interface WindowItem extends Base { kind: 'window'; position: Vec3; rotation?: number; width?: number }
 export interface BoxItem extends Base { kind: 'box'; position: Vec3; size: Vec3; color: string; radius?: number; roughness?: number; opacity?: number; shadow?: boolean }
-export type SceneItem = PropItem | FloorItem | WallItem | GlassItem | WindowItem | BoxItem
+export interface ModelItem extends Base { kind: 'model'; modelId: string; position: Vec3; rotation?: number; scale?: number }
+export type SceneModelItem = ModelItem
+export type SceneItem = PropItem | FloorItem | WallItem | GlassItem | WindowItem | BoxItem | ModelItem
 
-export type EditableItem = PropItem | WindowItem | FloorItem | WallItem | GlassItem | BoxItem
+export type EditableItem = PropItem | WindowItem | FloorItem | WallItem | GlassItem | BoxItem | ModelItem
 
 export const STRUCTURE_TYPES = ['floor', 'wall', 'glass', 'box'] as const
 export type StructureType = typeof STRUCTURE_TYPES[number]
 export const isStructureType = (value: unknown): value is StructureType => typeof value === 'string' && (STRUCTURE_TYPES as readonly string[]).includes(value)
-export type PlaceableType = PropType | StructureType
+export type PlaceableType = PropType | StructureType | `model:${string}`
 
 export const isFloor = (item: SceneItem): item is FloorItem => item.kind === 'floor'
 export const isWall = (item: SceneItem): item is WallItem => item.kind === 'wall'
@@ -45,6 +47,7 @@ export const isGlass = (item: SceneItem): item is GlassItem => item.kind === 'gl
 export const isBox = (item: SceneItem): item is BoxItem => item.kind === 'box'
 export const isProp = (item: SceneItem): item is PropItem => item.kind === 'prop'
 export const isWindow = (item: SceneItem): item is WindowItem => item.kind === 'window'
+export const isModel = (item: SceneItem): item is ModelItem => item.kind === 'model'
 
 /** Returns the center coordinate [x, y, z] of an item. */
 export function itemCenter(item: EditableItem): [number, number, number] {
@@ -55,12 +58,12 @@ export function itemCenter(item: EditableItem): [number, number, number] {
 }
 
 export interface ScenePatch {
-  version: 1
+  version: 1 | 2
   /** Fields to merge into the item with that id; `null` deletes it (desks and beds cannot be deleted). */
   overrides: Record<string, Partial<SceneItem> | null>
   added: SceneItem[]
 }
-export const EMPTY_PATCH: ScenePatch = { version: 1, overrides: {}, added: [] }
+export const EMPTY_PATCH: ScenePatch = { version: 2, overrides: {}, added: [] }
 
 /** Viewing `active` draws its cut-away items and the shell items of the levels below it. */
 export function visibleAt(item: SceneItem, active: number, mode: 'cutaway' | 'shell' = 'cutaway'): boolean {

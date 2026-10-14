@@ -1,6 +1,8 @@
-import { Fragment, type ComponentType, type ReactNode } from 'react'
+import { Fragment, useEffect, useState, type ComponentType, type ReactNode } from 'react'
+import * as THREE from 'three'
+import { loadModel } from './model-loader.ts'
 import { AcOutdoorUnit, AirConditioner, ArcadeCabinet, Armchair, BaksoStall, BathroomFittings, Beanbag, Bed, Bookshelf, CarromTable, ClothesLine, CoffeeTable, FlagPole, FloorCushion, Fridge, GalonDispenser, Hammock, KopiStall, LowTable, MeetingTable, Nightstand, OfficeLight, PantryCounter, PingPongTable, Plant, Railing, RattanChair, RBox, SideTable, Sofa, Staircase, StreetLamp, StringLights, Television, Tree, WallClock, Wardrobe, WaterTank, WorkDesk } from './props.tsx'
-import { visibleAt, type BoxItem, type FloorItem, type GlassItem, type PropItem, type PropType, type SceneItem, type Surface, type WallItem, type WindowItem } from './scene.ts'
+import { visibleAt, type BoxItem, type FloorItem, type GlassItem, type ModelItem, type PropItem, type PropType, type SceneItem, type Surface, type WallItem, type WindowItem } from './scene.ts'
 import { asphalt, carpet, grass, pavingStones, tileFloor, woodFloor } from './textures.ts'
 
 // Draws scene items (scene.ts) with the procedural props and primitives. Which items are drawn
@@ -79,6 +81,57 @@ function BoxNode({ item }: { item: BoxItem }) {
   return <RBox position={item.position} size={item.size} radius={item.radius} color={item.color} roughness={item.roughness} opacity={item.opacity} shadow={item.shadow}/>
 }
 
+function ModelNode({ item }: { item: ModelItem }) {
+  const [scene, setScene] = useState<THREE.Group | null>(null)
+  const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading')
+
+  useEffect(() => {
+    let active = true
+    setStatus('loading')
+    loadModel(item.modelId)
+      .then((group) => {
+        if (!active) return
+        const clone = group.clone(true)
+        const box = new THREE.Box3().setFromObject(clone)
+        const size = new THREE.Vector3()
+        const center = new THREE.Vector3()
+        box.getSize(size)
+        box.getCenter(center)
+        const maxDim = Math.max(size.x, size.y, size.z)
+        const s = (maxDim > 0 ? 1.5 / maxDim : 1) * (item.scale ?? 1.0)
+        clone.scale.setScalar(s)
+        clone.position.set(-center.x * s, -box.min.y * s, -center.z * s)
+        setScene(clone)
+        setStatus('loaded')
+      })
+      .catch(() => {
+        if (!active) return
+        setStatus('error')
+      })
+    return () => {
+      active = false
+    }
+  }, [item.modelId, item.scale])
+
+  return (
+    <group position={item.position} rotation={[0, item.rotation ?? 0, 0]}>
+      {status === 'loaded' && scene && <primitive object={scene} />}
+      {status === 'loading' && (
+        <mesh position={[0, 0.75, 0]}>
+          <boxGeometry args={[1.5, 1.5, 1.5]} />
+          <meshStandardMaterial color="#888888" wireframe transparent opacity={0.5} />
+        </mesh>
+      )}
+      {status === 'error' && (
+        <mesh position={[0, 0.75, 0]}>
+          <boxGeometry args={[1.5, 1.5, 1.5]} />
+          <meshStandardMaterial color="#ff4444" wireframe transparent opacity={0.6} />
+        </mesh>
+      )}
+    </group>
+  )
+}
+
 function SceneNode({ item, night, active }: { item: SceneItem; night: boolean; active: boolean }) {
   switch (item.kind) {
     case 'prop': return <PropNode item={item} night={night} active={active}/>
@@ -87,6 +140,7 @@ function SceneNode({ item, night, active }: { item: SceneItem; night: boolean; a
     case 'glass': return <GlassNode item={item}/>
     case 'window': return <WindowNode item={item} night={night}/>
     case 'box': return <BoxNode item={item}/>
+    case 'model': return <ModelNode item={item}/>
     default: return null
   }
 }
