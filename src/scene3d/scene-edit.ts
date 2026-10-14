@@ -447,7 +447,7 @@ export function setFloorBounds(patch: ScenePatch, item: SceneItem, min: [number,
   const depth = clamp(maxZ - minZ, 0.5, 100)
   const normMin: [number, number] = [round4(minX), round4(minZ)]
   const normMax: [number, number] = [round4(minX + width), round4(minZ + depth)]
-  const clampedY = y !== undefined ? round4(clamp(safeNum(y), -5, 5)) : undefined
+  const clampedY = y !== undefined ? round4(item.level + clamp(safeNum(y) - item.level, -5, 5)) : undefined
   if (normMin[0] === item.min[0] && normMin[1] === item.min[1] && normMax[0] === item.max[0] && normMax[1] === item.max[1] && (clampedY === undefined || clampedY === item.y)) return patch
   const fields: Partial<FloorItem> = { min: normMin, max: normMax }
   if (clampedY !== undefined) fields.y = clampedY
@@ -506,22 +506,22 @@ export function setGlassGeometry(patch: ScenePatch, item: SceneItem, from: [numb
   }
   const normTo: [number, number] = [round4(toX), round4(toZ)]
 
-  let b = clamp(safeNum(bottom), -20, 20)
-  let t = clamp(safeNum(top), -20, 20)
-  if (b > t) {
-    const tmp = b
-    b = t
-    t = tmp
+  let bRel = clamp(safeNum(bottom) - item.level, -20, 20)
+  let tRel = clamp(safeNum(top) - item.level, -20, 20)
+  if (bRel > tRel) {
+    const tmp = bRel
+    bRel = tRel
+    tRel = tmp
   }
-  if (t - b < 0.1) {
-    if (b + 0.1 <= 20) {
-      t = b + 0.1
+  if (tRel - bRel < 0.1) {
+    if (bRel + 0.1 <= 20) {
+      tRel = bRel + 0.1
     } else {
-      b = t - 0.1
+      bRel = tRel - 0.1
     }
   }
 
-  return patchItem(patch, item.id, { from: normFrom, to: normTo, bottom: round4(b), top: round4(t) })
+  return patchItem(patch, item.id, { from: normFrom, to: normTo, bottom: round4(item.level + bRel), top: round4(item.level + tRel) })
 }
 
 export interface BoxPropsOptions {

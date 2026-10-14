@@ -557,6 +557,32 @@ describe('structure property setters', () => {
     expect(next3.overrides['floor-0']).toEqual({ min: [0, 0], max: [10, 12] })
   })
 
+  it('clamps setFloorBounds relative to storey level on upper storeys', () => {
+    const floorL3: FloorItem = { kind: 'floor', id: 'floor-3', level: 5.6, min: [-10, -6], max: [10, 12], y: 5.6, surface: { type: 'wood', repeat: [1, 1] } }
+
+    // Width/bounds edit passing existing y 5.6 keeps y 5.6 (does not snap to 5)
+    const next1 = setFloorBounds(EMPTY_PATCH, floorL3, [-5, -6], [5, 12], 5.6)
+    expect(next1.overrides['floor-3']).toEqual({ min: [-5, -6], max: [5, 12], y: 5.6 })
+
+    // Width-only edit without passing y keeps y untouched (not overwritten)
+    const nextWidthOnly = setFloorBounds(EMPTY_PATCH, floorL3, [-5, -6], [5, 12])
+    expect(nextWidthOnly.overrides['floor-3']).toEqual({ min: [-5, -6], max: [5, 12] })
+
+    // y edit to level + 5 (10.6) and level - 5 (0.6) honoured
+    const nextMaxY = setFloorBounds(EMPTY_PATCH, floorL3, [-10, -6], [10, 12], 10.6)
+    expect(nextMaxY.overrides['floor-3']).toEqual({ min: [-10, -6], max: [10, 12], y: 10.6 })
+
+    const nextMinY = setFloorBounds(EMPTY_PATCH, floorL3, [-10, -6], [10, 12], 0.6)
+    expect(nextMinY.overrides['floor-3']).toEqual({ min: [-10, -6], max: [10, 12], y: 0.6 })
+
+    // y edit beyond level +- 5 is clamped to level +- 5 (5.6 + 10 -> 10.6, 5.6 - 10 -> 0.6)
+    const nextOver = setFloorBounds(EMPTY_PATCH, floorL3, [-10, -6], [10, 12], 20)
+    expect(nextOver.overrides['floor-3']).toEqual({ min: [-10, -6], max: [10, 12], y: 10.6 })
+
+    const nextUnder = setFloorBounds(EMPTY_PATCH, floorL3, [-10, -6], [10, 12], -10)
+    expect(nextUnder.overrides['floor-3']).toEqual({ min: [-10, -6], max: [10, 12], y: 0.6 })
+  })
+
   it('clamps setWallGeometry to valid length, height, and safe numbers', () => {
     const next1 = setWallGeometry(EMPTY_PATCH, wall, [-150, 0], [150, 0], 25, -50)
     expect(next1.overrides['wall-1']).toEqual({ from: [-150, 0], to: [-50, 0], height: 10, y: -50 })
@@ -576,6 +602,31 @@ describe('structure property setters', () => {
 
     const next2 = setGlassGeometry(EMPTY_PATCH, glass, [-5, 0], [5, 0], 2.0, 2.0)
     expect(next2.overrides['glass-1']).toEqual({ from: [-5, 0], to: [5, 0], bottom: 2.0, top: 2.1 })
+  })
+
+  it('clamps setGlassGeometry relative to storey level on upper storeys and keeps min gap', () => {
+    const glassL3: GlassItem = { kind: 'glass', id: 'glass-3', level: 3, from: [-5, 0], to: [5, 0], bottom: 3, top: 4.2 }
+
+    // bottom / top relative clamp works: level +- 20 (for level 3: [-17, 23])
+    const next1 = setGlassGeometry(EMPTY_PATCH, glassL3, [-5, 0], [5, 0], -30, 50)
+    expect(next1.overrides['glass-3']).toEqual({ from: [-5, 0], to: [5, 0], bottom: -17, top: 23 })
+
+    // Within relative range: bottom 4, top 5 -> honours values
+    const next2 = setGlassGeometry(EMPTY_PATCH, glassL3, [-5, 0], [5, 0], 4, 5)
+    expect(next2.overrides['glass-3']).toEqual({ from: [-5, 0], to: [5, 0], bottom: 4, top: 5 })
+
+    // top - bottom >= 0.1 kept on upper level
+    const nextGap = setGlassGeometry(EMPTY_PATCH, glassL3, [-5, 0], [5, 0], 4.5, 4.5)
+    expect(nextGap.overrides['glass-3']).toEqual({ from: [-5, 0], to: [5, 0], bottom: 4.5, top: 4.6 })
+
+    // top - bottom >= 0.1 at upper boundary (level + 20 = 23)
+    const nextBoundary = setGlassGeometry(EMPTY_PATCH, glassL3, [-5, 0], [5, 0], 23, 23)
+    expect(nextBoundary.overrides['glass-3']).toEqual({ from: [-5, 0], to: [5, 0], bottom: 22.9, top: 23 })
+
+    // Upper level above absolute 20 (e.g. level 25) clamps relative to storey, not absolute 20
+    const glassL10: GlassItem = { kind: 'glass', id: 'glass-10', level: 25, from: [-5, 0], to: [5, 0], bottom: 25, top: 27 }
+    const nextL10 = setGlassGeometry(EMPTY_PATCH, glassL10, [-5, 0], [5, 0], 25, 27)
+    expect(nextL10.overrides['glass-10']).toEqual({ from: [-5, 0], to: [5, 0], bottom: 25, top: 27 })
   })
 
   it('clamps setBoxProps dimensions, radius, roughness, and handles non-finite size', () => {

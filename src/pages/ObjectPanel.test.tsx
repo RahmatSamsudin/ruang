@@ -233,6 +233,18 @@ describe('ObjectPanel structure items', () => {
     expect(handlers.onFloorSurface).toHaveBeenCalledWith({ type: 'tile', repeat: [2, 2] }, 0.55)
   })
 
+  it('FloorPanel on Lantai 3 editing width keeps storey y', async () => {
+    const floorL3: FloorItem = {
+      ...floor,
+      id: 'floor-l3',
+      level: 5.6,
+      y: 5.6,
+    }
+    const { handlers, input, type } = await mountStructure(floorL3)
+    await type(input('Width'), '10')
+    expect(handlers.onFloorBounds).toHaveBeenCalledWith([-5, -4], [5, 4], 5.6)
+  })
+
   it('renders wall properties, presets and commits geometry and rotate 90', async () => {
     const { host, handlers, input, type } = await mountStructure(wall)
     expect(host.textContent).toContain('Wall')
