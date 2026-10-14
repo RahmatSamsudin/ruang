@@ -436,6 +436,10 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
     commitMove: (item, x, z) => { editor.apply((patchNow) => moveItem(patchNow, item, x, z, bounds)); editor.endDrag() },
     cancelDrag: editor.endDrag,
   }
+  const handleAddStorey = () => {
+    editor.addWith((patchNow) => addStorey(patchNow, items, bounds))
+    setLevelIndex(levels.length)
+  }
   const selectAgent: typeof onSelect = editingActive ? () => {} : onSelect
   const runEditAction = (action: EditKeyAction) => {
     if (action === 'undo') editor.undo()
@@ -516,6 +520,16 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
       {levels.map((height, index) => ({ height, index })).reverse().map(({ height, index }) => <button key={height} type="button" className={levelIndex === index ? 'active' : ''} aria-pressed={levelIndex === index} onClick={() => setLevelIndex(index)} title={`${levelName(height, index).title} (Page Up and Page Down change floors)`}>
         <b>{index + 1}</b><span>{levelName(height, index).label}</span><small>{levelCount(height)}</small>
       </button>)}
+      {editor.editing && (
+        <button
+          type="button"
+          onClick={handleAddStorey}
+          title="Add a new storey above the current top level"
+          style={{ gridTemplateColumns: '26px auto' }}
+        >
+          <b>+</b><span>+ Lantai</span>
+        </button>
+      )}
     </div>
     <div className="office-3d-tools">
       <button type="button" className={`edit-toggle${editor.editing ? ' active' : ''}`} aria-pressed={editor.editing} disabled={!editor.editing && !sceneReady} onClick={() => (editor.editing ? finishEditing() : editor.enter())} title={!editor.editing && !sceneReady ? 'Loading the saved layout…' : 'Rearrange the office'}>✎ Edit</button>
@@ -523,7 +537,7 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
       <button type="button" className={panMode ? 'active' : ''} aria-pressed={panMode} onClick={() => setPanMode((value) => !value)} title="Drag moves the view instead of rotating it">✥ Geser</button>
       <button type="button" onClick={() => view.current?.reset()} title="Back to the starting view">↺ Reset view</button>
     </div>
-    {editor.editing && <EditorBar canUndo={editor.canUndo} canRedo={editor.canRedo} dirty={editor.dirty} saving={editor.saving} error={editor.error} viewMode={viewMode} onViewModeChange={setViewMode} onAddStorey={() => editor.apply((patchNow) => addStorey(patchNow, items).patch)} onUndo={editor.undo} onRedo={editor.redo} onSave={() => void editor.save()} onReset={resetEdits} onDone={finishEditing}/>}
+    {editor.editing && <EditorBar canUndo={editor.canUndo} canRedo={editor.canRedo} dirty={editor.dirty} saving={editor.saving} error={editor.error} viewMode={viewMode} onViewModeChange={setViewMode} onAddStorey={handleAddStorey} onUndo={editor.undo} onRedo={editor.redo} onSave={() => void editor.save()} onReset={resetEdits} onDone={finishEditing}/>}
     {editor.editing && <PropPalette placing={placing} limitReached={limitReached} onPick={(type) => (type ? editor.startPlacing(type) : editor.stopPlacing())}/>}
     {editor.editing && selected && <ObjectPanel item={selected} levels={levels} canDuplicate={!limitReached} onDuplicate={() => editor.addWith((patchNow) => duplicateItem(patchNow, items, selected, bounds))} onProp={(key, value) => editor.apply((patchNow) => setItemProp(patchNow, selected, key, value))} onMove={(x, z) => editor.apply((patchNow) => moveItem(patchNow, selected, x, z, bounds))} onRotate={(degrees) => editor.apply((patchNow) => rotateItem(patchNow, selected, (degrees * Math.PI) / 180))} onLevel={(next) => { editor.apply((patchNow) => setItemLevel(patchNow, selected, next)); setLevelIndex(Math.max(0, levels.indexOf(next))) }} onDelete={() => { editor.apply((patchNow) => deleteItem(patchNow, selected)); editor.select(null); keyTarget?.focus() }} onView={(v) => editor.apply((patchNow) => setItemView(patchNow, selected, v))} onFloorBounds={(min, max, y) => editor.apply((patchNow) => setFloorBounds(patchNow, selected, min, max, y))} onFloorSurface={(surface, roughness) => editor.apply((patchNow) => setFloorSurface(patchNow, selected, surface, roughness))} onWallGeometry={(from, to, height, y) => editor.apply((patchNow) => setWallGeometry(patchNow, selected, from, to, height, y))} onGlassGeometry={(from, to, bottom, top) => editor.apply((patchNow) => setGlassGeometry(patchNow, selected, from, to, bottom, top))} onBoxProps={(size, color, options) => editor.apply((patchNow) => setBoxProps(patchNow, selected, size, color, options))}/>}
   </div>

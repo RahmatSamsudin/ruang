@@ -3,7 +3,7 @@ import { act, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { EMPTY_PATCH, type FloorItem, type ScenePatch } from './scene.ts'
-import { addStructureItem } from './scene-edit.ts'
+import { addStorey, addStructureItem } from './scene-edit.ts'
 import { useSceneEditor, type SceneEditor } from './use-scene-editor.ts'
 
 const testEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -252,5 +252,20 @@ describe('placing and adding', () => {
     await run((e) => e.redo())
     expect(editor().draft.added).toHaveLength(1)
     expect(editor().draft.added[0].id).toBe(floor.id)
+  })
+
+  it('adds a storey via addStorey with addWith, selecting the new floor slab', async () => {
+    const { editor, run } = await mount()
+    await run((e) => e.enter())
+    await run((e) => e.addWith((patch) => addStorey(patch, [])))
+    expect(editor().draft.added.length).toBeGreaterThan(0)
+    const newFloor = editor().draft.added.find((it) => it.kind === 'floor')
+    expect(newFloor).toBeDefined()
+    expect(editor().selectedId).toBe(newFloor!.id)
+    expect(editor().canUndo).toBe(true)
+
+    await run((e) => e.undo())
+    expect(editor().draft.added).toHaveLength(0)
+    expect(editor().canRedo).toBe(true)
   })
 })

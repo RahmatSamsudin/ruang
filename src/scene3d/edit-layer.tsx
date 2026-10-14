@@ -4,7 +4,7 @@ import * as THREE from 'three'
 import { PROP_CATALOG } from './prop-catalog.ts'
 import { PROP_COMPONENTS } from './scene-renderer.tsx'
 import { dragTarget, placePoint, type Bounds, type EditableItem } from './scene-edit.ts'
-import { isStructureType, itemCenter, type PlaceableType, type PropType } from './scene.ts'
+import { isStructureType, itemCenter, type FloorItem, type PlaceableType, type PropType, type WallItem } from './scene.ts'
 
 /** What the 3D layer needs from the editor session (Office3D builds this from useSceneEditor). */
 export interface EditHandlers {
@@ -19,13 +19,122 @@ export interface EditHandlers {
   cancelDrag: () => void
 }
 
-/** A yellow box around the selected object, following its world bounds each frame. */
-function SelectionBox({ target }: { target: RefObject<THREE.Group | null> }) {
+/** A bounding box around the selected object, following its world bounds each frame. */
+export function SelectionBox({ target, color = '#f5bd6d' }: { target: RefObject<THREE.Group | null>; color?: string }) {
   const box = useMemo(() => new THREE.Box3(), [])
-  const helper = useMemo(() => new THREE.Box3Helper(box, new THREE.Color('#f5bd6d')), [box])
+  const helper = useMemo(() => {
+    const h = new THREE.Box3Helper(box, new THREE.Color(color))
+    h.raycast = () => {}
+    return h
+  }, [box, color])
   useEffect(() => () => { helper.dispose() }, [helper])
   useFrame(() => { if (target.current) box.setFromObject(target.current) })
   return <primitive object={helper}/>
+}
+
+/** Glowing perimeter border and corner brackets on the floor slab surface so the slab selection is distinct. */
+export function FloorSelection({ item }: { item: FloorItem }) {
+  const [x1, z1] = item.min
+  const [x2, z2] = item.max
+  const minX = Math.min(x1, x2)
+  const maxX = Math.max(x1, x2)
+  const minZ = Math.min(z1, z2)
+  const maxZ = Math.max(z1, z2)
+  const w = maxX - minX
+  const d = maxZ - minZ
+  const y = item.y + 0.008
+  const bw = 0.08
+  const cornerLen = Math.min(w / 4, d / 4, 0.6)
+  const cornerBw = 0.12
+
+  return <group raycast={() => {}}>
+    {/* Perimeter ribbons */}
+    <mesh position={[(minX + maxX) / 2, y, minZ + bw / 2]} raycast={() => {}}>
+      <boxGeometry args={[w, 0.006, bw]}/>
+      <meshBasicMaterial color="#f5bd6d" transparent opacity={0.8}/>
+    </mesh>
+    <mesh position={[(minX + maxX) / 2, y, maxZ - bw / 2]} raycast={() => {}}>
+      <boxGeometry args={[w, 0.006, bw]}/>
+      <meshBasicMaterial color="#f5bd6d" transparent opacity={0.8}/>
+    </mesh>
+    <mesh position={[minX + bw / 2, y, (minZ + maxZ) / 2]} raycast={() => {}}>
+      <boxGeometry args={[bw, 0.006, d]}/>
+      <meshBasicMaterial color="#f5bd6d" transparent opacity={0.8}/>
+    </mesh>
+    <mesh position={[maxX - bw / 2, y, (minZ + maxZ) / 2]} raycast={() => {}}>
+      <boxGeometry args={[bw, 0.006, d]}/>
+      <meshBasicMaterial color="#f5bd6d" transparent opacity={0.8}/>
+    </mesh>
+
+    {/* Bright corner brackets */}
+    <mesh position={[minX + cornerLen / 2, y + 0.002, minZ + cornerBw / 2]} raycast={() => {}}>
+      <boxGeometry args={[cornerLen, 0.006, cornerBw]}/>
+      <meshBasicMaterial color="#f4d35e" transparent opacity={0.95}/>
+    </mesh>
+    <mesh position={[minX + cornerBw / 2, y + 0.002, minZ + cornerLen / 2]} raycast={() => {}}>
+      <boxGeometry args={[cornerBw, 0.006, cornerLen]}/>
+      <meshBasicMaterial color="#f4d35e" transparent opacity={0.95}/>
+    </mesh>
+
+    <mesh position={[maxX - cornerLen / 2, y + 0.002, minZ + cornerBw / 2]} raycast={() => {}}>
+      <boxGeometry args={[cornerLen, 0.006, cornerBw]}/>
+      <meshBasicMaterial color="#f4d35e" transparent opacity={0.95}/>
+    </mesh>
+    <mesh position={[maxX - cornerBw / 2, y + 0.002, minZ + cornerLen / 2]} raycast={() => {}}>
+      <boxGeometry args={[cornerBw, 0.006, cornerLen]}/>
+      <meshBasicMaterial color="#f4d35e" transparent opacity={0.95}/>
+    </mesh>
+
+    <mesh position={[minX + cornerLen / 2, y + 0.002, maxZ - cornerBw / 2]} raycast={() => {}}>
+      <boxGeometry args={[cornerLen, 0.006, cornerBw]}/>
+      <meshBasicMaterial color="#f4d35e" transparent opacity={0.95}/>
+    </mesh>
+    <mesh position={[minX + cornerBw / 2, y + 0.002, maxZ - cornerLen / 2]} raycast={() => {}}>
+      <boxGeometry args={[cornerBw, 0.006, cornerLen]}/>
+      <meshBasicMaterial color="#f4d35e" transparent opacity={0.95}/>
+    </mesh>
+
+    <mesh position={[maxX - cornerLen / 2, y + 0.002, maxZ - cornerBw / 2]} raycast={() => {}}>
+      <boxGeometry args={[cornerLen, 0.006, cornerBw]}/>
+      <meshBasicMaterial color="#f4d35e" transparent opacity={0.95}/>
+    </mesh>
+    <mesh position={[maxX - cornerBw / 2, y + 0.002, maxZ - cornerLen / 2]} raycast={() => {}}>
+      <boxGeometry args={[cornerBw, 0.006, cornerLen]}/>
+      <meshBasicMaterial color="#f4d35e" transparent opacity={0.95}/>
+    </mesh>
+  </group>
+}
+
+/** Highlighted top cap edge and bounding box for walls. */
+export function WallSelection({ item, target }: { item: WallItem; target: RefObject<THREE.Group | null> }) {
+  const [x1, z1] = item.from
+  const [x2, z2] = item.to
+  const length = Math.hypot(x2 - x1, z2 - z1)
+  const angle = Math.atan2(z2 - z1, x2 - x1)
+  const topY = item.y + item.height + 0.045
+
+  return <group raycast={() => {}}>
+    <SelectionBox target={target} color="#fbbf24"/>
+    <group position={[(x1 + x2) / 2, topY, (z1 + z2) / 2]} rotation={[0, -angle, 0]} raycast={() => {}}>
+      <mesh raycast={() => {}}>
+        <boxGeometry args={[length + 0.22, 0.015, 0.22]}/>
+        <meshBasicMaterial color="#fde047" transparent opacity={0.85}/>
+      </mesh>
+    </group>
+  </group>
+}
+
+/** Translucent cyan bounding edges for glass dividers. */
+export function GlassSelection({ target }: { target: RefObject<THREE.Group | null> }) {
+  return <SelectionBox target={target} color="#38bdf8"/>
+}
+
+/** Wireframe / bounding highlight matching object kind. */
+export function SelectionFeedback({ item, target }: { item: EditableItem; target: RefObject<THREE.Group | null> }) {
+  if (item.kind === 'floor') return <FloorSelection item={item}/>
+  if (item.kind === 'wall') return <WallSelection item={item} target={target}/>
+  if (item.kind === 'glass') return <GlassSelection target={target}/>
+  return <SelectionBox target={target} color="#f5bd6d"/>
 }
 
 /**
@@ -102,7 +211,7 @@ export function EditTarget({ item, edit, children }: { item: EditableItem; edit:
       onPointerOut={() => { hovered.current = false; edit.setHover(false); document.body.style.cursor = '' }}>
       {children}
     </group>
-    {edit.selectedId === item.id && <SelectionBox target={group}/>}
+    {edit.selectedId === item.id && <SelectionFeedback item={item} target={group}/>}
   </>
 }
 
