@@ -16,6 +16,8 @@ const STRUCTURE_TOOLS: StructureTool[] = [
   { type: 'box', label: 'Box shape', note: 'Place a 1×1×1m box primitive' },
 ]
 
+const MAX_MODEL_BYTES = 10 * 1024 * 1024
+
 export interface PropPaletteProps {
   placing: PlaceableType | null
   limitReached: boolean
@@ -34,7 +36,9 @@ export function PropPalette({ placing, limitReached, onPick, models: propModels,
   const [internalModels, setInternalModels] = useState<ModelRecord[]>([])
   const models = propModels ?? internalModels
   const [uploading, setUploading] = useState(false)
+  const [uploadingName, setUploadingName] = useState<string | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
+  const [uploadSuccess, setUploadSuccess] = useState<string | null>(null)
 
   useEffect(() => {
     if (propModels) return
@@ -55,8 +59,14 @@ export function PropPalette({ placing, limitReached, onPick, models: propModels,
     if (!file) return
     event.target.value = ''
     setUploadError(null)
-    if (file.size > 15 * 1024 * 1024) {
-      setUploadError('File exceeds 15 MB limit.')
+    setUploadSuccess(null)
+    const lower = file.name.toLowerCase()
+    if (!lower.endsWith('.glb') && !lower.endsWith('.gltf')) {
+      setUploadError('Only .glb and .gltf files are supported.')
+      return
+    }
+    if (file.size > MAX_MODEL_BYTES) {
+      setUploadError('File exceeds 10 MiB limit.')
       return
     }
     if (models.length >= 50) {
@@ -64,13 +74,15 @@ export function PropPalette({ placing, limitReached, onPick, models: propModels,
       return
     }
     setUploading(true)
+    setUploadingName(file.name)
     try {
       if (onUpload) {
         const record = await onUpload(file)
-        setInternalModels((prev) => [record, ...prev])
+        setInternalModels((prev) => [record, ...prev.filter((m) => m.id !== record.id)])
+        setUploadSuccess(`Imported ${record.name}`)
         onPick(`model:${record.id}`)
       } else {
-        const contentType = file.name.endsWith('.gltf') ? 'model/gltf+json' : 'model/gltf-binary'
+        const contentType = lower.endsWith('.gltf') ? 'model/gltf+json' : 'model/gltf-binary'
         const response = await fetch(`/api/models?name=${encodeURIComponent(file.name)}`, {
           method: 'POST',
           headers: { 'content-type': contentType },
@@ -82,7 +94,22 @@ export function PropPalette({ placing, limitReached, onPick, models: propModels,
         }
         const data = await response.json()
         if (data.model) {
-          setInternalModels((prev) => [data.model, ...prev])
+          try {
+            const listRes = await fetch('/api/models')
+            if (listRes.ok) {
+              const listData = await listRes.json()
+              if (Array.isArray(listData.models)) {
+                setInternalModels(listData.models)
+              } else {
+                setInternalModels((prev) => [data.model, ...prev.filter((m) => m.id !== data.model.id)])
+              }
+            } else {
+              setInternalModels((prev) => [data.model, ...prev.filter((m) => m.id !== data.model.id)])
+            }
+          } catch {
+            setInternalModels((prev) => [data.model, ...prev.filter((m) => m.id !== data.model.id)])
+          }
+          setUploadSuccess(`Imported ${data.model.name}`)
           onPick(`model:${data.model.id}`)
         }
       }
@@ -90,6 +117,7 @@ export function PropPalette({ placing, limitReached, onPick, models: propModels,
       setUploadError((err as Error).message || 'Upload failed')
     } finally {
       setUploading(false)
+      setUploadingName(null)
     }
   }
 
@@ -140,18 +168,38 @@ export function PropPalette({ placing, limitReached, onPick, models: propModels,
         {showImported && <section key="Imported" className="office-3d-palette-imported">
           <h4>Imported</h4>
           <div className="office-3d-palette-upload">
-            <label className="office-3d-upload-btn">
+            <label
+              htmlFor="office-3d-model-input"
+              className={`office-3d-upload-btn${uploading || limitReached || models.length >= 50 ? ' disabled' : ''}`}
+              tabIndex={uploading || limitReached || models.length >= 50 ? -1 : 0}
+              role="button"
+              aria-disabled={uploading || limitReached || models.length >= 50}
+              onKeyDown={(event) => {
+                if (uploading || limitReached || models.length >= 50) return
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  document.getElementById('office-3d-model-input')?.click()
+                }
+              }}
+            >
               <input
+                id="office-3d-model-input"
                 type="file"
                 accept=".glb,.gltf"
-                style={{ display: 'none' }}
+                className="office-3d-file-input-hidden"
+                aria-label="Upload 3D model (.glb, .gltf)"
                 disabled={uploading || limitReached || models.length >= 50}
                 onChange={handleUpload}
               />
-              {uploading ? 'Uploading...' : '+ Upload Model'}
+              {uploading ? `Uploading ${uploadingName ?? ''}...` : '+ Upload Model'}
             </label>
-            {uploadError && <span className="office-3d-upload-error" role="alert">{uploadError}</span>}
+            <div className="office-3d-palette-status" aria-live="polite">
+              {uploadError && <span className="office-3d-upload-error" role="alert">{uploadError}</span>}
+              {uploadSuccess && <span className="office-3d-upload-success">{uploadSuccess}</span>}
+            </div>
           </div>
+          {models.length === 0 && <p className="office-3d-palette-empty">No imported models yet</p>}
+          {models.length > 0 && filteredModels.length === 0 && <p className="office-3d-palette-empty">No models matching &ldquo;{query}&rdquo;</p>}
           {filteredModels.map((m) => {
             const active = placing === `model:${m.id}`
             return (

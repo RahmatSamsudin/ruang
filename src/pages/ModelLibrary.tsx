@@ -39,8 +39,13 @@ export function ModelLibrary({ onClose, initialModels, onModelsChange }: ModelLi
     if (!file) return
     event.target.value = ''
     setError(null)
-    if (file.size > 15 * 1024 * 1024) {
-      setError('File exceeds 15 MB limit.')
+    const lower = file.name.toLowerCase()
+    if (!lower.endsWith('.glb') && !lower.endsWith('.gltf')) {
+      setError('Only .glb and .gltf files are supported.')
+      return
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setError('File exceeds 10 MiB limit.')
       return
     }
     if (models.length >= 50) {
@@ -49,7 +54,7 @@ export function ModelLibrary({ onClose, initialModels, onModelsChange }: ModelLi
     }
     setUploading(true)
     try {
-      const contentType = file.name.endsWith('.gltf') ? 'model/gltf+json' : 'model/gltf-binary'
+      const contentType = lower.endsWith('.gltf') ? 'model/gltf+json' : 'model/gltf-binary'
       const response = await fetch(`/api/models?name=${encodeURIComponent(file.name)}`, {
         method: 'POST',
         headers: { 'content-type': contentType },

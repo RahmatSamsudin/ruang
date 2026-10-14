@@ -332,9 +332,9 @@ function useClock(interval: number) {
   return now
 }
 
-/** True while the viewport is 700px wide or less (the editor UI is hidden there). */
+/** True while the viewport is 440px wide or less (the editor UI is hidden there). */
 function useNarrow(): boolean {
-  const query = '(max-width: 700px)'
+  const query = '(max-width: 440px)'
   const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && window.matchMedia?.(query).matches === true)
   useEffect(() => {
     const media = window.matchMedia?.(query)

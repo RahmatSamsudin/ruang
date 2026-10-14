@@ -938,4 +938,71 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
 .office-3d-objpanel-actions { display: flex; gap: 6px; }
 .office-3d-objpanel-actions button { flex: 1; }
 .office-3d-objpanel input[type="color"] { height: 26px; padding: 1px 2px; }
-@media (max-width: 700px) { .office-3d-editbar, .office-3d-objpanel, .office-3d-palette, .office-3d-tools .edit-toggle { display: none; } }
+.office-3d-palette-imported { display: flex; flex-direction: column; gap: 4px; }
+.office-3d-palette-upload { display: flex; flex-direction: column; gap: 4px; width: 100%; }
+.office-3d-upload-btn { align-items: center; background: rgba(255, 255, 255, 0.08); border: 1px dashed rgba(255, 255, 255, 0.35); border-radius: 6px; box-sizing: border-box; color: #b7c9bf; cursor: pointer; display: flex; font: inherit; font-size: 11px; justify-content: center; padding: 4px 8px; text-align: center; user-select: none; }
+.office-3d-upload-btn:hover:not(.disabled) { background: rgba(255, 255, 255, 0.14); border-color: rgba(255, 255, 255, 0.5); color: #f4efe6; }
+.office-3d-upload-btn:focus-visible { outline: 2px solid #f4d35e; outline-offset: 1px; }
+.office-3d-upload-btn.disabled, .office-3d-upload-btn[aria-disabled="true"] { cursor: not-allowed; opacity: 0.45; }
+.office-3d-file-input-hidden { border: 0; clip: rect(0, 0, 0, 0); height: 1px; margin: -1px; overflow: hidden; padding: 0; position: absolute; white-space: nowrap; width: 1px; }
+.office-3d-palette-status { display: flex; flex-direction: column; gap: 2px; }
+.office-3d-upload-error { color: #ff9b94; font-size: 11px; line-height: 1.3; word-break: break-word; }
+.office-3d-upload-success { color: #6ee7b7; font-size: 11px; line-height: 1.3; }
+.office-3d-palette-empty { color: #8c9c94; font-size: 11px; font-style: italic; margin: 2px 0 4px; }
+
+/* ModelLibrary modal styles */
+.model-library { display: flex; flex-direction: column; gap: 12px; max-height: 80vh; }
+.model-library-header { align-items: baseline; display: flex; justify-content: space-between; }
+.model-library-header h2 { font-size: 16px; font-weight: 600; margin: 0; }
+.model-library-count { color: #b7c9bf; font-size: 11px; }
+.model-library-toolbar { align-items: center; display: flex; gap: 8px; }
+.model-library-toolbar input[type="search"] { background: #101815; border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 4px; color: #f4efe6; flex: 1; font: inherit; padding: 4px 8px; }
+.model-upload-btn { background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 6px; color: inherit; cursor: pointer; font: inherit; font-size: 12px; padding: 4px 10px; white-space: nowrap; }
+.model-upload-btn:hover { background: rgba(255, 255, 255, 0.15); }
+.model-library-error { background: rgba(217, 83, 79, 0.15); border: 1px solid #d9534f; border-radius: 4px; color: #ff9b94; font-size: 12px; padding: 6px 10px; }
+.model-library-grid { display: grid; gap: 8px; max-height: 400px; overflow-y: auto; }
+.model-library-empty { color: #b7c9bf; font-style: italic; margin: 16px 0; text-align: center; }
+.model-library-card { align-items: center; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 6px; display: flex; justify-content: space-between; padding: 8px 12px; }
+.model-card-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.model-card-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-card-meta { color: #b7c9bf; display: flex; font-size: 11px; gap: 8px; }
+.model-card-actions { align-items: center; display: flex; gap: 6px; margin-left: 8px; }
+.model-card-actions button, .model-card-actions a { background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 4px; color: inherit; cursor: pointer; font: inherit; font-size: 11px; padding: 2px 8px; text-decoration: none; }
+.model-card-actions button.confirm-delete { background: #d9534f; border-color: #d9534f; color: #fff; }
+
+/* Light mode overrides for Office3D editor and ModelLibrary */
+:root[data-theme="light"] .office-3d-palette,
+:root[data-theme="light"] .office-3d-editbar,
+:root[data-theme="light"] .office-3d-objpanel { background: rgba(245, 246, 245, 0.95); border-color: rgba(0, 0, 0, 0.2); color: #1a211c; }
+:root[data-theme="light"] .office-3d-palette-head button,
+:root[data-theme="light"] .office-3d-palette-note,
+:root[data-theme="light"] .office-3d-palette-list h4,
+:root[data-theme="light"] .office-3d-palette-empty,
+:root[data-theme="light"] .office-3d-objpanel label,
+:root[data-theme="light"] .office-3d-objpanel h3 small,
+:root[data-theme="light"] .model-library-count,
+:root[data-theme="light"] .model-card-meta,
+:root[data-theme="light"] .model-library-empty { color: #5c655d; }
+:root[data-theme="light"] .office-3d-palette-search,
+:root[data-theme="light"] .office-3d-objpanel input,
+:root[data-theme="light"] .office-3d-objpanel select,
+:root[data-theme="light"] .model-library-toolbar input[type="search"] { background: #ffffff; border-color: rgba(0, 0, 0, 0.22); color: #1a211c; }
+:root[data-theme="light"] .office-3d-palette-list button,
+:root[data-theme="light"] .office-3d-editbar button,
+:root[data-theme="light"] .office-3d-objpanel button,
+:root[data-theme="light"] .model-upload-btn,
+:root[data-theme="light"] .model-card-actions button,
+:root[data-theme="light"] .model-card-actions a { background: rgba(0, 0, 0, 0.05); border-color: rgba(0, 0, 0, 0.18); color: #1a211c; }
+:root[data-theme="light"] .office-3d-palette-list button:hover:not(:disabled) { background: rgba(0, 0, 0, 0.1); }
+:root[data-theme="light"] .office-3d-palette-list button[aria-pressed="true"] { background: #d4a72c; border-color: #d4a72c; color: #ffffff; }
+:root[data-theme="light"] .office-3d-upload-btn { background: rgba(0, 0, 0, 0.04); border-color: rgba(0, 0, 0, 0.25); color: #334036; }
+:root[data-theme="light"] .office-3d-upload-btn:hover:not(.disabled) { background: rgba(0, 0, 0, 0.08); border-color: rgba(0, 0, 0, 0.4); color: #1a211c; }
+:root[data-theme="light"] .office-3d-upload-error { color: #c92a2a; }
+:root[data-theme="light"] .office-3d-upload-success { color: #1b6c43; }
+:root[data-theme="light"] .model-library-error { background: rgba(201, 42, 42, 0.1); border-color: #c92a2a; color: #c92a2a; }
+:root[data-theme="light"] .model-library-card { background: rgba(0, 0, 0, 0.02); border-color: rgba(0, 0, 0, 0.1); }
+
+@media (max-width: 600px) {
+  .office-3d-palette { max-height: calc(100% - 130px); top: 120px; width: min(210px, calc(100% - 20px)); }
+}
+@media (max-width: 440px) { .office-3d-editbar, .office-3d-objpanel, .office-3d-palette, .office-3d-tools .edit-toggle { display: none; } }

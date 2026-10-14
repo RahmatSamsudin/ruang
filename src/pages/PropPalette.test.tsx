@@ -150,4 +150,74 @@ describe('PropPalette', () => {
     expect(onUpload).toHaveBeenCalledWith(file)
     expect(onPick).toHaveBeenCalledWith('model:m-newmodel1234')
   })
+
+  it('renders empty state text when there are no models', async () => {
+    const { host } = await mount({ models: [] })
+    const emptyText = host.querySelector('.office-3d-palette-empty')
+    expect(emptyText?.textContent).toBe('No imported models yet')
+  })
+
+  it('rejects file larger than 10 MiB with inline error', async () => {
+    const { host } = await mount({ models: [] })
+    const fileInput = host.querySelector('.office-3d-palette-imported input[type="file"]') as HTMLInputElement
+    const bigFile = new File(['x'], 'big.glb', { type: 'model/gltf-binary' })
+    Object.defineProperty(bigFile, 'size', { value: 11 * 1024 * 1024, configurable: true })
+
+    await act(async () => {
+      Object.defineProperty(fileInput, 'files', { value: [bigFile], configurable: true })
+      fileInput.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    const error = host.querySelector('.office-3d-upload-error')
+    expect(error?.textContent).toBe('File exceeds 10 MiB limit.')
+  })
+
+  it('rejects non-glb/gltf file with inline error', async () => {
+    const { host } = await mount({ models: [] })
+    const fileInput = host.querySelector('.office-3d-palette-imported input[type="file"]') as HTMLInputElement
+    const txtFile = new File(['not a glb'], 'notes.txt', { type: 'text/plain' })
+
+    await act(async () => {
+      Object.defineProperty(fileInput, 'files', { value: [txtFile], configurable: true })
+      fileInput.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    const error = host.querySelector('.office-3d-upload-error')
+    expect(error?.textContent).toBe('Only .glb and .gltf files are supported.')
+  })
+
+  it('handles server 429 and 409 errors with inline error without crashing', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      statusText: 'Too Many Requests',
+      json: async () => ({ error: 'Upload rate limit exceeded. Try again later.' }),
+    } as unknown as Response)
+
+    const { host } = await mount({ models: [] })
+    const fileInput = host.querySelector('.office-3d-palette-imported input[type="file"]') as HTMLInputElement
+    const file = new File(['data'], 'test.glb', { type: 'model/gltf-binary' })
+
+    await act(async () => {
+      Object.defineProperty(fileInput, 'files', { value: [file], configurable: true })
+      fileInput.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    const error = host.querySelector('.office-3d-upload-error')
+    expect(error?.textContent).toBe('Upload rate limit exceeded. Try again later.')
+    fetchSpy.mockRestore()
+  })
+
+  it('provides keyboard accessible button and aria-live status', async () => {
+    const { host } = await mount({ models: [] })
+    const btn = host.querySelector('.office-3d-upload-btn')
+    expect(btn?.getAttribute('role')).toBe('button')
+    expect(btn?.getAttribute('tabindex')).toBe('0')
+
+    const fileInput = host.querySelector('#office-3d-model-input')
+    expect(fileInput?.getAttribute('aria-label')).toBe('Upload 3D model (.glb, .gltf)')
+
+    const status = host.querySelector('.office-3d-palette-status')
+    expect(status?.getAttribute('aria-live')).toBe('polite')
+  })
 })
