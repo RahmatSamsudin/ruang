@@ -292,7 +292,7 @@ a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible
 .log-table td:first-child, .log-table td:last-child { color: var(--c-8d978e); font: 12px ui-monospace, monospace; white-space: nowrap; }
 
 /* ---- Office: modal dialog and 2D motion ---- */
-.office-backdrop { align-items: center; background: rgb(6 9 7 / .72); display: flex; inset: 0; justify-content: center; padding: 20px; position: fixed; z-index: 50; }
+.office-backdrop { align-items: center; background: rgb(6 9 7 / .72); display: flex; inset: 0; justify-content: center; padding: 20px; position: fixed; z-index: 20000; }
 .office-backdrop .office-detail { margin: 0; max-height: calc(100vh - 40px); overflow: auto; width: min(720px, 100%); }
 .pixel-station { transition: left .6s ease, right .6s ease, bottom .6s ease; }
 .pixel-station:hover .pixel-station-name { background: #26352f; }
@@ -499,7 +499,7 @@ main { max-width: 1680px; }
 .office-3d-tools button:hover { background: rgba(18, 26, 24, 0.92); }
 .office-3d-tools button.active { background: #d9534f; border-color: #f4efe6; }
 .office-3d > div:first-child { position: absolute !important; inset: 0; }
-.office-3d-labels { inset: 0; overflow: clip; pointer-events: none; position: absolute; }
+.office-3d-labels { inset: 0; overflow: clip; pointer-events: none; position: absolute; z-index: 2; }
 .office-3d-labels > * { left: 0; position: absolute; top: 0; visibility: hidden; will-change: transform; }
 .agent-tag-3d { align-items: center; background: transparent; border: 0; color: #eef9ef; cursor: pointer; display: grid; gap: 4px; justify-items: center; padding: 0; pointer-events: auto; white-space: nowrap; }
 .agent-tag-row { align-items: center; display: flex; gap: 4px; }
@@ -1021,5 +1021,7 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
 
 @media (max-width: 600px) {
   .office-3d-palette { max-height: calc(100% - 130px); top: 120px; width: min(210px, calc(100% - 20px)); }
+  .model-library-toolbar { flex-direction: column; align-items: stretch; }
+  .model-library-toolbar input[type="search"] { min-width: 0; width: 100%; }
 }
 @media (max-width: 440px) { .office-3d-editbar, .office-3d-objpanel, .office-3d-palette, .office-3d-tools .edit-toggle { display: none; } }
