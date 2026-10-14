@@ -1,4 +1,4 @@
-import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -598,5 +598,283 @@ describe('models API HTTP integration', () => {
     } finally {
       await rm(accessTmp, { recursive: true, force: true })
     }
+  })
+})
+
+describe('models concurrency and resilience', () => {
+  let tmp: string
+  let dataDir: string
+  let modelsDirStr: string
+  let store: ModelStore
+  let base: string
+  let host: string
+  let server: http.Server
+
+  beforeEach(async () => {
+    tmp = await mkdtemp(join(tmpdir(), 'ruang-model-concurrency-test-'))
+    dataDir = tmp
+    modelsDirStr = join(tmp, 'models')
+    store = new ModelStore(modelsDirStr)
+
+    // Bypass/widen rate limiter in test harness (10_000 max requests)
+    const rateLimiter = new ModelRateLimiter(60_000, 10_000)
+    const app = express()
+    app.use('/api/models', createModelsRouter({ store, rateLimiter }))
+    app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+      void _next
+      res.status(500).json({ error: error instanceof Error ? error.message : 'Internal error' })
+    })
+
+    server = app.listen(0, '127.0.0.1')
+    await new Promise((resolve) => server.once('listening', resolve))
+    const port = (server.address() as AddressInfo).port
+    host = `127.0.0.1:${port}`
+    base = `http://${host}`
+  })
+
+  afterEach(async () => {
+    server.close()
+    await rm(tmp, { recursive: true, force: true })
+  })
+
+  it('handles 20 parallel saves: all 201, index length == files == 20', async () => {
+    const results = await Promise.all(
+      Array.from({ length: 20 }, (_, i) =>
+        fetch(`${base}/api/models?name=parallel-${i}.glb`, {
+          method: 'POST',
+          headers: {
+            'Origin': base,
+            'Host': host,
+            'Content-Type': 'model/gltf-binary',
+          },
+          body: validGlbBuffer,
+        }),
+      ),
+    )
+
+    for (const res of results) {
+      expect(res.status).toBe(201)
+    }
+
+    const listRes = await fetch(`${base}/api/models`)
+    const listBody = (await listRes.json()) as { models: ModelRecord[] }
+    expect(listBody.models).toHaveLength(20)
+
+    const files = await readdir(modelsDirStr)
+    const modelFiles = files.filter((f) => f.endsWith('.glb') || f.endsWith('.gltf'))
+    expect(modelFiles).toHaveLength(20)
+  })
+
+  it('handles 30 parallel saves: all 201, index length == files == 30', async () => {
+    const results = await Promise.all(
+      Array.from({ length: 30 }, (_, i) =>
+        fetch(`${base}/api/models?name=parallel30-${i}.glb`, {
+          method: 'POST',
+          headers: {
+            'Origin': base,
+            'Host': host,
+            'Content-Type': 'model/gltf-binary',
+          },
+          body: validGlbBuffer,
+        }),
+      ),
+    )
+
+    for (const res of results) {
+      expect(res.status).toBe(201)
+    }
+
+    const listRes = await fetch(`${base}/api/models`)
+    const listBody = (await listRes.json()) as { models: ModelRecord[] }
+    expect(listBody.models).toHaveLength(30)
+
+    const files = await readdir(modelsDirStr)
+    const modelFiles = files.filter((f) => f.endsWith('.glb') || f.endsWith('.gltf'))
+    expect(modelFiles).toHaveLength(30)
+  })
+
+  it('filling to 99 then 5 parallel saves: exactly one 201 and 4 409, index length 100', async () => {
+    await store.init()
+    const dummyRecords: ModelRecord[] = []
+    for (let i = 0; i < 99; i++) {
+      const hex = i.toString(16).padStart(12, '0')
+      const id = `m-${hex}`
+      dummyRecords.push({
+        id,
+        name: `dummy-${i}`,
+        format: 'glb',
+        size: validGlbBuffer.length,
+        createdAt: new Date().toISOString(),
+      })
+      await writeFile(join(modelsDirStr, `${id}.glb`), validGlbBuffer)
+    }
+    await writeFile(join(modelsDirStr, 'index.json'), JSON.stringify(dummyRecords, null, 2))
+
+    const results = await Promise.all(
+      Array.from({ length: 5 }, (_, i) =>
+        fetch(`${base}/api/models?name=overflow-${i}.glb`, {
+          method: 'POST',
+          headers: {
+            'Origin': base,
+            'Host': host,
+            'Content-Type': 'model/gltf-binary',
+          },
+          body: validGlbBuffer,
+        }),
+      ),
+    )
+
+    const statuses = results.map((r) => r.status)
+    const successCount = statuses.filter((s) => s === 201).length
+    const conflictCount = statuses.filter((s) => s === 409).length
+
+    expect(successCount).toBe(1)
+    expect(conflictCount).toBe(4)
+
+    const listRes = await fetch(`${base}/api/models`)
+    const listBody = (await listRes.json()) as { models: ModelRecord[] }
+    expect(listBody.models).toHaveLength(100)
+  })
+
+  it('handles 5 parallel deletes of distinct IDs: all 204 and none remain listed', async () => {
+    const created: ModelRecord[] = []
+    for (let i = 0; i < 5; i++) {
+      const res = await fetch(`${base}/api/models?name=item-${i}.glb`, {
+        method: 'POST',
+        headers: {
+          'Origin': base,
+          'Host': host,
+          'Content-Type': 'model/gltf-binary',
+        },
+        body: validGlbBuffer,
+      })
+      expect(res.status).toBe(201)
+      const data = (await res.json()) as { model: ModelRecord }
+      created.push(data.model)
+    }
+
+    const delResults = await Promise.all(
+      created.map((m) =>
+        fetch(`${base}/api/models/${m.id}`, {
+          method: 'DELETE',
+          headers: {
+            'Origin': base,
+            'Host': host,
+          },
+        }),
+      ),
+    )
+
+    for (const res of delResults) {
+      expect(res.status).toBe(204)
+    }
+
+    const listRes = await fetch(`${base}/api/models`)
+    const listBody = (await listRes.json()) as { models: ModelRecord[] }
+    expect(listBody.models).toHaveLength(0)
+
+    const files = await readdir(modelsDirStr)
+    const modelFiles = files.filter((f) => f.endsWith('.glb') || f.endsWith('.gltf'))
+    expect(modelFiles).toHaveLength(0)
+  })
+
+  it('handles parallel delete of the same ID: exactly one 204 and rest 404', async () => {
+    const postRes = await fetch(`${base}/api/models?name=target.glb`, {
+      method: 'POST',
+      headers: {
+        'Origin': base,
+        'Host': host,
+        'Content-Type': 'model/gltf-binary',
+      },
+      body: validGlbBuffer,
+    })
+    expect(postRes.status).toBe(201)
+    const { model } = (await postRes.json()) as { model: ModelRecord }
+
+    const delResults = await Promise.all(
+      Array.from({ length: 5 }, () =>
+        fetch(`${base}/api/models/${model.id}`, {
+          method: 'DELETE',
+          headers: {
+            'Origin': base,
+            'Host': host,
+          },
+        }),
+      ),
+    )
+
+    const statuses = delResults.map((r) => r.status)
+    const successCount = statuses.filter((s) => s === 204).length
+    const notFoundCount = statuses.filter((s) => s === 404).length
+
+    expect(successCount).toBe(1)
+    expect(notFoundCount).toBe(4)
+  })
+
+  it('refuses DELETE with 409 when scene.json is unparseable or corrupt', async () => {
+    const postRes = await fetch(`${base}/api/models?name=scenetest.glb`, {
+      method: 'POST',
+      headers: {
+        'Origin': base,
+        'Host': host,
+        'Content-Type': 'model/gltf-binary',
+      },
+      body: validGlbBuffer,
+    })
+    expect(postRes.status).toBe(201)
+    const { model } = (await postRes.json()) as { model: ModelRecord }
+
+    // Corrupt scene.json
+    const scenePath = join(dataDir, 'scene.json')
+    await writeFile(scenePath, '{ corrupt json !!!')
+
+    const delRes = await fetch(`${base}/api/models/${model.id}`, {
+      method: 'DELETE',
+      headers: {
+        'Origin': base,
+        'Host': host,
+      },
+    })
+    expect(delRes.status).toBe(409)
+    const body = (await delRes.json()) as { error: string }
+    expect(body.error).toMatch(/scene/i)
+
+    // Model still listed and file still intact
+    const listRes = await fetch(`${base}/api/models`)
+    const { models } = (await listRes.json()) as { models: ModelRecord[] }
+    expect(models.some((m) => m.id === model.id)).toBe(true)
+  })
+
+  it('preserves corrupt index.json as .corrupt-<timestamp> and does not overwrite it on save', async () => {
+    await store.init()
+    const indexPath = join(modelsDirStr, 'index.json')
+    await writeFile(indexPath, '{ corrupt index json content')
+
+    // POST a new model
+    const postRes = await fetch(`${base}/api/models?name=fresh.glb`, {
+      method: 'POST',
+      headers: {
+        'Origin': base,
+        'Host': host,
+        'Content-Type': 'model/gltf-binary',
+      },
+      body: validGlbBuffer,
+    })
+    expect(postRes.status).toBe(201)
+
+    // Check directory files for preserved corrupt index
+    const files = await readdir(modelsDirStr)
+    const corruptBackup = files.find((f) => f.startsWith('index.json.corrupt-'))
+    expect(corruptBackup).toBeDefined()
+
+    const backupContent = await readFile(join(modelsDirStr, corruptBackup!), 'utf8')
+    expect(backupContent).toBe('{ corrupt index json content')
+
+    // New index.json is valid and contains fresh.glb
+    const newIndexContent = await readFile(indexPath, 'utf8')
+    const parsed = JSON.parse(newIndexContent)
+    expect(Array.isArray(parsed)).toBe(true)
+    expect(parsed).toHaveLength(1)
+    expect(parsed[0].name).toBe('fresh')
   })
 })

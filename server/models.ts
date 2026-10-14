@@ -264,12 +264,47 @@ export class ModelRateLimiter {
   }
 }
 
+class AsyncLock {
+  private queue: Promise<void> = Promise.resolve()
+
+  async run<T>(fn: () => Promise<T>): Promise<T> {
+    let release!: () => void
+    const next = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const prev = this.queue
+    this.queue = next
+
+    await prev.catch(() => {})
+    try {
+      return await fn()
+    } finally {
+      release()
+    }
+  }
+}
+
+const dirLocks = new Map<string, AsyncLock>()
+function getDirLock(dir: string): AsyncLock {
+  const key = resolve(dir)
+  let lock = dirLocks.get(key)
+  if (!lock) {
+    lock = new AsyncLock()
+    dirLocks.set(key, lock)
+  }
+  return lock
+}
+
 export class ModelStore {
   constructor(
     readonly dir: string = modelsDir(),
     readonly maxModels: number = MAX_MODELS,
     readonly maxBytes: number = Number(process.env.RUANG_MODEL_MAX_BYTES) || DEFAULT_MAX_MODEL_BYTES,
   ) {}
+
+  private get lock(): AsyncLock {
+    return getDirLock(this.dir)
+  }
 
   async init(): Promise<void> {
     await mkdir(this.dir, { recursive: true, mode: 0o700 })
@@ -290,26 +325,62 @@ export class ModelStore {
   }
 
   async list(): Promise<ModelRecord[]> {
+    const indexPath = join(this.dir, 'index.json')
+    let raw: string
     try {
-      const raw = await readFile(join(this.dir, 'index.json'), 'utf8')
-      const parsed = JSON.parse(raw)
-      const list: unknown[] = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.models) ? parsed.models : [])
-      const valid = list.filter((r): r is ModelRecord =>
-        Boolean(
-          r &&
-          typeof r === 'object' &&
-          isValidModelId((r as ModelRecord).id) &&
-          typeof (r as ModelRecord).name === 'string' &&
-          ((r as ModelRecord).format === 'glb' || (r as ModelRecord).format === 'gltf') &&
-          typeof (r as ModelRecord).size === 'number' &&
-          typeof (r as ModelRecord).createdAt === 'string',
-        ),
-      )
-      valid.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      return valid
-    } catch {
+      raw = await readFile(indexPath, 'utf8')
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
+        return []
+      }
       return []
     }
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(raw)
+    } catch (err) {
+      const timestamp = Date.now()
+      const corruptPath = join(this.dir, `index.json.corrupt-${timestamp}`)
+      try {
+        await rename(indexPath, corruptPath)
+        console.warn(`[models] Corrupt index.json detected and renamed to index.json.corrupt-${timestamp}`, err)
+      } catch {
+        // ignore
+      }
+      return []
+    }
+
+    const listCandidate = Array.isArray(parsed)
+      ? parsed
+      : (parsed && typeof parsed === 'object' && Array.isArray((parsed as Record<string, unknown>).models)
+          ? ((parsed as Record<string, unknown>).models as unknown[])
+          : null)
+    if (!listCandidate) {
+      const timestamp = Date.now()
+      const corruptPath = join(this.dir, `index.json.corrupt-${timestamp}`)
+      try {
+        await rename(indexPath, corruptPath)
+        console.warn(`[models] Malformed index.json detected and renamed to index.json.corrupt-${timestamp}`)
+      } catch {
+        // ignore
+      }
+      return []
+    }
+
+    const valid = listCandidate.filter((r): r is ModelRecord =>
+      Boolean(
+        r &&
+        typeof r === 'object' &&
+        isValidModelId((r as ModelRecord).id) &&
+        typeof (r as ModelRecord).name === 'string' &&
+        ((r as ModelRecord).format === 'glb' || (r as ModelRecord).format === 'gltf') &&
+        typeof (r as ModelRecord).size === 'number' &&
+        typeof (r as ModelRecord).createdAt === 'string',
+      ),
+    )
+    valid.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    return valid
   }
 
   async get(id: string): Promise<ModelRecord | null> {
@@ -343,11 +414,6 @@ export class ModelStore {
   }
 
   async save(name: string, buffer: Buffer, declaredContentType?: string): Promise<ModelRecord> {
-    const models = await this.list()
-    if (models.length >= this.maxModels) {
-      throw new ModelError('Model library full.', 409)
-    }
-
     let expectedFormat: 'glb' | 'gltf' | undefined
     if (declaredContentType === 'model/gltf-binary') expectedFormat = 'glb'
     else if (declaredContentType === 'model/gltf+json') expectedFormat = 'gltf'
@@ -355,50 +421,80 @@ export class ModelStore {
     const { format } = validateModel(buffer, expectedFormat)
     const sanitizedName = sanitizeModelName(name)
 
-    let id = generateModelId()
-    while (models.some((m) => m.id === id)) {
-      id = generateModelId()
-    }
+    return this.lock.run(async () => {
+      const models = await this.list()
+      if (models.length >= this.maxModels) {
+        throw new ModelError('Model library full.', 409)
+      }
 
-    const filename = `${id}.${format}`
-    await this.writeAtomic(filename, buffer)
+      let id = generateModelId()
+      while (models.some((m) => m.id === id)) {
+        id = generateModelId()
+      }
 
-    const record: ModelRecord = {
-      id,
-      name: sanitizedName,
-      format,
-      size: buffer.length,
-      createdAt: new Date().toISOString(),
-    }
+      const filename = `${id}.${format}`
+      await this.writeAtomic(filename, buffer)
 
-    const updated = [record, ...models]
-    await this.writeAtomic('index.json', JSON.stringify(updated, null, 2))
-    return record
+      const record: ModelRecord = {
+        id,
+        name: sanitizedName,
+        format,
+        size: buffer.length,
+        createdAt: new Date().toISOString(),
+      }
+
+      const updated = [record, ...models]
+      try {
+        await this.writeAtomic('index.json', JSON.stringify(updated, null, 2))
+      } catch (err) {
+        await rm(this.filePath(id, format), { force: true }).catch(() => {})
+        throw err
+      }
+      return record
+    })
   }
 
   async getSceneUsages(modelId: string): Promise<string[]> {
-    const pathsToCheck = [
-      join(dirname(this.dir), 'scene.json'),
-      sceneFile(),
-    ]
+    const p1 = resolve(dirname(this.dir), 'scene.json')
+    const p2 = resolve(sceneFile())
+    const pathsToCheck = p1 === p2 ? [p1] : [p1, p2]
+    const usedBy: string[] = []
+
     for (const p of pathsToCheck) {
+      let raw: string
       try {
-        const raw = await readFile(p, 'utf8')
-        const parsed = JSON.parse(raw)
-        if (parsed && Array.isArray(parsed.added)) {
-          const usedBy: string[] = []
-          for (const item of parsed.added) {
-            if (item && typeof item === 'object' && item.kind === 'model' && item.modelId === modelId && typeof item.id === 'string') {
-              usedBy.push(item.id)
-            }
-          }
-          if (usedBy.length > 0) return usedBy
+        raw = await readFile(p, 'utf8')
+      } catch (err: unknown) {
+        if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
+          continue
         }
+        throw new ModelError('Cannot verify model usage in scene.', 409)
+      }
+
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(raw)
       } catch {
-        // try next or return []
+        throw new ModelError('Cannot verify model usage in scene.', 409)
+      }
+
+      if (parsed && typeof parsed === 'object' && Array.isArray((parsed as { added?: unknown[] }).added)) {
+        for (const item of (parsed as { added: unknown[] }).added) {
+          if (
+            item &&
+            typeof item === 'object' &&
+            (item as { kind?: unknown }).kind === 'model' &&
+            (item as { modelId?: unknown }).modelId === modelId &&
+            typeof (item as { id?: unknown }).id === 'string'
+          ) {
+            usedBy.push((item as { id: string }).id)
+          }
+        }
+      } else if (!parsed || typeof parsed !== 'object') {
+        throw new ModelError('Cannot verify model usage in scene.', 409)
       }
     }
-    return []
+    return Array.from(new Set(usedBy))
   }
 
   async delete(id: string): Promise<void> {
@@ -406,22 +502,24 @@ export class ModelStore {
       throw new ModelError('Model not found.', 404)
     }
 
-    const record = await this.get(id)
-    if (!record) {
-      throw new ModelError('Model not found.', 404)
-    }
+    return this.lock.run(async () => {
+      const models = await this.list()
+      const record = models.find((m) => m.id === id)
+      if (!record) {
+        throw new ModelError('Model not found.', 404)
+      }
 
-    const usedBy = await this.getSceneUsages(id)
-    if (usedBy.length > 0) {
-      throw new ModelError('Model is currently in use', 409, { usedBy })
-    }
+      const usedBy = await this.getSceneUsages(id)
+      if (usedBy.length > 0) {
+        throw new ModelError('Model is currently in use', 409, { usedBy })
+      }
 
-    const file = this.filePath(id, record.format)
-    await rm(file, { force: true })
+      const file = this.filePath(id, record.format)
+      await rm(file, { force: true })
 
-    const models = await this.list()
-    const updated = models.filter((m) => m.id !== id)
-    await this.writeAtomic('index.json', JSON.stringify(updated, null, 2))
+      const updated = models.filter((m) => m.id !== id)
+      await this.writeAtomic('index.json', JSON.stringify(updated, null, 2))
+    })
   }
 }
 
