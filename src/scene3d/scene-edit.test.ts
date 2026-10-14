@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { createLayout } from '../office3d-layout.ts'
+import { defaultScene } from './default-scene.ts'
 import {
   EMPTY_PATCH,
   MAX_ADDED,
@@ -17,6 +19,7 @@ import {
   addStorey,
   addStructureItem,
   canDelete,
+  DEFAULT_STAIRWELL_CUTOUT,
   deleteItem,
   dragPreviewItem,
   dragTarget,
@@ -28,6 +31,7 @@ import {
   moveItem,
   nextAddedId,
   placePoint,
+  resolveStoreyBounds,
   ROTATION_STEP,
   rotateBy,
   rotateItem,
@@ -440,6 +444,17 @@ describe('duplicateItem', () => {
     })
   })
 
+  it('preserves geometry dimensions when near bounds by using shared clamped delta', () => {
+    const edgeWall: WallItem = { kind: 'wall', id: 'edge-wall', level: 0, from: [8, 0], to: [10, 0], y: 0, height: 2.8 }
+    const res = duplicateItem(EMPTY_PATCH, [edgeWall], edgeWall, bounds)
+    const dup = res.patch.added[0] as WallItem
+    expect(dup).toBeDefined()
+    // Default dx is +0.5, but to[0] is 10 (maxX). dx must clamp to 0 rather than distorting endpoints
+    expect(dup.from).toEqual([8, 0.5])
+    expect(dup.to).toEqual([10, 0.5])
+    expect(dup.to[0] - dup.from[0]).toBe(2)
+  })
+
   it('refuses at the limit', () => {
     const full = { ...EMPTY_PATCH, added: Array.from({ length: MAX_ADDED }, (_, n) => ({ ...lamp, id: `added-${n + 1}` })) }
     const result = duplicateItem(full, [], sofa, bounds)
@@ -523,9 +538,10 @@ describe('structure property setters', () => {
   })
 
   it('setItemView updates view on any item', () => {
-    const next = setItemView(EMPTY_PATCH, wall, 'cutaway')
-    expect(next.overrides['wall-1']).toEqual({ view: 'cutaway' })
-    expect(setItemView(EMPTY_PATCH, wall, undefined)).toBe(EMPTY_PATCH)
+    const next = setItemView(EMPTY_PATCH, wall, 'shell')
+    expect(next.overrides['wall-1']).toEqual({ view: 'shell' })
+    const nextCutaway = setItemView(EMPTY_PATCH, wall, undefined)
+    expect(nextCutaway.overrides['wall-1']).toEqual({ view: 'cutaway' })
   })
 
   it('edits added structure items in place', () => {
@@ -534,6 +550,97 @@ describe('structure property setters', () => {
     const res = setFloorBounds(patchWithFloor, addedFloor, [-1, -1], [6, 6])
     expect(res.added[0]).toMatchObject({ id: 'added-1', min: [-1, -1], max: [6, 6] })
     expect(res.overrides).toEqual({})
+  })
+
+  it('clamps setFloorBounds to minimum dimension, max span, and floor y', () => {
+    const next1 = setFloorBounds(EMPTY_PATCH, floor, [-20, -20], [200, 200], 10)
+    expect(next1.overrides['floor-0']).toEqual({ min: [-20, -20], max: [80, 80], y: 5 })
+
+    const next2 = setFloorBounds(EMPTY_PATCH, floor, [0, 0], [0.1, 0.2])
+    expect(next2.overrides['floor-0']).toEqual({ min: [0, 0], max: [0.5, 0.5] })
+
+    const next3 = setFloorBounds(EMPTY_PATCH, floor, [NaN, Infinity], [10, 12])
+    expect(next3.overrides['floor-0']).toEqual({ min: [0, 0], max: [10, 12] })
+  })
+
+  it('clamps setFloorBounds relative to storey level on upper storeys', () => {
+    const floorL3: FloorItem = { kind: 'floor', id: 'floor-3', level: 5.6, min: [-10, -6], max: [10, 12], y: 5.6, surface: { type: 'wood', repeat: [1, 1] } }
+
+    // Width/bounds edit passing existing y 5.6 keeps y 5.6 (does not snap to 5)
+    const next1 = setFloorBounds(EMPTY_PATCH, floorL3, [-5, -6], [5, 12], 5.6)
+    expect(next1.overrides['floor-3']).toEqual({ min: [-5, -6], max: [5, 12], y: 5.6 })
+
+    // Width-only edit without passing y keeps y untouched (not overwritten)
+    const nextWidthOnly = setFloorBounds(EMPTY_PATCH, floorL3, [-5, -6], [5, 12])
+    expect(nextWidthOnly.overrides['floor-3']).toEqual({ min: [-5, -6], max: [5, 12] })
+
+    // y edit to level + 5 (10.6) and level - 5 (0.6) honoured
+    const nextMaxY = setFloorBounds(EMPTY_PATCH, floorL3, [-10, -6], [10, 12], 10.6)
+    expect(nextMaxY.overrides['floor-3']).toEqual({ min: [-10, -6], max: [10, 12], y: 10.6 })
+
+    const nextMinY = setFloorBounds(EMPTY_PATCH, floorL3, [-10, -6], [10, 12], 0.6)
+    expect(nextMinY.overrides['floor-3']).toEqual({ min: [-10, -6], max: [10, 12], y: 0.6 })
+
+    // y edit beyond level +- 5 is clamped to level +- 5 (5.6 + 10 -> 10.6, 5.6 - 10 -> 0.6)
+    const nextOver = setFloorBounds(EMPTY_PATCH, floorL3, [-10, -6], [10, 12], 20)
+    expect(nextOver.overrides['floor-3']).toEqual({ min: [-10, -6], max: [10, 12], y: 10.6 })
+
+    const nextUnder = setFloorBounds(EMPTY_PATCH, floorL3, [-10, -6], [10, 12], -10)
+    expect(nextUnder.overrides['floor-3']).toEqual({ min: [-10, -6], max: [10, 12], y: 0.6 })
+  })
+
+  it('clamps setWallGeometry to valid length, height, and safe numbers', () => {
+    const next1 = setWallGeometry(EMPTY_PATCH, wall, [-150, 0], [150, 0], 25, -50)
+    expect(next1.overrides['wall-1']).toEqual({ from: [-150, 0], to: [-50, 0], height: 10, y: -50 })
+
+    const next2 = setWallGeometry(EMPTY_PATCH, wall, [0, 0], [0, 0], 2.8)
+    const override2 = next2.overrides['wall-1'] as Partial<WallItem>
+    const len = Math.hypot(override2.to![0] - override2.from![0], override2.to![1] - override2.from![1])
+    expect(len).toBeCloseTo(0.25)
+
+    const next3 = setWallGeometry(EMPTY_PATCH, wall, [NaN, 0], [10, NaN], NaN)
+    expect(next3.overrides['wall-1']).toEqual({ from: [0, 0], to: [10, 0], height: 0.1 })
+  })
+
+  it('clamps setGlassGeometry within limits and enforces minimum top-bottom gap', () => {
+    const next1 = setGlassGeometry(EMPTY_PATCH, glass, [-200, 0], [200, 0], 0, 2)
+    expect(next1.overrides['glass-1']).toEqual({ from: [-200, 0], to: [-100, 0], bottom: 0, top: 2 })
+
+    const next2 = setGlassGeometry(EMPTY_PATCH, glass, [-5, 0], [5, 0], 2.0, 2.0)
+    expect(next2.overrides['glass-1']).toEqual({ from: [-5, 0], to: [5, 0], bottom: 2.0, top: 2.1 })
+  })
+
+  it('clamps setGlassGeometry relative to storey level on upper storeys and keeps min gap', () => {
+    const glassL3: GlassItem = { kind: 'glass', id: 'glass-3', level: 3, from: [-5, 0], to: [5, 0], bottom: 3, top: 4.2 }
+
+    // bottom / top relative clamp works: level +- 20 (for level 3: [-17, 23])
+    const next1 = setGlassGeometry(EMPTY_PATCH, glassL3, [-5, 0], [5, 0], -30, 50)
+    expect(next1.overrides['glass-3']).toEqual({ from: [-5, 0], to: [5, 0], bottom: -17, top: 23 })
+
+    // Within relative range: bottom 4, top 5 -> honours values
+    const next2 = setGlassGeometry(EMPTY_PATCH, glassL3, [-5, 0], [5, 0], 4, 5)
+    expect(next2.overrides['glass-3']).toEqual({ from: [-5, 0], to: [5, 0], bottom: 4, top: 5 })
+
+    // top - bottom >= 0.1 kept on upper level
+    const nextGap = setGlassGeometry(EMPTY_PATCH, glassL3, [-5, 0], [5, 0], 4.5, 4.5)
+    expect(nextGap.overrides['glass-3']).toEqual({ from: [-5, 0], to: [5, 0], bottom: 4.5, top: 4.6 })
+
+    // top - bottom >= 0.1 at upper boundary (level + 20 = 23)
+    const nextBoundary = setGlassGeometry(EMPTY_PATCH, glassL3, [-5, 0], [5, 0], 23, 23)
+    expect(nextBoundary.overrides['glass-3']).toEqual({ from: [-5, 0], to: [5, 0], bottom: 22.9, top: 23 })
+
+    // Upper level above absolute 20 (e.g. level 25) clamps relative to storey, not absolute 20
+    const glassL10: GlassItem = { kind: 'glass', id: 'glass-10', level: 25, from: [-5, 0], to: [5, 0], bottom: 25, top: 27 }
+    const nextL10 = setGlassGeometry(EMPTY_PATCH, glassL10, [-5, 0], [5, 0], 25, 27)
+    expect(nextL10.overrides['glass-10']).toEqual({ from: [-5, 0], to: [5, 0], bottom: 25, top: 27 })
+  })
+
+  it('clamps setBoxProps dimensions, radius, roughness, and handles non-finite size', () => {
+    const next1 = setBoxProps(EMPTY_PATCH, box, [0.01, 200, -5], '#123456', { radius: 2, roughness: 3 })
+    expect(next1.overrides['game-roof']).toMatchObject({ size: [0.05, 50, 0.05], color: '#123456', radius: 0.5, roughness: 1 })
+
+    const next2 = setBoxProps(EMPTY_PATCH, box, [NaN, Infinity, 2], '#123456')
+    expect(next2.overrides['game-roof']).toMatchObject({ size: [0.05, 0.05, 2] })
   })
 })
 
@@ -588,7 +695,7 @@ describe('generateStoreyShell', () => {
     expect(shellIds).toContain('wall-s-shell')
   })
 
-  it('updates existing shell wall height if it is not WALL_HEIGHT', () => {
+  it('preserves existing shell walls without modifying their height or y', () => {
     const shortShell: WallItem = {
       kind: 'wall',
       id: 'wall-n-shell',
@@ -600,7 +707,8 @@ describe('generateStoreyShell', () => {
       view: 'shell',
     }
     const res = generateStoreyShell(EMPTY_PATCH, [wallN, shortShell], 0, bounds)
-    expect(res.overrides['wall-n-shell']).toEqual({ height: WALL_HEIGHT, y: 0 })
+    expect(res.overrides['wall-n-shell']).toBeUndefined()
+    expect(res.added.filter((item) => item.id === 'wall-n-shell')).toHaveLength(0)
   })
 
   it('skips walls deleted in patch overrides', () => {
@@ -698,6 +806,184 @@ describe('addStorey', () => {
     expect(level).toBe(2.8)
     expect(nextPatch.added).toHaveLength(MAX_ADDED)
   })
+
+  it('splits floor slab around stairwell cutout when stairwellCutout is true', () => {
+    const { patch: nextPatch, level: newLevel, id } = addStorey(EMPTY_PATCH, groundItems, bounds, { stairwellCutout: true })
+    expect(newLevel).toBe(2.8)
+    expect(id).toMatch(/^added-\d+$/)
+
+    const floorSlabs = nextPatch.added.filter((item): item is FloorItem => item.kind === 'floor' && item.level === 2.8)
+    expect(floorSlabs).toHaveLength(4)
+
+    const hole = DEFAULT_STAIRWELL_CUTOUT
+    for (const slab of floorSlabs) {
+      expect(slab.min[0]).toBeGreaterThanOrEqual(bounds.minX)
+      expect(slab.max[0]).toBeLessThanOrEqual(bounds.maxX)
+      expect(slab.min[1]).toBeGreaterThanOrEqual(bounds.minZ)
+      expect(slab.max[1]).toBeLessThanOrEqual(bounds.maxZ)
+      const overlapsHole = slab.min[0] < hole.maxX && slab.max[0] > hole.minX && slab.min[1] < hole.maxZ && slab.max[1] > hole.minZ
+      expect(overlapsHole).toBe(false)
+    }
+  })
+
+  it('splits floor slab around custom stairwell cutout bounds', () => {
+    const customHole = { minX: 0, maxX: 2, minZ: 0, maxZ: 2 }
+    const { patch: nextPatch } = addStorey(EMPTY_PATCH, groundItems, bounds, { stairwellCutout: customHole })
+    const floorSlabs = nextPatch.added.filter((item): item is FloorItem => item.kind === 'floor' && item.level === 2.8)
+    expect(floorSlabs).toHaveLength(4)
+    for (const slab of floorSlabs) {
+      const overlapsHole = slab.min[0] < customHole.maxX && slab.max[0] > customHole.minX && slab.min[1] < customHole.maxZ && slab.max[1] > customHole.minZ
+      expect(overlapsHole).toBe(false)
+    }
+  })
+
+  it('creates shell walls and slab matching building footprint on real default scene with layout.pan', () => {
+    const layout = createLayout(3)
+    const items = defaultScene(layout)
+    const { patch: nextPatch, level: newLevel, id } = addStorey(EMPTY_PATCH, items, layout.pan)
+    expect(newLevel).toBe(5.6)
+    expect(id).toBe('added-1')
+
+    // Shell walls generated on level 2.8
+    const shellWalls = nextPatch.added.filter(
+      (it): it is WallItem => it.kind === 'wall' && it.level === 2.8 && it.view === 'shell',
+    )
+    expect(shellWalls.length).toBeGreaterThan(0)
+    for (const sw of shellWalls) {
+      expect(sw.height).toBe(WALL_HEIGHT)
+      expect(sw.view).toBe('shell')
+    }
+
+    // Floor slab added on new level 5.6 matching building footprint, not layout.pan
+    const floorSlabs = nextPatch.added.filter(
+      (it): it is FloorItem => it.kind === 'floor' && it.level === 5.6,
+    )
+    expect(floorSlabs.length).toBeGreaterThan(0)
+    const slab = floorSlabs[0]
+    expect(slab.min[0]).toBe(layout.building.minX)
+    expect(slab.max[0]).toBe(layout.building.maxX)
+    expect(slab.min[1]).toBe(layout.building.minZ)
+    expect(slab.max[1]).toBe(layout.building.maxZ)
+  })
+
+  it('keeps full 32m footprint on L4 when adding storey after adding 2 walls on L3', () => {
+    const layout = createLayout(16)
+    const items = defaultScene(layout)
+    // 16-desk layout building width is ~32.0m: minX: -22.5, maxX: 9.5
+    expect(layout.building.maxX - layout.building.minX).toBeCloseTo(32.0, 1)
+
+    // Add Storey -> L3 (level 5.6)
+    const resL3 = addStorey(EMPTY_PATCH, items, layout.building)
+    expect(resL3.level).toBe(5.6)
+    const l3Slab = resL3.patch.added.find(
+      (it): it is FloorItem => it.kind === 'floor' && it.level === 5.6,
+    )
+    expect(l3Slab).toBeDefined()
+    expect(l3Slab!.max[0] - l3Slab!.min[0]).toBeCloseTo(32.0, 1)
+
+    // Add 2 walls on L3
+    const wall1: WallItem = {
+      kind: 'wall',
+      id: 'added-l3-wall1',
+      level: 5.6,
+      from: [0, 0],
+      to: [5, 0],
+      y: 5.6,
+      height: 2.0,
+      view: 'both',
+    }
+    const wall2: WallItem = {
+      kind: 'wall',
+      id: 'added-l3-wall2',
+      level: 5.6,
+      from: [5, 0],
+      to: [5, 3],
+      y: 5.6,
+      height: 2.0,
+      view: 'both',
+    }
+    const patchWithWalls: ScenePatch = {
+      ...resL3.patch,
+      added: [...resL3.patch.added, wall1, wall2],
+    }
+
+    // Add Storey again -> L4 (level 8.4)
+    const resL4 = addStorey(patchWithWalls, items, layout.building)
+    expect(resL4.level).toBe(8.4)
+
+    const l4Slab = resL4.patch.added.find(
+      (it): it is FloorItem => it.kind === 'floor' && it.level === 8.4,
+    )
+    expect(l4Slab).toBeDefined()
+    expect(l4Slab!.min[0]).toBe(layout.building.minX)
+    expect(l4Slab!.max[0]).toBe(layout.building.maxX)
+    expect(l4Slab!.min[1]).toBe(layout.building.minZ)
+    expect(l4Slab!.max[1]).toBe(layout.building.maxZ)
+    expect(l4Slab!.max[0] - l4Slab!.min[0]).toBeCloseTo(32.0, 1)
+  })
+
+  it('uses passed bounds instead of falling to BUILDING for a single axis-aligned wall', () => {
+    const layout = createLayout(16)
+    const singleAxisWall: WallItem = {
+      kind: 'wall',
+      id: 'test-wall',
+      level: 0,
+      from: [-10, 0],
+      to: [10, 0],
+      y: 0,
+      height: 2.0,
+      view: 'both',
+    }
+    // Only a single axis-aligned wall on level 0 (degenerate extent)
+    const { patch: nextPatch, level: newLevel } = addStorey(
+      EMPTY_PATCH,
+      [singleAxisWall],
+      layout.building,
+    )
+    expect(newLevel).toBe(2.8)
+    const slab = nextPatch.added.find(
+      (it): it is FloorItem => it.kind === 'floor' && it.level === 2.8,
+    )
+    expect(slab).toBeDefined()
+    // Must use passed layout.building (32m), NOT hardcoded BUILDING (19m)
+    expect(slab!.min[0]).toBe(layout.building.minX)
+    expect(slab!.max[0]).toBe(layout.building.maxX)
+    expect(slab!.max[0] - slab!.min[0]).toBeCloseTo(32.0, 1)
+  })
+
+  it('resolveStoreyBounds derives from union of floors and walls, using passed bounds when degenerate', () => {
+    const layout = createLayout(16)
+    const floor: FloorItem = {
+      kind: 'floor',
+      id: 'f1',
+      level: 0,
+      min: [-10, -5],
+      max: [10, 5],
+      y: 0,
+      surface: { type: 'wood', repeat: [1, 1] },
+    }
+    const wall: WallItem = {
+      kind: 'wall',
+      id: 'w1',
+      level: 0,
+      from: [0, 0],
+      to: [15, 0],
+      y: 0,
+      height: 2,
+      view: 'both',
+    }
+    // Union should extend maxX to 15 from the wall, and keep minX -10 from the floor
+    const b = resolveStoreyBounds([floor, wall], 0, layout.building)
+    expect(b.minX).toBe(-10)
+    expect(b.maxX).toBe(15)
+    expect(b.minZ).toBe(-5)
+    expect(b.maxZ).toBe(5)
+
+    // Degenerate (single wall) should use layout.building
+    const bDegen = resolveStoreyBounds([wall], 0, layout.building)
+    expect(bDegen.minX).toBe(layout.building.minX)
+    expect(bDegen.maxX).toBe(layout.building.maxX)
+  })
 })
 
 describe('addStructureItem and dragPreviewItem', () => {
@@ -755,6 +1041,52 @@ describe('addStructureItem and dragPreviewItem', () => {
     const b: BoxItem = { kind: 'box', id: 'b1', level: 0, position: [1, 0.5, 1], size: [1, 1, 1], color: '#fff' }
     const draggedB = dragPreviewItem(b, 5, 8) as BoxItem
     expect(draggedB.position).toEqual([5, 0.5, 8])
+
+    const g: GlassItem = { kind: 'glass', id: 'g1', level: 2.8, from: [-1.5, 0], to: [1.5, 0], bottom: 2.8, top: 5.0 }
+    const draggedG = dragPreviewItem(g, 4, 3) as GlassItem
+    expect(draggedG.from).toEqual([2.5, 3])
+    expect(draggedG.to).toEqual([5.5, 3])
+    expect(draggedG.bottom).toBe(2.8)
+    expect(draggedG.top).toBe(5.0)
+  })
+
+  it('respects MAX_ADDED limit and returns id null for structure items when full', () => {
+    const fullPatch: ScenePatch = {
+      ...EMPTY_PATCH,
+      added: Array.from({ length: MAX_ADDED }, (_, i) => ({
+        kind: 'box',
+        id: `added-${i + 1}`,
+        level: 0,
+        position: [0, 0, 0],
+        size: [1, 1, 1],
+        color: '#fff',
+      }) as BoxItem),
+    }
+    const { patch: next, id } = addStructureItem(fullPatch, [], 'wall', 0, 0, 0, bounds)
+    expect(id).toBeNull()
+    expect(next.added).toHaveLength(MAX_ADDED)
+  })
+
+  it('clamps placement coordinates to bounds and handles non-finite levels', () => {
+    const { patch: next, id } = addStructureItem(EMPTY_PATCH, [], 'floor', 100, -100, Number.NaN, bounds)
+    expect(id).toBe('added-1')
+    const added = next.added[0] as FloorItem
+    expect(added.level).toBe(0)
+    expect(added.y).toBe(0.005)
+    expect(added.min).toEqual([bounds.maxX - 2, bounds.minZ - 2])
+    expect(added.max).toEqual([bounds.maxX + 2, bounds.minZ + 2])
+  })
+
+  it('preserves existing floor y and glass elevations when NaN is passed to setters', () => {
+    const floor: FloorItem = { kind: 'floor', id: 'f1', level: 2.8, min: [0, 0], max: [4, 4], y: 2.805, surface: { type: 'wood', repeat: [1, 1] } }
+    const patchedFloor = setFloorBounds(EMPTY_PATCH, floor, [0, 0], [4, 4], Number.NaN)
+    expect((patchedFloor.overrides['f1'] as Partial<FloorItem> | undefined)?.y).toBeUndefined()
+
+    const glass: GlassItem = { kind: 'glass', id: 'g1', level: 2.8, from: [-1, 0], to: [1, 0], bottom: 2.8, top: 5.0 }
+    const patchedGlass = setGlassGeometry(EMPTY_PATCH, glass, [-1, 0], [1, 0], Number.NaN, Number.NaN)
+    const override = patchedGlass.overrides['g1'] as Partial<GlassItem>
+    expect(override.bottom).toBe(2.8)
+    expect(override.top).toBe(5.0)
   })
 
   it('adds model item with correct defaults', () => {

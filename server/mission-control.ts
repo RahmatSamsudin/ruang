@@ -1,4 +1,7 @@
 import { execFile as execFileCallback } from 'node:child_process'
+import { stat as fsStat } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import path from 'node:path'
 import { promisify } from 'node:util'
 
 const execFile = promisify(execFileCallback)
@@ -67,7 +70,7 @@ export interface OfficeStation {
   freshness: string
 }
 export type ActivityKind = 'chat' | 'cron' | 'tools' | 'thinking'
-export interface AgentActivity { profile: string; availability: Availability; active: boolean; kind?: ActivityKind; label?: string; lastSeen?: string; mentionsOpenCode: boolean }
+export interface AgentActivity { profile: string; availability: Availability; active: boolean; kind?: ActivityKind; label?: string; lastSeen?: string; mentionsOpenCode: boolean; gated?: boolean | 'logs' | 'sessions' }
 export interface AgentActivitySnapshot { agents: AgentActivity[]; fetchedAt: string }
 export interface OfficeSnapshot { stations: OfficeStation[]; summary: OfficeSummary; fetchedAt: string }
 export interface OfficeSummary { declared: number; active: number; idle: number; offline: number; unknown: number; gatewaysReachable: number; gatewaysDeclared: number }
@@ -810,17 +813,114 @@ async function mapLimit<T, R>(items: readonly T[], limit: number, task: (item: T
   return results
 }
 
+export const ACTIVITY_GATE_MS = 5 * 60_000
+
+export type StatFn = (path: string) => Promise<{ mtimeMs: number }>
+
+export const defaultStat: StatFn = async (targetPath) => {
+  const s = await fsStat(targetPath)
+  return { mtimeMs: s.mtimeMs }
+}
+
+export function hermesBaseDir(env: NodeJS.ProcessEnv = process.env, home = homedir()): string {
+  const override = env.RUANG_HERMES_ROOT ?? env.MISSION_CONTROL_HERMES_ROOT
+  if (override) return path.resolve(override)
+  const configured = env.HERMES_HOME?.trim()
+  if (!configured) return path.join(home, '.hermes')
+  const resolved = path.resolve(configured.replace(/^~(?=$|\/)/, home))
+  return path.basename(path.dirname(resolved)) === 'profiles' ? path.dirname(path.dirname(resolved)) : resolved
+}
+
+export function profileActivityPaths(profile: string, env: NodeJS.ProcessEnv = process.env, home = homedir()): { logPath: string; walPath: string; dbPath: string } | undefined {
+  if (!PROFILE_NAME.test(profile)) return undefined
+  try {
+    const root = hermesBaseDir(env, home)
+    const profileDir = profile === 'default' ? root : path.join(root, 'profiles', profile)
+    return {
+      logPath: path.join(profileDir, 'logs', 'agent.log'),
+      walPath: path.join(profileDir, 'state.db-wal'),
+      dbPath: path.join(profileDir, 'state.db'),
+    }
+  } catch {
+    return undefined
+  }
+}
+
+export interface ProfileGateDecision {
+  skipLogs: boolean
+  skipSessions: boolean
+}
+
+export async function checkProfileActivityGate(
+  profile: string,
+  stat: StatFn = defaultStat,
+  now: number = Date.now(),
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<ProfileGateDecision> {
+  const paths = profileActivityPaths(profile, env)
+  if (!paths) return { skipLogs: false, skipSessions: false }
+
+  let skipLogs = false
+  try {
+    const logStat = await stat(paths.logPath)
+    if (typeof logStat?.mtimeMs === 'number' && Number.isFinite(logStat.mtimeMs)) {
+      if (now - logStat.mtimeMs > ACTIVITY_GATE_MS) {
+        skipLogs = true
+      }
+    }
+  } catch {
+    skipLogs = false
+  }
+
+  let skipSessions = false
+  let dbStat: { mtimeMs: number } | undefined
+  try {
+    dbStat = await stat(paths.walPath)
+  } catch {
+    try {
+      dbStat = await stat(paths.dbPath)
+    } catch {
+      dbStat = undefined
+    }
+  }
+
+  if (dbStat && typeof dbStat.mtimeMs === 'number' && Number.isFinite(dbStat.mtimeMs)) {
+    if (now - dbStat.mtimeMs > ACTIVITY_GATE_MS) {
+      skipSessions = true
+    }
+  }
+
+  return { skipLogs, skipSessions }
+}
+
 /** Live activity of every given Hermes profile (see `hermes profile list`). */
-export async function collectAgentActivity(profiles: readonly string[], run: Run = systemRun): Promise<AgentActivitySnapshot> {
+export async function collectAgentActivity(
+  profiles: readonly string[],
+  run: Run = systemRun,
+  stat: StatFn = defaultStat,
+  now: number = Date.now(),
+): Promise<AgentActivitySnapshot> {
   const agents = await mapLimit(profiles.filter((profile) => PROFILE_NAME.test(profile)), ACTIVITY_CONCURRENCY, async (profile): Promise<AgentActivity> => {
+    const { skipLogs, skipSessions } = await checkProfileActivityGate(profile, stat, now)
+
+    if (skipLogs && skipSessions) {
+      return { profile, availability: 'available', active: false, mentionsOpenCode: false, gated: true }
+    }
+
     const [logs, sessions] = await Promise.all([
-      run('hermes', ['-p', profile, 'logs', 'agent', '-n', '80', '--since', ACTIVITY_WINDOW], { benign: LOG_MISSING }).then((output) => ({ ok: true as const, output }), (error: unknown) => (error instanceof CommandError && LOG_MISSING.test(error.stdout) ? { ok: true as const, output: '' } : { ok: false as const, output: '' })),
-      run('hermes', ['-p', profile, 'sessions', 'list', '--limit', '3']).then((output) => output, () => undefined),
+      skipLogs
+        ? Promise.resolve({ ok: true as const, output: '' })
+        : run('hermes', ['-p', profile, 'logs', 'agent', '-n', '80', '--since', ACTIVITY_WINDOW], { benign: LOG_MISSING }).then((output) => ({ ok: true as const, output }), (error: unknown) => (error instanceof CommandError && LOG_MISSING.test(error.stdout) ? { ok: true as const, output: '' } : { ok: false as const, output: '' })),
+      skipSessions
+        ? Promise.resolve(undefined)
+        : run('hermes', ['-p', profile, 'sessions', 'list', '--limit', '3']).then((output) => output, () => undefined),
     ])
+
     if (!logs.ok && sessions === undefined) return { profile, availability: 'unavailable', active: false, mentionsOpenCode: false }
-    return { profile, availability: 'available', ...parseRecentActivity(logs.output, sessions) }
+    const gated = skipLogs ? 'logs' : skipSessions ? 'sessions' : undefined
+    return { profile, availability: 'available', ...parseRecentActivity(logs.output, sessions), ...(gated ? { gated } : {}) }
   })
-  return { agents, fetchedAt: new Date().toISOString() }
+  return { agents, fetchedAt: new Date(now).toISOString() }
 }
 
 // ---------------------------------------------------------------------------
@@ -935,12 +1035,22 @@ export function buildOfficeSnapshot(runtime: RuntimeSnapshot, board: TaskBoardSn
         : ['Working', 'Collaborating'].includes(state) && live.probe?.label ? live.probe.label
           : state === 'Idle' ? stopped ? 'On a break · gateway stopped' : 'On a break'
               : ''
-    const recentActivity = live.probe
-      ? live.probe.active ? `${live.probe.label ?? 'Active'}${live.probe.lastSeen ? ` (last log ${live.probe.lastSeen})` : ''}` : `No activity in the last ${ACTIVITY_WINDOW}`
+    const probe = live.probe
+    const recentActivity = probe
+      ? probe.active ? `${probe.label ?? 'Active'}${probe.lastSeen ? ` (last log ${probe.lastSeen})` : ''}` : `No activity in the last ${ACTIVITY_WINDOW}`
       : activity.sessions.availability === 'unavailable' ? 'Not Available' : collaboration === 'Collaborating' ? 'Attributed active collaboration session' : 'No attributed recent activity'
     const runtimeProvenance = agent.profile ? `Gateway ${gateway ?? 'Unknown'} (hermes profile list)` : 'OpenCode version availability is not a state signal'
     const managedIdle = state === 'Idle' ? '; Ruang managed-idle placement policy (not agent-reported presence)' : ''
-    const liveProvenance = options.agentActivity ? `; live activity (${agent.profile ? `hermes -p ${agent.profile} logs/sessions` : 'agent logs mentioning OpenCode'}, last ${ACTIVITY_WINDOW}): ${!agentActivity || !live.known ? 'unavailable' : live.state !== 'Unknown' ? live.probe?.kind ?? 'active' : 'none'}` : ''
+    const liveMethod = !agent.profile
+      ? 'agent logs mentioning OpenCode'
+      : probe?.gated === true
+        ? `hermes -p ${agent.profile} (skipped: no writes in 5m)`
+        : probe?.gated === 'logs'
+          ? `hermes -p ${agent.profile} sessions (logs skipped: no writes in 5m)`
+          : probe?.gated === 'sessions'
+            ? `hermes -p ${agent.profile} logs (sessions skipped: no writes in 5m)`
+            : `hermes -p ${agent.profile} logs/sessions`
+    const liveProvenance = options.agentActivity ? `; live activity (${liveMethod}, last ${ACTIVITY_WINDOW}): ${!agentActivity || !live.known ? 'unavailable' : live.state !== 'Unknown' ? probe?.kind ?? 'active' : 'none'}` : ''
     return {
       id: agent.id,
       name: agent.id,
