@@ -15,6 +15,7 @@ import {
   addStorey,
   addStructureItem,
   canDelete,
+  DEFAULT_STAIRWELL_CUTOUT,
   deleteItem,
   dragPreviewItem,
   dragTarget,
@@ -437,6 +438,17 @@ describe('duplicateItem', () => {
     })
   })
 
+  it('preserves geometry dimensions when near bounds by using shared clamped delta', () => {
+    const edgeWall: WallItem = { kind: 'wall', id: 'edge-wall', level: 0, from: [8, 0], to: [10, 0], y: 0, height: 2.8 }
+    const res = duplicateItem(EMPTY_PATCH, [edgeWall], edgeWall, bounds)
+    const dup = res.patch.added[0] as WallItem
+    expect(dup).toBeDefined()
+    // Default dx is +0.5, but to[0] is 10 (maxX). dx must clamp to 0 rather than distorting endpoints
+    expect(dup.from).toEqual([8, 0.5])
+    expect(dup.to).toEqual([10, 0.5])
+    expect(dup.to[0] - dup.from[0]).toBe(2)
+  })
+
   it('refuses at the limit', () => {
     const full = { ...EMPTY_PATCH, added: Array.from({ length: MAX_ADDED }, (_, n) => ({ ...lamp, id: `added-${n + 1}` })) }
     const result = duplicateItem(full, [], sofa, bounds)
@@ -520,9 +532,10 @@ describe('structure property setters', () => {
   })
 
   it('setItemView updates view on any item', () => {
-    const next = setItemView(EMPTY_PATCH, wall, 'cutaway')
-    expect(next.overrides['wall-1']).toEqual({ view: 'cutaway' })
-    expect(setItemView(EMPTY_PATCH, wall, undefined)).toBe(EMPTY_PATCH)
+    const next = setItemView(EMPTY_PATCH, wall, 'shell')
+    expect(next.overrides['wall-1']).toEqual({ view: 'shell' })
+    const nextCutaway = setItemView(EMPTY_PATCH, wall, undefined)
+    expect(nextCutaway.overrides['wall-1']).toEqual({ view: 'cutaway' })
   })
 
   it('edits added structure items in place', () => {
@@ -531,6 +544,46 @@ describe('structure property setters', () => {
     const res = setFloorBounds(patchWithFloor, addedFloor, [-1, -1], [6, 6])
     expect(res.added[0]).toMatchObject({ id: 'added-1', min: [-1, -1], max: [6, 6] })
     expect(res.overrides).toEqual({})
+  })
+
+  it('clamps setFloorBounds to minimum dimension, max span, and floor y', () => {
+    const next1 = setFloorBounds(EMPTY_PATCH, floor, [-20, -20], [200, 200], 10)
+    expect(next1.overrides['floor-0']).toEqual({ min: [-20, -20], max: [80, 80], y: 5 })
+
+    const next2 = setFloorBounds(EMPTY_PATCH, floor, [0, 0], [0.1, 0.2])
+    expect(next2.overrides['floor-0']).toEqual({ min: [0, 0], max: [0.5, 0.5] })
+
+    const next3 = setFloorBounds(EMPTY_PATCH, floor, [NaN, Infinity], [10, 12])
+    expect(next3.overrides['floor-0']).toEqual({ min: [0, 0], max: [10, 12] })
+  })
+
+  it('clamps setWallGeometry to valid length, height, and safe numbers', () => {
+    const next1 = setWallGeometry(EMPTY_PATCH, wall, [-150, 0], [150, 0], 25, -50)
+    expect(next1.overrides['wall-1']).toEqual({ from: [-150, 0], to: [-50, 0], height: 10, y: -50 })
+
+    const next2 = setWallGeometry(EMPTY_PATCH, wall, [0, 0], [0, 0], 2.8)
+    const override2 = next2.overrides['wall-1'] as Partial<WallItem>
+    const len = Math.hypot(override2.to![0] - override2.from![0], override2.to![1] - override2.from![1])
+    expect(len).toBeCloseTo(0.25)
+
+    const next3 = setWallGeometry(EMPTY_PATCH, wall, [NaN, 0], [10, NaN], NaN)
+    expect(next3.overrides['wall-1']).toEqual({ from: [0, 0], to: [10, 0], height: 0.1 })
+  })
+
+  it('clamps setGlassGeometry within limits and enforces minimum top-bottom gap', () => {
+    const next1 = setGlassGeometry(EMPTY_PATCH, glass, [-200, 0], [200, 0], 0, 2)
+    expect(next1.overrides['glass-1']).toEqual({ from: [-200, 0], to: [-100, 0], bottom: 0, top: 2 })
+
+    const next2 = setGlassGeometry(EMPTY_PATCH, glass, [-5, 0], [5, 0], 2.0, 2.0)
+    expect(next2.overrides['glass-1']).toEqual({ from: [-5, 0], to: [5, 0], bottom: 2.0, top: 2.1 })
+  })
+
+  it('clamps setBoxProps dimensions, radius, roughness, and handles non-finite size', () => {
+    const next1 = setBoxProps(EMPTY_PATCH, box, [0.01, 200, -5], '#123456', { radius: 2, roughness: 3 })
+    expect(next1.overrides['game-roof']).toMatchObject({ size: [0.05, 50, 0.05], color: '#123456', radius: 0.5, roughness: 1 })
+
+    const next2 = setBoxProps(EMPTY_PATCH, box, [NaN, Infinity, 2], '#123456')
+    expect(next2.overrides['game-roof']).toMatchObject({ size: [0.05, 0.05, 2] })
   })
 })
 
@@ -585,7 +638,7 @@ describe('generateStoreyShell', () => {
     expect(shellIds).toContain('wall-s-shell')
   })
 
-  it('updates existing shell wall height if it is not WALL_HEIGHT', () => {
+  it('preserves existing shell walls without modifying their height or y', () => {
     const shortShell: WallItem = {
       kind: 'wall',
       id: 'wall-n-shell',
@@ -597,7 +650,8 @@ describe('generateStoreyShell', () => {
       view: 'shell',
     }
     const res = generateStoreyShell(EMPTY_PATCH, [wallN, shortShell], 0, bounds)
-    expect(res.overrides['wall-n-shell']).toEqual({ height: WALL_HEIGHT, y: 0 })
+    expect(res.overrides['wall-n-shell']).toBeUndefined()
+    expect(res.added.filter((item) => item.id === 'wall-n-shell')).toHaveLength(0)
   })
 
   it('skips walls deleted in patch overrides', () => {
@@ -694,6 +748,36 @@ describe('addStorey', () => {
     expect(id).toBeNull()
     expect(level).toBe(2.8)
     expect(nextPatch.added).toHaveLength(MAX_ADDED)
+  })
+
+  it('splits floor slab around stairwell cutout when stairwellCutout is true', () => {
+    const { patch: nextPatch, level: newLevel, id } = addStorey(EMPTY_PATCH, groundItems, bounds, { stairwellCutout: true })
+    expect(newLevel).toBe(2.8)
+    expect(id).toMatch(/^added-\d+$/)
+
+    const floorSlabs = nextPatch.added.filter((item): item is FloorItem => item.kind === 'floor' && item.level === 2.8)
+    expect(floorSlabs).toHaveLength(4)
+
+    const hole = DEFAULT_STAIRWELL_CUTOUT
+    for (const slab of floorSlabs) {
+      expect(slab.min[0]).toBeGreaterThanOrEqual(bounds.minX)
+      expect(slab.max[0]).toBeLessThanOrEqual(bounds.maxX)
+      expect(slab.min[1]).toBeGreaterThanOrEqual(bounds.minZ)
+      expect(slab.max[1]).toBeLessThanOrEqual(bounds.maxZ)
+      const overlapsHole = slab.min[0] < hole.maxX && slab.max[0] > hole.minX && slab.min[1] < hole.maxZ && slab.max[1] > hole.minZ
+      expect(overlapsHole).toBe(false)
+    }
+  })
+
+  it('splits floor slab around custom stairwell cutout bounds', () => {
+    const customHole = { minX: 0, maxX: 2, minZ: 0, maxZ: 2 }
+    const { patch: nextPatch } = addStorey(EMPTY_PATCH, groundItems, bounds, { stairwellCutout: customHole })
+    const floorSlabs = nextPatch.added.filter((item): item is FloorItem => item.kind === 'floor' && item.level === 2.8)
+    expect(floorSlabs).toHaveLength(4)
+    for (const slab of floorSlabs) {
+      const overlapsHole = slab.min[0] < customHole.maxX && slab.max[0] > customHole.minX && slab.min[1] < customHole.maxZ && slab.max[1] > customHole.minZ
+      expect(overlapsHole).toBe(false)
+    }
   })
 })
 
