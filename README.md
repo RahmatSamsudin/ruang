@@ -157,6 +157,23 @@ The 3D office is rendered from a scene document: the built-in office (generated 
 | `PUT /api/scene` | Replace the patch (`application/json`, max 256 KiB, same-origin only, strictly validated). |
 | `DELETE /api/scene` | Reset to the stock office. |
 
+### 3D Models & Asset I/O
+
+Ruang supports importing custom 3D models (`.glb` and `.gltf` formats) into the office, placing them into the 3D scene, and exporting/importing full scene bundles:
+
+| Route | Purpose |
+|---|---|
+| `GET /api/models` | List all uploaded 3D models with metadata (`id`, `name`, `format`, `size`, `createdAt`). |
+| `POST /api/models?name=<filename>` | Upload a binary GLB (`model/gltf-binary`) or glTF JSON (`model/gltf+json`), up to 15 MB (cap: 50 models). |
+| `GET /api/models/:id` | Get metadata for a single model. |
+| `GET /api/models/:id/file` | Download the raw model asset file. |
+| `DELETE /api/models/:id` | Delete a model (returns 409 Conflict with referencing item IDs if currently placed in the scene). |
+
+- **Model Library:** Click **📦 Models** in the editor toolbar to open the Model Library manager to search, download, upload, or delete custom assets.
+- **Placing Models:** Imported models appear under the **Imported** category in the *Objects* palette and can be placed on any floor and scaled.
+- **Scene GLB Export:** Click **⬇ Export GLB** in the editor toolbar to export the full 3D office scene as a binary `.glb` file.
+- **Ruang Bundle (.ruang-bundle):** Click **⬇ Export Bundle** or **⬆ Import Bundle** to exchange complete scene configurations and placed custom models (up to 40 MiB / 20 models).
+
 `overrides` merge fields into a built-in item by id (`null` deletes it; the crew's `desk-N` and `bed-N` can be moved but not deleted). The patch can be edited in the app (see *Editing the office*) or by hand. Agent routes (idle stops, walking paths) do not follow moved furniture other than desks and beds.
 
 Notes for editing the patch by hand:
