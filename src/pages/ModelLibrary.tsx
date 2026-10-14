@@ -1,38 +1,57 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { formatModelSize } from '../models-api.ts'
 import type { ModelRecord } from '../scene3d/models.ts'
+import type { SceneItem } from '../scene3d/scene.ts'
 import { Dialog } from '../ui.tsx'
 
 export interface ModelLibraryProps {
   onClose: () => void
   initialModels?: ModelRecord[]
   onModelsChange?: (models: ModelRecord[]) => void
+  items?: SceneItem[]
 }
 
-export function ModelLibrary({ onClose, initialModels, onModelsChange }: ModelLibraryProps) {
+export function ModelLibrary({ onClose, initialModels, onModelsChange, items }: ModelLibraryProps) {
   const [models, setModels] = useState<ModelRecord[]>(initialModels ?? [])
   const [query, setQuery] = useState('')
+  const [loading, setLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [fetchError, setFetchError] = useState<string | null>(null)
   const [confirmingId, setConfirmingId] = useState<string | null>(null)
+  const [blockedId, setBlockedId] = useState<string | null>(null)
+  const [blockedMessage, setBlockedMessage] = useState<string | null>(null)
+  const [statusAnnouncement, setStatusAnnouncement] = useState<string>('')
 
-  useEffect(() => {
-    if (initialModels) return
-    let active = true
+  const loadModels = useCallback(() => {
+    setLoading(true)
+    setFetchError(null)
     fetch('/api/models')
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
       .then((data: { models: ModelRecord[] }) => {
-        if (active && Array.isArray(data.models)) {
+        if (Array.isArray(data.models)) {
           setModels(data.models)
           onModelsChange?.(data.models)
         }
       })
       .catch((err) => {
-        if (active) setError(`Failed to load models: ${err.message}`)
+        setFetchError(`Failed to load models: ${err.message}`)
       })
-    return () => {
-      active = false
-    }
-  }, [initialModels, onModelsChange])
+      .finally(() => {
+        setLoading(false)
+      })
+  }, [onModelsChange])
+
+  useEffect(() => {
+    if (initialModels) return
+    loadModels()
+  }, [initialModels, loadModels])
+
+  const getLiveUsages = (modelId: string) => {
+    if (!items) return []
+    return items.filter((item) => item.kind === 'model' && (item as { modelId?: string }).modelId === modelId)
+  }
 
   const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -69,6 +88,8 @@ export function ModelLibrary({ onClose, initialModels, onModelsChange }: ModelLi
         const updated = [data.model, ...models]
         setModels(updated)
         onModelsChange?.(updated)
+        window.dispatchEvent(new CustomEvent('ruang:models-changed', { detail: updated }))
+        setStatusAnnouncement(`Model ${data.model.name} uploaded`)
       }
     } catch (err: unknown) {
       setError((err as Error).message || 'Upload failed')
@@ -77,29 +98,54 @@ export function ModelLibrary({ onClose, initialModels, onModelsChange }: ModelLi
     }
   }
 
-  const handleDelete = async (id: string) => {
+  const startDelete = (model: ModelRecord) => {
     setError(null)
+    setBlockedId(null)
+    setBlockedMessage(null)
+    const liveUsages = getLiveUsages(model.id)
+    if (liveUsages.length > 0) {
+      const count = liveUsages.length
+      setBlockedId(model.id)
+      setBlockedMessage(`Used by ${count} item(s) in the scene. Remove them first.`)
+      return
+    }
+    setConfirmingId(model.id)
+  }
+
+  const handleDelete = async (id: string, name: string) => {
+    setError(null)
+    setDeletingId(id)
     try {
       const response = await fetch(`/api/models/${encodeURIComponent(id)}`, {
         method: 'DELETE',
       })
       if (response.status === 409) {
         const data = await response.json().catch(() => ({}))
-        const usedBy = Array.isArray(data.usedBy) && data.usedBy.length > 0 ? ` (used by: ${data.usedBy.join(', ')})` : ''
+        const usedByList = Array.isArray(data.usedBy) ? data.usedBy : []
+        const count = usedByList.length || 1
+        const usedBy = usedByList.length > 0 ? ` (used by: ${usedByList.join(', ')})` : ''
         setError(`Cannot delete: Model is currently in use${usedBy}`)
+        setBlockedId(id)
+        setBlockedMessage(`Used by ${count} item(s) in the scene. Remove them first.`)
         setConfirmingId(null)
         return
       }
-      if (!response.ok && response.status !== 204) {
-        throw new Error(`Delete failed: ${response.status}`)
+      if (response.status === 404 || response.status === 204 || response.ok) {
+        const updated = models.filter((m) => m.id !== id)
+        setModels(updated)
+        onModelsChange?.(updated)
+        window.dispatchEvent(new CustomEvent('ruang:models-changed', { detail: updated }))
+        setConfirmingId(null)
+        setStatusAnnouncement(`Model ${name} deleted`)
+        return
       }
-      const updated = models.filter((m) => m.id !== id)
-      setModels(updated)
-      onModelsChange?.(updated)
-      setConfirmingId(null)
+      const err = await response.json().catch(() => ({}))
+      throw new Error(err.error || `Delete failed: ${response.status}`)
     } catch (err: unknown) {
       setError((err as Error).message || 'Delete failed')
       setConfirmingId(null)
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -108,14 +154,13 @@ export function ModelLibrary({ onClose, initialModels, onModelsChange }: ModelLi
     return q === '' ? models : models.filter((m) => m.name.toLowerCase().includes(q))
   }, [models, query])
 
-  const formatSize = (bytes: number) => {
-    if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-    return `${(bytes / 1024).toFixed(1)} KB`
-  }
-
   return (
     <Dialog labelledBy="model-library-title" onClose={onClose} closeLabel="Close model library" className="wide">
       <div className="model-library">
+        <div className="sr-only" aria-live="polite" role="status">
+          {statusAnnouncement}
+        </div>
+
         <header className="model-library-header">
           <h2 id="model-library-title">Model Library</h2>
           <span className="model-library-count">{models.length} / 50 models</span>
@@ -141,6 +186,15 @@ export function ModelLibrary({ onClose, initialModels, onModelsChange }: ModelLi
           </label>
         </div>
 
+        {fetchError && (
+          <div className="model-library-fetch-error" role="alert">
+            <span>{fetchError}</span>
+            <button type="button" className="model-library-retry" onClick={loadModels}>
+              Retry
+            </button>
+          </div>
+        )}
+
         {error && (
           <div className="model-library-error" role="alert">
             {error}
@@ -148,7 +202,9 @@ export function ModelLibrary({ onClose, initialModels, onModelsChange }: ModelLi
         )}
 
         <div className="model-library-grid">
-          {filtered.length === 0 ? (
+          {loading ? (
+            <p className="model-library-loading" role="status">Loading models...</p>
+          ) : filtered.length === 0 ? (
             <p className="model-library-empty">No models found.</p>
           ) : (
             filtered.map((model) => (
@@ -159,7 +215,7 @@ export function ModelLibrary({ onClose, initialModels, onModelsChange }: ModelLi
                   </div>
                   <div className="model-card-meta">
                     <span className="model-card-format">{model.format.toUpperCase()}</span>
-                    <span className="model-card-size">{formatSize(model.size)}</span>
+                    <span className="model-card-size">{formatModelSize(model.size)}</span>
                     <span className="model-card-date">
                       {new Date(model.createdAt).toLocaleDateString()}
                     </span>
@@ -175,27 +231,44 @@ export function ModelLibrary({ onClose, initialModels, onModelsChange }: ModelLi
                     Download
                   </a>
                   {confirmingId === model.id ? (
-                    <>
+                    <div className="model-card-confirm">
+                      <span className="confirm-prompt">Delete {model.name}? Cannot be undone.</span>
                       <button
                         type="button"
                         className="danger confirm-delete"
-                        onClick={() => handleDelete(model.id)}
+                        disabled={deletingId === model.id}
+                        onClick={() => handleDelete(model.id, model.name)}
                       >
-                        Confirm
+                        {deletingId === model.id ? 'Deleting...' : 'Delete'}
                       </button>
                       <button
                         type="button"
                         className="cancel-delete"
+                        disabled={deletingId === model.id}
                         onClick={() => setConfirmingId(null)}
                       >
                         Cancel
                       </button>
-                    </>
+                    </div>
+                  ) : blockedId === model.id ? (
+                    <div className="model-card-blocked" role="alert">
+                      <span>{blockedMessage}</span>
+                      <button
+                        type="button"
+                        className="cancel-delete"
+                        onClick={() => {
+                          setBlockedId(null)
+                          setBlockedMessage(null)
+                        }}
+                      >
+                        Dismiss
+                      </button>
+                    </div>
                   ) : (
                     <button
                       type="button"
                       className="danger delete-btn"
-                      onClick={() => setConfirmingId(model.id)}
+                      onClick={() => startDelete(model)}
                     >
                       Delete
                     </button>

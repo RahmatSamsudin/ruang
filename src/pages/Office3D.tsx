@@ -14,6 +14,7 @@ import { useSceneEditor } from '../scene3d/use-scene-editor.ts'
 import { useScenePatch } from '../scene3d/use-scene.ts'
 import { createSkinBoxGeometry, useSkinTexture, useSkins } from '../scene3d/skin.ts'
 import type { OfficeStation } from '../types.ts'
+import type { ModelRecord } from '../scene3d/models.ts'
 import { EditorBar } from './EditorBar.tsx'
 import { ModelLibrary } from './ModelLibrary.tsx'
 import { ObjectPanel } from './ObjectPanel.tsx'
@@ -429,8 +430,22 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
   const [hovering, setHovering] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [manageModels, setManageModels] = useState(false)
+  const [models, setModels] = useState<ModelRecord[]>([])
   const [exporting, setExporting] = useState(false)
   const sceneRef = useRef<THREE.Scene | null>(null)
+
+  useEffect(() => {
+    let active = true
+    fetch('/api/models')
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
+      .then((data: { models: ModelRecord[] }) => {
+        if (active && Array.isArray(data.models)) setModels(data.models)
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+    }
+  }, [])
 
   const handleExportGlb = async () => {
     if (!sceneRef.current) return
@@ -578,8 +593,21 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
       <button type="button" onClick={() => view.current?.reset()} title="Back to the starting view">↺ Reset view</button>
     </div>
     {editor.editing && <EditorBar canUndo={editor.canUndo} canRedo={editor.canRedo} dirty={editor.dirty} saving={editor.saving || exporting} error={editor.error} viewMode={viewMode} onViewModeChange={setViewMode} onAddStorey={() => editor.apply((patchNow) => addStorey(patchNow, items).patch)} onExportGlb={handleExportGlb} onExportBundle={handleExportBundle} onImportBundle={handleImportBundle} onManageModels={() => setManageModels(true)} onUndo={editor.undo} onRedo={editor.redo} onSave={() => void editor.save()} onReset={resetEdits} onDone={finishEditing}/>}
-    {editor.editing && <PropPalette placing={placing} limitReached={limitReached} onPick={(type) => (type ? editor.startPlacing(type) : editor.stopPlacing())}/>}
+    {editor.editing && <PropPalette placing={placing} limitReached={limitReached} models={models} onModelsChange={setModels} onManageModels={() => setManageModels(true)} onPick={(type) => (type ? editor.startPlacing(type) : editor.stopPlacing())}/>}
     {editor.editing && selected && <ObjectPanel item={selected} levels={levels} canDuplicate={!limitReached} onDuplicate={() => editor.addWith((patchNow) => duplicateItem(patchNow, items, selected, bounds))} onProp={(key, value) => editor.apply((patchNow) => setItemProp(patchNow, selected, key, value))} onMove={(x, z) => editor.apply((patchNow) => moveItem(patchNow, selected, x, z, bounds))} onRotate={(degrees) => editor.apply((patchNow) => rotateItem(patchNow, selected, (degrees * Math.PI) / 180))} onScale={(scale) => editor.apply((patchNow) => setItemScale(patchNow, selected, scale))} onLevel={(next) => { editor.apply((patchNow) => setItemLevel(patchNow, selected, next)); setLevelIndex(Math.max(0, levels.indexOf(next))) }} onDelete={() => { editor.apply((patchNow) => deleteItem(patchNow, selected)); editor.select(null); keyTarget?.focus() }} onView={(v) => editor.apply((patchNow) => setItemView(patchNow, selected, v))} onFloorBounds={(min, max, y) => editor.apply((patchNow) => setFloorBounds(patchNow, selected, min, max, y))} onFloorSurface={(surface, roughness) => editor.apply((patchNow) => setFloorSurface(patchNow, selected, surface, roughness))} onWallGeometry={(from, to, height, y) => editor.apply((patchNow) => setWallGeometry(patchNow, selected, from, to, height, y))} onGlassGeometry={(from, to, bottom, top) => editor.apply((patchNow) => setGlassGeometry(patchNow, selected, from, to, bottom, top))} onBoxProps={(size, color, options) => editor.apply((patchNow) => setBoxProps(patchNow, selected, size, color, options))}/>}
-    {manageModels && <ModelLibrary onClose={() => setManageModels(false)} onModelsChange={() => refreshScene()}/>}
+    {manageModels && (
+      <ModelLibrary
+        items={items}
+        initialModels={models}
+        onClose={() => setManageModels(false)}
+        onModelsChange={(updated) => {
+          setModels(updated)
+          if (typeof placing === 'string' && placing.startsWith('model:') && !updated.some((m) => `model:${m.id}` === placing)) {
+            editor.stopPlacing()
+          }
+          refreshScene()
+        }}
+      />
+    )}
   </div>
 }

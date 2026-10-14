@@ -22,6 +22,8 @@ async function mount(props: Partial<PropPaletteProps> = {}) {
         onPick={onPick}
         models={props.models}
         onUpload={props.onUpload}
+        onManageModels={props.onManageModels}
+        onModelsChange={props.onModelsChange}
       />,
     )
   })
@@ -219,5 +221,39 @@ describe('PropPalette', () => {
 
     const status = host.querySelector('.office-3d-palette-status')
     expect(status?.getAttribute('aria-live')).toBe('polite')
+  })
+
+  it('renders manage models button and invokes onManageModels', async () => {
+    const onManageModels = vi.fn()
+    const { host } = await mount({ models: [], onManageModels })
+    const manageBtn = host.querySelector('.office-3d-palette-manage-btn') as HTMLButtonElement
+    expect(manageBtn).not.toBeNull()
+    expect(manageBtn.textContent).toBe('Manage')
+
+    await act(async () => {
+      manageBtn.click()
+    })
+    expect(onManageModels).toHaveBeenCalledTimes(1)
+  })
+
+  it('updates model items when ruang:models-changed event fires', async () => {
+    const testModels: ModelRecord[] = [
+      { id: 'm-1234567890ab', name: 'Custom Lamp', format: 'glb', size: 2048, createdAt: '2026-10-14T00:00:00Z' },
+      { id: 'm-234567890abc', name: 'Plant Pot', format: 'glb', size: 4096, createdAt: '2026-10-14T00:00:00Z' },
+    ]
+    const { host } = await mount({ models: testModels })
+    expect(host.textContent).toContain('Custom Lamp')
+    expect(host.textContent).toContain('Plant Pot')
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent('ruang:models-changed', {
+          detail: [testModels[0]],
+        }),
+      )
+    })
+
+    expect(host.textContent).toContain('Custom Lamp')
+    expect(host.textContent).not.toContain('Plant Pot')
   })
 })

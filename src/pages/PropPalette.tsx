@@ -27,21 +27,28 @@ export interface PropPaletteProps {
   models?: ModelRecord[]
   /** Optional upload handler callback (e.g. for testing). */
   onUpload?: (file: File) => Promise<ModelRecord>
+  /** Optional callback when model library opens or manages models. */
+  onManageModels?: () => void
+  /** Optional callback when models list is updated. */
+  onModelsChange?: (models: ModelRecord[]) => void
 }
 
 /** The list of objects that can be placed, grouped, searchable and collapsible. Starts collapsed on narrow-ish screens so it does not crowd the view. */
-export function PropPalette({ placing, limitReached, onPick, models: propModels, onUpload }: PropPaletteProps) {
+export function PropPalette({ placing, limitReached, onPick, models: propModels, onUpload, onManageModels, onModelsChange }: PropPaletteProps) {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(() => typeof window === 'undefined' || window.innerWidth >= 1000)
-  const [internalModels, setInternalModels] = useState<ModelRecord[]>([])
-  const models = propModels ?? internalModels
+  const [internalModels, setInternalModels] = useState<ModelRecord[]>(propModels ?? [])
+  const models = internalModels
   const [uploading, setUploading] = useState(false)
   const [uploadingName, setUploadingName] = useState<string | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null)
 
   useEffect(() => {
-    if (propModels) return
+    if (propModels) {
+      setInternalModels(propModels)
+      return
+    }
     let active = true
     fetch('/api/models')
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
@@ -53,6 +60,26 @@ export function PropPalette({ placing, limitReached, onPick, models: propModels,
       active = false
     }
   }, [propModels])
+
+  useEffect(() => {
+    const handleModelsChanged = (e: Event) => {
+      const custom = e as CustomEvent<ModelRecord[]>
+      if (Array.isArray(custom.detail)) {
+        setInternalModels(custom.detail)
+      } else {
+        fetch('/api/models')
+          .then((res) => (res.ok ? res.json() : Promise.reject()))
+          .then((data: { models: ModelRecord[] }) => {
+            if (Array.isArray(data.models)) setInternalModels(data.models)
+          })
+          .catch(() => {})
+      }
+    }
+    window.addEventListener('ruang:models-changed', handleModelsChanged)
+    return () => {
+      window.removeEventListener('ruang:models-changed', handleModelsChanged)
+    }
+  }, [])
 
   const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -100,14 +127,25 @@ export function PropPalette({ placing, limitReached, onPick, models: propModels,
               const listData = await listRes.json()
               if (Array.isArray(listData.models)) {
                 setInternalModels(listData.models)
+                onModelsChange?.(listData.models)
+                window.dispatchEvent(new CustomEvent('ruang:models-changed', { detail: listData.models }))
               } else {
-                setInternalModels((prev) => [data.model, ...prev.filter((m) => m.id !== data.model.id)])
+                const next = [data.model, ...models.filter((m) => m.id !== data.model.id)]
+                setInternalModels(next)
+                onModelsChange?.(next)
+                window.dispatchEvent(new CustomEvent('ruang:models-changed', { detail: next }))
               }
             } else {
-              setInternalModels((prev) => [data.model, ...prev.filter((m) => m.id !== data.model.id)])
+              const next = [data.model, ...models.filter((m) => m.id !== data.model.id)]
+              setInternalModels(next)
+              onModelsChange?.(next)
+              window.dispatchEvent(new CustomEvent('ruang:models-changed', { detail: next }))
             }
           } catch {
-            setInternalModels((prev) => [data.model, ...prev.filter((m) => m.id !== data.model.id)])
+            const next = [data.model, ...models.filter((m) => m.id !== data.model.id)]
+            setInternalModels(next)
+            onModelsChange?.(next)
+            window.dispatchEvent(new CustomEvent('ruang:models-changed', { detail: next }))
           }
           setUploadSuccess(`Imported ${data.model.name}`)
           onPick(`model:${data.model.id}`)
@@ -166,7 +204,19 @@ export function PropPalette({ placing, limitReached, onPick, models: propModels,
           {types.map((type) => <button type="button" key={type} aria-pressed={placing === type} disabled={limitReached && placing !== type} title={PROP_CATALOG[type].note ?? ''} onClick={() => onPick(placing === type ? null : type)}>{PROP_CATALOG[type].label}</button>)}
         </section>)}
         {showImported && <section key="Imported" className="office-3d-palette-imported">
-          <h4>Imported</h4>
+          <div className="office-3d-palette-imported-header">
+            <h4>Imported</h4>
+            {onManageModels && (
+              <button
+                type="button"
+                className="office-3d-palette-manage-btn"
+                onClick={onManageModels}
+                title="Manage imported models"
+              >
+                Manage
+              </button>
+            )}
+          </div>
           <div className="office-3d-palette-upload">
             <label
               htmlFor="office-3d-model-input"

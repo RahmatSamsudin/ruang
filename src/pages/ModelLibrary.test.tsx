@@ -3,6 +3,7 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ModelRecord } from '../scene3d/models.ts'
+import type { SceneItem } from '../scene3d/scene.ts'
 import { ModelLibrary } from './ModelLibrary.tsx'
 
 const testEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -140,5 +141,109 @@ describe('ModelLibrary', () => {
 
     expect(onModelsChange).toHaveBeenCalledWith([newModel, ...sampleModels])
     expect(host.textContent).toContain('lamp.glb')
+  })
+
+  it('blocks delete client-side when model is used by an unsaved live placed item', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+    const items: SceneItem[] = [
+      {
+        id: 'live-item-1',
+        kind: 'model',
+        modelId: 'm-111111111111',
+        x: 0,
+        z: 0,
+      } as unknown as SceneItem,
+    ]
+
+    const host = document.body.appendChild(document.createElement('div'))
+    await act(async () => {
+      createRoot(host).render(<ModelLibrary onClose={vi.fn()} initialModels={sampleModels} items={items} />)
+    })
+
+    const deleteBtn = host.querySelector('.delete-btn') as HTMLButtonElement
+    await act(async () => {
+      deleteBtn.click()
+    })
+
+    // Fetch should not be called, confirm prompt should not appear
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(host.querySelector('.confirm-delete')).toBeNull()
+    expect(host.textContent).toContain('Used by 1 item(s) in the scene. Remove them first.')
+  })
+
+  it('cancels delete confirmation when Cancel button is clicked', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+    const host = document.body.appendChild(document.createElement('div'))
+    await act(async () => {
+      createRoot(host).render(<ModelLibrary onClose={vi.fn()} initialModels={sampleModels} />)
+    })
+
+    const deleteBtn = host.querySelector('.delete-btn') as HTMLButtonElement
+    await act(async () => {
+      deleteBtn.click()
+    })
+
+    const cancelBtn = host.querySelector('.cancel-delete') as HTMLButtonElement
+    expect(cancelBtn).not.toBeNull()
+    await act(async () => {
+      cancelBtn.click()
+    })
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(host.querySelector('.confirm-delete')).toBeNull()
+    expect(host.querySelector('.delete-btn')).not.toBeNull()
+  })
+
+  it('treats 404 response on DELETE as already gone and removes row', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({ error: 'Not found' }),
+    } as Response)
+
+    const onModelsChange = vi.fn()
+    const host = document.body.appendChild(document.createElement('div'))
+    await act(async () => {
+      createRoot(host).render(<ModelLibrary onClose={vi.fn()} initialModels={sampleModels} onModelsChange={onModelsChange} />)
+    })
+
+    const deleteBtn = host.querySelector('.delete-btn') as HTMLButtonElement
+    await act(async () => {
+      deleteBtn.click()
+    })
+
+    const confirmBtn = host.querySelector('.confirm-delete') as HTMLButtonElement
+    await act(async () => {
+      confirmBtn.click()
+    })
+
+    expect(onModelsChange).toHaveBeenCalledWith([sampleModels[1]])
+  })
+
+  it('displays fetch error and retries when initialModels is not provided', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockRejectedValueOnce(new Error('Network error'))
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ models: sampleModels }),
+      } as Response)
+
+    const host = document.body.appendChild(document.createElement('div'))
+    await act(async () => {
+      createRoot(host).render(<ModelLibrary onClose={vi.fn()} />)
+    })
+
+    expect(host.textContent).toContain('Failed to load models: Network error')
+    const retryBtn = host.querySelector('.model-library-retry') as HTMLButtonElement
+    expect(retryBtn).not.toBeNull()
+
+    await act(async () => {
+      retryBtn.click()
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(host.textContent).toContain('Meeting Chair')
   })
 })
