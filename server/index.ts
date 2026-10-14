@@ -9,6 +9,7 @@ import { installProfileLock, isHidden, type Privacy } from './profile-lock.js'
 import { installSkinGenerate } from './skin-generate.js'
 import { installSkinLibrary, SkinLibraryStore } from './skin-library.js'
 import { installScene } from './scene.js'
+import { installModels, ModelStore } from './models.js'
 import { installSkins } from './skins.js'
 import { API_VERSION } from './api-version.js'
 import { collectMemory } from './memory.js'
@@ -119,6 +120,8 @@ installSkinGenerate(app, { privacyOf, libraryStore: skinLibStore })
 installSkins(app, privacyOf, undefined, skinLibStore)
 installSkinLibrary(app, privacyOf, skinLibStore)
 installScene(app)
+const modelStore = new ModelStore()
+installModels(app, modelStore)
 void skinLibStore.seed().catch((err) => {
   console.error('Skin library seed failed:', err)
 })
