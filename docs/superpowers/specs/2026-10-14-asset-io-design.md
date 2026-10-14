@@ -1,6 +1,6 @@
 # Workplace editor, sub-project 3: 3D asset import, library, and export
 
-Date: 2026-10-14. Status: draft, awaiting review.
+Date: 2026-10-14. Status: implemented; security reviews returned changes (see README *Known gaps*).
 
 ## Context
 
