@@ -2,18 +2,31 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { ModelRecord } from '../scene3d/models.ts'
 import { PROP_TYPES } from '../scene3d/scene.ts'
-import { PropPalette } from './PropPalette.tsx'
+import { PropPalette, type PropPaletteProps } from './PropPalette.tsx'
 
 const testEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 testEnvironment.IS_REACT_ACT_ENVIRONMENT = true
 
 afterEach(() => { document.body.replaceChildren() })
 
-async function mount(props: { placing?: Parameters<typeof PropPalette>[0]['placing']; limitReached?: boolean } = {}) {
-  const onPick = vi.fn()
+async function mount(props: Partial<PropPaletteProps> = {}) {
+  const onPick = props.onPick ?? vi.fn()
   const host = document.body.appendChild(document.createElement('div'))
-  await act(async () => { createRoot(host).render(<PropPalette placing={props.placing ?? null} limitReached={props.limitReached ?? false} onPick={onPick}/>) })
+  await act(async () => {
+    createRoot(host).render(
+      <PropPalette
+        placing={props.placing ?? null}
+        limitReached={props.limitReached ?? false}
+        onPick={onPick}
+        models={props.models}
+        onUpload={props.onUpload}
+        onManageModels={props.onManageModels}
+        onModelsChange={props.onModelsChange}
+      />,
+    )
+  })
   const buttons = () => [...host.querySelectorAll('.office-3d-palette-list button')] as HTMLButtonElement[]
   const button = (label: string) => buttons().find((node) => node.textContent === label)!
   return { host, onPick, buttons, button }
@@ -23,7 +36,7 @@ describe('PropPalette', () => {
   it('lists every object type once, in groups', async () => {
     const { host, buttons } = await mount()
     expect(buttons()).toHaveLength(PROP_TYPES.length)
-    expect([...host.querySelectorAll('h4')].map((node) => node.textContent)).toEqual(['Furniture', 'Kitchen', 'Leisure', 'Bedroom', 'Outdoor', 'Structure'])
+    expect([...host.querySelectorAll('h4')].map((node) => node.textContent)).toEqual(['Furniture', 'Kitchen', 'Leisure', 'Bedroom', 'Outdoor', 'Structure', 'Imported'])
   })
 
   it('picks a type, and clicking the active one leaves placing', async () => {
@@ -125,5 +138,143 @@ describe('PropPalette', () => {
     expect(structureButtons[1].disabled).toBe(true)
     expect(structureButtons[2].disabled).toBe(true)
     expect(structureButtons[3].disabled).toBe(true)
+  })
+
+  it('renders imported models and selects them for placement', async () => {
+    const models: ModelRecord[] = [
+      { id: 'm-1234567890ab', name: 'Custom Lamp', format: 'glb', size: 2048, createdAt: '2026-10-14T00:00:00Z' },
+    ]
+    const { host, onPick } = await mount({ models })
+    const importedBtn = [...host.querySelectorAll('.office-3d-palette-imported button')].find((b) => b.textContent?.includes('Custom Lamp')) as HTMLButtonElement | undefined
+    expect(importedBtn).toBeDefined()
+
+    await act(async () => { importedBtn!.click() })
+    expect(onPick).toHaveBeenCalledWith('model:m-1234567890ab')
+  })
+
+  it('triggers model upload via file input', async () => {
+    const onUpload = vi.fn().mockResolvedValue({
+      id: 'm-newmodel1234',
+      name: 'chair.glb',
+      format: 'glb',
+      size: 4096,
+      createdAt: '2026-10-14T00:00:00Z',
+    })
+    const { host, onPick } = await mount({ onUpload })
+    const fileInput = host.querySelector('.office-3d-palette-imported input[type="file"]') as HTMLInputElement
+    expect(fileInput).toBeDefined()
+
+    const file = new File(['dummy content'], 'chair.glb', { type: 'model/gltf-binary' })
+    await act(async () => {
+      Object.defineProperty(fileInput, 'files', { value: [file], configurable: true })
+      fileInput.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    expect(onUpload).toHaveBeenCalledWith(file)
+    expect(onPick).toHaveBeenCalledWith('model:m-newmodel1234')
+  })
+
+  it('renders empty state text when there are no models', async () => {
+    const { host } = await mount({ models: [] })
+    const emptyText = host.querySelector('.office-3d-palette-empty')
+    expect(emptyText?.textContent).toBe('No imported models yet')
+  })
+
+  it('rejects file larger than 10 MiB with inline error', async () => {
+    const { host } = await mount({ models: [] })
+    const fileInput = host.querySelector('.office-3d-palette-imported input[type="file"]') as HTMLInputElement
+    const bigFile = new File(['x'], 'big.glb', { type: 'model/gltf-binary' })
+    Object.defineProperty(bigFile, 'size', { value: 11 * 1024 * 1024, configurable: true })
+
+    await act(async () => {
+      Object.defineProperty(fileInput, 'files', { value: [bigFile], configurable: true })
+      fileInput.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    const error = host.querySelector('.office-3d-upload-error')
+    expect(error?.textContent).toBe('File exceeds 10 MiB limit.')
+  })
+
+  it('rejects non-glb/gltf file with inline error', async () => {
+    const { host } = await mount({ models: [] })
+    const fileInput = host.querySelector('.office-3d-palette-imported input[type="file"]') as HTMLInputElement
+    const txtFile = new File(['not a glb'], 'notes.txt', { type: 'text/plain' })
+
+    await act(async () => {
+      Object.defineProperty(fileInput, 'files', { value: [txtFile], configurable: true })
+      fileInput.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    const error = host.querySelector('.office-3d-upload-error')
+    expect(error?.textContent).toBe('Only .glb and .gltf files are supported.')
+  })
+
+  it('handles server 429 and 409 errors with inline error without crashing', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      statusText: 'Too Many Requests',
+      json: async () => ({ error: 'Upload rate limit exceeded. Try again later.' }),
+    } as unknown as Response)
+
+    const { host } = await mount({ models: [] })
+    const fileInput = host.querySelector('.office-3d-palette-imported input[type="file"]') as HTMLInputElement
+    const file = new File(['data'], 'test.glb', { type: 'model/gltf-binary' })
+
+    await act(async () => {
+      Object.defineProperty(fileInput, 'files', { value: [file], configurable: true })
+      fileInput.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    const error = host.querySelector('.office-3d-upload-error')
+    expect(error?.textContent).toBe('Upload rate limit exceeded. Try again later.')
+    fetchSpy.mockRestore()
+  })
+
+  it('provides keyboard accessible button and aria-live status', async () => {
+    const { host } = await mount({ models: [] })
+    const btn = host.querySelector('.office-3d-upload-btn')
+    expect(btn?.getAttribute('role')).toBe('button')
+    expect(btn?.getAttribute('tabindex')).toBe('0')
+
+    const fileInput = host.querySelector('#office-3d-model-input')
+    expect(fileInput?.getAttribute('aria-label')).toBe('Upload 3D model (.glb, .gltf)')
+
+    const status = host.querySelector('.office-3d-palette-status')
+    expect(status?.getAttribute('aria-live')).toBe('polite')
+  })
+
+  it('renders manage models button and invokes onManageModels', async () => {
+    const onManageModels = vi.fn()
+    const { host } = await mount({ models: [], onManageModels })
+    const manageBtn = host.querySelector('.office-3d-palette-manage-btn') as HTMLButtonElement
+    expect(manageBtn).not.toBeNull()
+    expect(manageBtn.textContent).toBe('Manage')
+
+    await act(async () => {
+      manageBtn.click()
+    })
+    expect(onManageModels).toHaveBeenCalledTimes(1)
+  })
+
+  it('updates model items when ruang:models-changed event fires', async () => {
+    const testModels: ModelRecord[] = [
+      { id: 'm-1234567890ab', name: 'Custom Lamp', format: 'glb', size: 2048, createdAt: '2026-10-14T00:00:00Z' },
+      { id: 'm-234567890abc', name: 'Plant Pot', format: 'glb', size: 4096, createdAt: '2026-10-14T00:00:00Z' },
+    ]
+    const { host } = await mount({ models: testModels })
+    expect(host.textContent).toContain('Custom Lamp')
+    expect(host.textContent).toContain('Plant Pot')
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent('ruang:models-changed', {
+          detail: [testModels[0]],
+        }),
+      )
+    })
+
+    expect(host.textContent).toContain('Custom Lamp')
+    expect(host.textContent).not.toContain('Plant Pot')
   })
 })

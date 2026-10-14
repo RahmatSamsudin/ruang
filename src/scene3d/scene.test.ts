@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { applyPatch, deskSeatNumber, EMPTY_PATCH, isSeatId, levelAt, levelsOf, seatPositions, visibleAt, type PropItem, type SceneItem, type ScenePatch } from './scene.ts'
+import { applyPatch, deskSeatNumber, EMPTY_PATCH, isModel, isSeatId, itemCenter, levelAt, levelsOf, seatPositions, visibleAt, type ModelItem, type PropItem, type SceneItem, type ScenePatch } from './scene.ts'
 
 const prop = (id: string, level = 0, extra: Partial<PropItem> = {}): PropItem => ({ kind: 'prop', id, level, type: 'Plant', position: [0, level, 0], ...extra })
-const patch = (overrides: ScenePatch['overrides'] = {}, added: SceneItem[] = []): ScenePatch => ({ version: 1, overrides, added })
+const patch = (overrides: ScenePatch['overrides'] = {}, added: SceneItem[] = []): ScenePatch => ({ version: 2, overrides, added })
 const deepFreeze = <T,>(value: T): T => {
   if (typeof value === 'object' && value !== null) { Object.values(value).forEach(deepFreeze); Object.freeze(value) }
   return value
@@ -108,5 +108,14 @@ describe('isSeatId', () => {
     expect(isSeatId('tree-1')).toBe(false)
     expect(isSeatId('desk-x')).toBe(false)
     expect(isSeatId('light-desk-1')).toBe(false)
+  })
+})
+
+describe('model items', () => {
+  it('recognises model items and calculates itemCenter', () => {
+    const m: ModelItem = { kind: 'model', id: 'm-1', level: 0, modelId: 'm-1234567890ab', position: [2, 0, 4], scale: 1.5 }
+    expect(isModel(m)).toBe(true)
+    expect(isModel(prop('p1'))).toBe(false)
+    expect(itemCenter(m)).toEqual([2, 0, 4])
   })
 })

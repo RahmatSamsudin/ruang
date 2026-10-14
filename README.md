@@ -157,6 +157,49 @@ The 3D office is rendered from a scene document: the built-in office (generated 
 | `PUT /api/scene` | Replace the patch (`application/json`, max 256 KiB, same-origin only, strictly validated). |
 | `DELETE /api/scene` | Reset to the stock office. |
 
+### 3D models and asset I/O
+
+Import your own 3D models into the office, manage them in a library, and export the office.
+
+**Importing models.** Use *+ Upload Model* in the *Imported* group of the *Objects* palette, or in the model library opened from **📦 Models** in the editor toolbar.
+
+- Accepted: binary `.glb`, and single-file `.gltf` with embedded data (data URIs). A `.gltf` must be glTF 2.x.
+- Limit: 10 MiB per file by default (`RUANG_MODEL_MAX_BYTES`, see the environment table).
+- Rejected: Draco, KTX2 and meshopt compression, and external buffer or image URIs.
+- Imported models appear in the palette's *Imported* group. The client normalises each model so its largest bounding-box side is 1.5 units times the placement scale.
+- The server keeps at most 100 models.
+
+**Model library.** **📦 Models** lists the library with a search box. Each model has an *Export* link (downloads the original file) and a *Delete* button with an inline confirmation. A model that a scene item uses cannot be deleted; the server answers 409 with the ids of the items that use it.
+
+**Export.** The editor toolbar has these export controls:
+
+- *Export* on a model card: the original `.glb` or `.gltf` file, unchanged.
+- *Export scene (.glb)*: the whole office as one binary `.glb` (`ruang-scene-<yyyymmdd-hhmm>.glb`). Items marked `userData.noExport` are left out.
+- *Export Bundle*: a `ruang-bundle` JSON file (`ruang-bundle-<yyyymmdd-hhmm>.json`) with the scene patch and the models it uses, base64-encoded.
+
+**Import Bundle.** *Import bundle* in the toolbar takes a `.json` bundle. Rules:
+
+- Caps: 40 MiB file, 20 models, 500 items, 10 MiB per decoded model.
+- Each model is uploaded as a new library model with a new server id. Nothing in the library is overwritten, so importing the same bundle twice creates copies.
+- Item ids that collide with existing ids are re-numbered, and placed items are re-pointed to the new model ids.
+- Bundle overrides are ignored on import to protect existing office items (import is append-only).
+- The import is one undoable edit. If an upload fails, the models already uploaded are deleted again.
+
+**Storage.** Models live in `$RUANG_DATA_DIR/models` (default `~/.local/share/ruang/models`). The directory is `0700`, the files and `index.json` are `0600`, and writes are atomic.
+
+**Scene patch version 2.** Model items use patch version 2 (`modelId`). Version 1 patches still load; saving writes version 2.
+
+| Route | Purpose | Status codes |
+|---|---|---|
+| `GET /api/models` | List the library: `{ models: [{ id, name, format, size, createdAt }] }`. | 200 |
+| `POST /api/models?name=<filename>` | Upload one model. Body is the raw file; `Content-Type` must be `model/gltf-binary`, `model/gltf+json` or `application/octet-stream`. | 201; 400 invalid file; 409 library full; 413 too large; 415 wrong content type; 429 rate limit (10 per minute per IP) |
+| `GET /api/models/:id/file` | Download the original file (`attachment`, `nosniff`). | 200; 404 |
+| `DELETE /api/models/:id` | Delete a model. | 204; 404; 409 with `usedBy` when a scene item uses it |
+
+All model routes sit behind the access code. `POST` and `DELETE` also check the same origin, as the skin routes do.
+
+**Non-goals:** Draco, KTX2 and meshopt compression; external URIs; multi-file glTF; editing a model's geometry; sharing models between Ruang installs except through a bundle.
+
 `overrides` merge fields into a built-in item by id (`null` deletes it; the crew's `desk-N` and `bed-N` can be moved but not deleted). The patch can be edited in the app (see *Editing the office*) or by hand. Agent routes (idle stops, walking paths) do not follow moved furniture other than desks and beds.
 
 Notes for editing the patch by hand:
@@ -232,6 +275,7 @@ Ruang supports three backend skin generation providers:
 | Variable | Default | Description |
 |---|---|---|
 | `RUANG_DATA_DIR` | `~/.local/share/ruang` | Base data directory; custom skins are stored under `$RUANG_DATA_DIR/skins` and edits to the office scene in `$RUANG_DATA_DIR/scene.json`. |
+| `RUANG_MODEL_MAX_BYTES` | `10485760` | Maximum size of one uploaded 3D model in bytes (10 MiB). Non-numeric or non-positive values fall back to the default. |
 | `RUANG_SKIN_PROVIDER` | `block` | Generation provider: `block` (BLOCK converter + Flow preview), `flow` (Google Flow direct), or `llm` (LLM pixel fallback). |
 | `RUANG_BLOCK_URL` | `http://127.0.0.1:8093` | URL of the local BLOCK skin converter service. |
 | `RUANG_BLOCK_REF_LAYOUT` | `~/block-skin/ref_layout.png` | Reference image path passed to Flow for character framing and style layout. |

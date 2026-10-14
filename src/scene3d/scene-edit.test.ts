@@ -7,12 +7,14 @@ import {
   type BoxItem,
   type FloorItem,
   type GlassItem,
+  type ModelItem,
   type PropItem,
   type ScenePatch,
   type WallItem,
   type WindowItem,
 } from './scene.ts'
 import {
+  addModelItem,
   addProp,
   addStorey,
   addStructureItem,
@@ -39,6 +41,7 @@ import {
   setGlassGeometry,
   setItemLevel,
   setItemProp,
+  setItemScale,
   setItemView,
   setWallGeometry,
   snap,
@@ -1084,5 +1087,60 @@ describe('addStructureItem and dragPreviewItem', () => {
     const override = patchedGlass.overrides['g1'] as Partial<GlassItem>
     expect(override.bottom).toBe(2.8)
     expect(override.top).toBe(5.0)
+  })
+
+  it('adds model item with correct defaults', () => {
+    const { patch: next, id } = addModelItem(EMPTY_PATCH, [], 'm-0123456789ab', 2, 4, 0, bounds, 1.5)
+    expect(id).toBe('added-1')
+    const added = next.added[0] as ModelItem
+    expect(added.kind).toBe('model')
+    expect(added.modelId).toBe('m-0123456789ab')
+    expect(added.position).toEqual([2, 0, 4])
+    expect(added.scale).toBe(1.5)
+  })
+
+  it('moves, rotates, and sets scale on model items', () => {
+    const model: ModelItem = { kind: 'model', id: 'added-1', level: 0, modelId: 'm-0123456789ab', position: [0, 0, 0], scale: 1 }
+    const withModel: ScenePatch = { ...EMPTY_PATCH, added: [model] }
+
+    const moved = moveItem(withModel, model, 3, 5, bounds)
+    expect((moved.added[0] as ModelItem).position).toEqual([3, 0, 5])
+
+    const rotated = rotateItem(withModel, model, 1.5)
+    expect((rotated.added[0] as ModelItem).rotation).toBe(1.5)
+
+    const rotatedBy = rotateBy(withModel, model, ROTATION_STEP)
+    expect((rotatedBy.added[0] as ModelItem).rotation).toBeCloseTo(ROTATION_STEP, 4)
+
+    const scaled = setItemScale(withModel, model, 2.5)
+    expect((scaled.added[0] as ModelItem).scale).toBe(2.5)
+
+    const scaledOver = setItemScale(withModel, model, 150)
+    expect((scaledOver.added[0] as ModelItem).scale).toBe(100)
+
+    const scaledLow = setItemScale(withModel, model, 0.001)
+    expect((scaledLow.added[0] as ModelItem).scale).toBe(0.01)
+  })
+
+  it('duplicates and shifts model items', () => {
+    const model: ModelItem = { kind: 'model', id: 'added-1', level: 0, modelId: 'm-0123456789ab', position: [0, 0, 0], scale: 1.2, rotation: 1 }
+    const withModel: ScenePatch = { ...EMPTY_PATCH, added: [model] }
+    const { patch: next, id } = duplicateItem(withModel, [model], model, bounds)
+    expect(id).toBe('added-2')
+    expect(next.added.length).toBe(2)
+    const copy = next.added[1] as ModelItem
+    expect(copy.kind).toBe('model')
+    expect(copy.modelId).toBe('m-0123456789ab')
+    expect(copy.position).toEqual([0.5, 0, 0.5])
+    expect(copy.scale).toBe(1.2)
+    expect(copy.rotation).toBe(1)
+  })
+
+  it('shifts model elevation when level changes', () => {
+    const model: ModelItem = { kind: 'model', id: 'added-1', level: 0, modelId: 'm-0123456789ab', position: [0, 0, 0] }
+    const withModel: ScenePatch = { ...EMPTY_PATCH, added: [model] }
+    const next = setItemLevel(withModel, model, 2.8)
+    expect((next.added[0] as ModelItem).level).toBe(2.8)
+    expect((next.added[0] as ModelItem).position).toEqual([0, 2.8, 0])
   })
 })

@@ -6,22 +6,36 @@ import { officeStateBadge } from '../office-state.ts'
 import { clampTarget, createLayout, FLOOR_HEIGHT, GAME_ROOM, idlePlan, placementFor, walkPath3, withMovedSeats, type OfficeLayout, type Placement, type Vec3 } from '../office3d-layout.ts'
 import { defaultScene } from '../scene3d/default-scene.ts'
 import { levelName } from '../scene3d/level-names.ts'
-import { applyPatch, deskSeatNumber, isStructureType, levelAt, levelsOf, MAX_ADDED, seatPositions, visibleAt, type SceneItem } from '../scene3d/scene.ts'
+import { applyPatch, deskSeatNumber, isStructureType, levelAt, levelsOf, MAX_ADDED, seatPositions, visibleAt, type PropType, type SceneItem } from '../scene3d/scene.ts'
 import { EditTarget, PlacementLayer, type EditHandlers } from '../scene3d/edit-layer.tsx'
-import { addProp, addStorey, addStructureItem, canDelete, deleteItem, dragPreviewItem, duplicateItem, editKeyAction, isEditable, moveItem, rotateBy, rotateItem, ROTATION_STEP, setBoxProps, setFloorBounds, setFloorSurface, setGlassGeometry, setItemLevel, setItemProp, setItemView, setWallGeometry, type EditKeyAction, type StructureKind } from '../scene3d/scene-edit.ts'
+import { addModelItem, addProp, addStorey, addStructureItem, canDelete, deleteItem, dragPreviewItem, duplicateItem, editKeyAction, isEditable, moveItem, rotateBy, rotateItem, ROTATION_STEP, setBoxProps, setFloorBounds, setFloorSurface, setGlassGeometry, setItemLevel, setItemProp, setItemScale, setItemView, setWallGeometry, type EditKeyAction, type StructureKind } from '../scene3d/scene-edit.ts'
 import { SceneRenderer } from '../scene3d/scene-renderer.tsx'
 import { useSceneEditor } from '../scene3d/use-scene-editor.ts'
 import { useScenePatch } from '../scene3d/use-scene.ts'
 import { createSkinBoxGeometry, useSkinTexture, useSkins } from '../scene3d/skin.ts'
 import type { OfficeStation } from '../types.ts'
+import type { ModelRecord } from '../scene3d/models.ts'
 import { EditorBar } from './EditorBar.tsx'
+import { ModelLibrary } from './ModelLibrary.tsx'
 import { ObjectPanel } from './ObjectPanel.tsx'
 import { PropPalette } from './PropPalette.tsx'
+import { exportSceneGlb, downloadBlob, formatSceneGlbFilename } from '../scene3d/export-glb.ts'
+import { exportBundle, formatBundleFilename, importBundle } from '../scene3d/bundle.ts'
+import { clearModelCache } from '../scene3d/model-loader.ts'
+import { fetchModels } from '../models-api.ts'
 
 // 3D view of the same Office snapshot the 2D view renders. Positions come from each station's
 // room, roomPosition and seat, so the 3D office shows exactly the states the server derived.
 
 type Registry<T> = MutableRefObject<Map<string, T>>
+
+function SceneCapture({ onScene }: { onScene: (scene: THREE.Scene) => void }) {
+  const scene = useThree((state) => state.scene)
+  useEffect(() => {
+    onScene(scene)
+  }, [scene, onScene])
+  return null
+}
 
 /** Ground-floor spots outside the building (gang, sidewalk, yard) stay in view from lantai 2. */
 function outdoors(x: number, z: number, layout: OfficeLayout): boolean {
@@ -321,9 +335,9 @@ function useClock(interval: number) {
   return now
 }
 
-/** True while the viewport is 700px wide or less (the editor UI is hidden there). */
+/** True while the viewport is 320px wide or less (the editor UI is hidden there). */
 function useNarrow(): boolean {
-  const query = '(max-width: 700px)'
+  const query = '(max-width: 320px)'
   const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && window.matchMedia?.(query).matches === true)
   useEffect(() => {
     const media = window.matchMedia?.(query)
@@ -417,6 +431,121 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
   const [viewMode, setViewMode] = useState<'cutaway' | 'shell'>('cutaway')
   const [hovering, setHovering] = useState(false)
   const [dragging, setDragging] = useState(false)
+  const [manageModels, setManageModels] = useState(false)
+  const [models, setModels] = useState<ModelRecord[]>([])
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
+  const [exportSuccess, setExportSuccess] = useState<string | null>(null)
+  const [exportingBundle, setExportingBundle] = useState(false)
+  const [importingBundle, setImportingBundle] = useState(false)
+  const [bundleProgress, setBundleProgress] = useState<string | null>(null)
+  const [bundleError, setBundleError] = useState<string | null>(null)
+  const [bundleSuccess, setBundleSuccess] = useState<string | null>(null)
+  const sceneRef = useRef<THREE.Scene | null>(null)
+
+  useEffect(() => {
+    let active = true
+    fetch('/api/models')
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
+      .then((data: { models: ModelRecord[] }) => {
+        if (active && Array.isArray(data.models)) setModels(data.models)
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+    }
+  }, [])
+
+  useEffect(() => {
+    const handleModelDeleted = (e: Event) => {
+      const id = (e as CustomEvent<{ id: string }>).detail?.id
+      if (id) {
+        clearModelCache(id)
+        editor.purgeModel(id)
+      }
+    }
+    window.addEventListener('ruang:model-deleted', handleModelDeleted)
+    return () => window.removeEventListener('ruang:model-deleted', handleModelDeleted)
+  }, [editor])
+
+  const handleExportGlb = async () => {
+    if (!sceneRef.current) {
+      setExportError('Export failed: 3D scene not ready')
+      return
+    }
+    setExporting(true)
+    setExportError(null)
+    setExportSuccess(null)
+    try {
+      const filename = formatSceneGlbFilename()
+      const blob = await exportSceneGlb(sceneRef.current)
+      downloadBlob(blob, filename)
+      setExportSuccess(`Exported ${filename}`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setExportError(`Export failed: ${msg}`)
+      console.error('Failed to export scene to GLB:', err)
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const handleExportBundle = async () => {
+    setExportingBundle(true)
+    setBundleError(null)
+    setBundleSuccess(null)
+    try {
+      const bundle = await exportBundle(editor.draft)
+      const filename = formatBundleFilename()
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' })
+      downloadBlob(blob, filename)
+      setBundleSuccess(`Exported ${filename}`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setBundleError(`Export failed: ${msg}`)
+      console.error('Failed to export scene bundle:', err)
+    } finally {
+      setExportingBundle(false)
+    }
+  }
+
+  const handleImportBundle = async (file: File) => {
+    setImportingBundle(true)
+    setBundleError(null)
+    setBundleSuccess(null)
+    setBundleProgress(null)
+    try {
+      const text = await file.text()
+      const result = await importBundle(text, editor.draft, {
+        onProgress: ({ current, total }) => {
+          setBundleProgress(`Uploading ${current}/${total} models…`)
+        },
+      })
+      editor.apply(() => ({
+        version: result.version,
+        overrides: result.overrides,
+        added: result.added,
+      }))
+      if (result.modelCount > 0) {
+        try {
+          const freshModels = await fetchModels()
+          setModels(freshModels)
+          window.dispatchEvent(new CustomEvent('ruang:models-changed', { detail: freshModels }))
+        } catch (fetchErr) {
+          console.warn('Failed to refresh models after bundle import:', fetchErr)
+        }
+      }
+      setBundleProgress(null)
+      setBundleSuccess(`Imported ${result.itemCount} item${result.itemCount === 1 ? '' : 's'}, ${result.modelCount} model${result.modelCount === 1 ? '' : 's'}`)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setBundleError(`Failed to import bundle: ${msg}`)
+      console.error('Failed to import scene bundle:', err)
+    } finally {
+      setImportingBundle(false)
+      setBundleProgress(null)
+    }
+  }
   const selectedItem = editor.selectedId ? items.find((item) => item.id === editor.selectedId) : undefined
   // A selection that is not drawn on the floor in view (floor switch, undone floor change) is not acted on.
   const selected = selectedItem && isEditable(selectedItem) && visibleAt(selectedItem, level, viewMode) ? selectedItem : undefined
@@ -482,7 +611,7 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
   const levelCount = (value: number) => stations.filter((station) => levelAt(levels, placement(station).position[1]) === value).length
   const occupiedSeats = new Set(stations.filter((station) => station.room === 'Workspace' && station.roomPosition !== 'meeting-area' && station.state !== 'Offline').map((station) => station.seat))
   // The canvas's own blocker unmounts with the placement layer, and on Windows the context menu opens after the right-click that left placing.
-  return <div className="office-3d" ref={setKeyTarget} tabIndex={0} role="region" onContextMenu={editingActive ? (event) => { if (event.target instanceof HTMLCanvasElement) event.preventDefault() } : undefined} aria-label="3D office. Drag to rotate, right-drag or two fingers to pan, scroll to zoom, arrow keys pan when focused. Page Up and Page Down change floors." onKeyDown={(event) => {
+  return <div className={`office-3d${editor.editing ? ' editing' : ''}`} ref={setKeyTarget} tabIndex={0} role="region" onContextMenu={editingActive ? (event) => { if (event.target instanceof HTMLCanvasElement) event.preventDefault() } : undefined} aria-label="3D office. Drag to rotate, right-drag or two fingers to pan, scroll to zoom, arrow keys pan when focused. Page Up and Page Down change floors." onKeyDown={(event) => {
     const typing = /^(INPUT|SELECT|TEXTAREA)$/.test((event.target as HTMLElement).tagName)
     if (editingActive && !typing && !dragging) {
       const action = editKeyAction(event)
@@ -491,13 +620,17 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
     if (event.key === 'PageUp' || event.key === 'PageDown') { event.preventDefault(); setLevelIndex(Math.min(Math.max(levelIndex + (event.key === 'PageUp' ? 1 : -1), 0), levels.length - 1)) }
   }}>
     <Canvas shadows dpr={[1, 2]} camera={{ position: [-3, 13, 16], fov: 40, near: 0.5, far: 150 }} gl={{ antialias: true }} onPointerMissed={editingActive && !placing ? () => editor.select(null) : undefined}>
+      <SceneCapture onScene={(scene) => { sceneRef.current = scene }} />
       <Lighting theme={theme}/>
       <SceneRenderer items={drawItems} level={level} night={theme === 'dark'} deskActive={(id) => occupiedSeats.has(deskSeatNumber(id) ?? -1)} wrap={editingActive && !placing ? (item, node) => (isEditable(item) ? <EditTarget item={item} edit={edit}>{node}</EditTarget> : node) : undefined} viewMode={viewMode}/>
       {placing && <PlacementLayer type={placing} level={level} bounds={panBounds} night={theme === 'dark'} onPlace={(x, z) => {
         if (isStructureType(placing)) {
           editor.addWith((patchNow) => addStructureItem(patchNow, items, placing as StructureKind, x, z, level, panBounds))
+        } else if (typeof placing === 'string' && placing.startsWith('model:')) {
+          const modelId = placing.slice('model:'.length)
+          editor.addWith((patchNow) => addModelItem(patchNow, items, modelId, x, z, level, panBounds))
         } else {
-          editor.addWith((patchNow) => addProp(patchNow, items, placing, x, z, level, panBounds))
+          editor.addWith((patchNow) => addProp(patchNow, items, placing as PropType, x, z, level, panBounds))
         }
       }} onExit={editor.stopPlacing}/>}
       {stations.map((station) => <Character key={station.id} station={station} placement={placement(station)} layout={layout} level={level} levels={levels} onSelect={selectAgent} anchor={register(anchors, `agent-${station.id}`)} skinVersion={skins?.[station.id]?.version}/>)}
@@ -537,8 +670,86 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
       <button type="button" className={panMode ? 'active' : ''} aria-pressed={panMode} onClick={() => setPanMode((value) => !value)} title="Drag moves the view instead of rotating it">✥ Geser</button>
       <button type="button" onClick={() => view.current?.reset()} title="Back to the starting view">↺ Reset view</button>
     </div>
-    {editor.editing && <EditorBar canUndo={editor.canUndo} canRedo={editor.canRedo} dirty={editor.dirty} saving={editor.saving} error={editor.error} viewMode={viewMode} onViewModeChange={setViewMode} onAddStorey={handleAddStorey} onUndo={editor.undo} onRedo={editor.redo} onSave={() => void editor.save()} onReset={resetEdits} onDone={finishEditing}/>}
-    {editor.editing && <PropPalette placing={placing} limitReached={limitReached} onPick={(type) => (type ? editor.startPlacing(type) : editor.stopPlacing())}/>}
-    {editor.editing && selected && <ObjectPanel item={selected} levels={levels} canDuplicate={!limitReached} onDuplicate={() => editor.addWith((patchNow) => duplicateItem(patchNow, items, selected, panBounds))} onProp={(key, value) => editor.apply((patchNow) => setItemProp(patchNow, selected, key, value))} onMove={(x, z) => editor.apply((patchNow) => moveItem(patchNow, selected, x, z, panBounds))} onRotate={(degrees) => editor.apply((patchNow) => rotateItem(patchNow, selected, (degrees * Math.PI) / 180))} onLevel={(next) => { editor.apply((patchNow) => setItemLevel(patchNow, selected, next)); setLevelIndex(Math.max(0, levels.indexOf(next))) }} onDelete={() => { editor.apply((patchNow) => deleteItem(patchNow, selected)); editor.select(null); keyTarget?.focus() }} onView={(v) => editor.apply((patchNow) => setItemView(patchNow, selected, v))} onFloorBounds={(min, max, y) => editor.apply((patchNow) => setFloorBounds(patchNow, selected, min, max, y))} onFloorSurface={(surface, roughness) => editor.apply((patchNow) => setFloorSurface(patchNow, selected, surface, roughness))} onWallGeometry={(from, to, height, y) => editor.apply((patchNow) => setWallGeometry(patchNow, selected, from, to, height, y))} onGlassGeometry={(from, to, bottom, top) => editor.apply((patchNow) => setGlassGeometry(patchNow, selected, from, to, bottom, top))} onBoxProps={(size, color, options) => editor.apply((patchNow) => setBoxProps(patchNow, selected, size, color, options))}/>}
+    {editor.editing && (
+      <div className="office-3d-editor-stack">
+        <EditorBar
+          canUndo={editor.canUndo}
+          canRedo={editor.canRedo}
+          dirty={editor.dirty}
+          saving={editor.saving}
+          error={editor.error || exportError}
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
+          onAddStorey={handleAddStorey}
+          onExportGlb={handleExportGlb}
+          exportingGlb={exporting}
+          exportSuccess={exportSuccess}
+          onExportBundle={handleExportBundle}
+          exportingBundle={exportingBundle}
+          onImportBundle={handleImportBundle}
+          importingBundle={importingBundle}
+          bundleProgress={bundleProgress}
+          bundleSuccess={bundleSuccess}
+          bundleError={bundleError}
+          onManageModels={() => setManageModels(true)}
+          onUndo={editor.undo}
+          onRedo={editor.redo}
+          onSave={() => void editor.save()}
+          onReset={resetEdits}
+          onDone={finishEditing}
+        />
+        {selected && (
+          <ObjectPanel
+            item={selected}
+            levels={levels}
+            canDuplicate={!limitReached}
+            onDuplicate={() => editor.addWith((patchNow) => duplicateItem(patchNow, items, selected, panBounds))}
+            onProp={(key, value) => editor.apply((patchNow) => setItemProp(patchNow, selected, key, value))}
+            onMove={(x, z) => editor.apply((patchNow) => moveItem(patchNow, selected, x, z, panBounds))}
+            onRotate={(degrees) => editor.apply((patchNow) => rotateItem(patchNow, selected, (degrees * Math.PI) / 180))}
+            onScale={(scale) => editor.apply((patchNow) => setItemScale(patchNow, selected, scale))}
+            onLevel={(next) => { editor.apply((patchNow) => setItemLevel(patchNow, selected, next)); setLevelIndex(Math.max(0, levels.indexOf(next))) }}
+            onDelete={() => { editor.apply((patchNow) => deleteItem(patchNow, selected)); editor.select(null); keyTarget?.focus() }}
+            onView={(v) => editor.apply((patchNow) => setItemView(patchNow, selected, v))}
+            onFloorBounds={(min, max, y) => editor.apply((patchNow) => setFloorBounds(patchNow, selected, min, max, y))}
+            onFloorSurface={(surface, roughness) => editor.apply((patchNow) => setFloorSurface(patchNow, selected, surface, roughness))}
+            onWallGeometry={(from, to, height, y) => editor.apply((patchNow) => setWallGeometry(patchNow, selected, from, to, height, y))}
+            onGlassGeometry={(from, to, bottom, top) => editor.apply((patchNow) => setGlassGeometry(patchNow, selected, from, to, bottom, top))}
+            onBoxProps={(size, color, options) => editor.apply((patchNow) => setBoxProps(patchNow, selected, size, color, options))}
+          />
+        )}
+        <PropPalette
+          placing={placing}
+          limitReached={limitReached}
+          models={models}
+          onModelsChange={setModels}
+          onManageModels={() => setManageModels(true)}
+          onPick={(type) => (type ? editor.startPlacing(type) : editor.stopPlacing())}
+        />
+      </div>
+    )}
+    {manageModels && (
+      <ModelLibrary
+        items={items}
+        initialModels={models}
+        onClose={() => setManageModels(false)}
+        onModelDeleted={(deletedId) => {
+          clearModelCache(deletedId)
+          editor.purgeModel(deletedId)
+        }}
+        onModelsChange={(updated) => {
+          const removed = models.filter((m) => !updated.some((u) => u.id === m.id))
+          for (const m of removed) {
+            clearModelCache(m.id)
+            editor.purgeModel(m.id)
+          }
+          setModels(updated)
+          if (typeof placing === 'string' && placing.startsWith('model:') && !updated.some((m) => `model:${m.id}` === placing)) {
+            editor.stopPlacing()
+          }
+          refreshScene()
+        }}
+      />
+    )}
   </div>
 }
