@@ -119,7 +119,7 @@ describe('bundle', () => {
     expect(uploadModel).toHaveBeenCalledWith('table.glb', 'glb', expect.any(Uint8Array))
     expect(result.version).toBe(2)
     expect(result.overrides).toHaveProperty('desk-1')
-    expect(result.overrides).toHaveProperty('stock-chair')
+    expect(result.overrides).not.toHaveProperty('stock-chair')
     expect(result.added.length).toBe(2)
     expect(result.added[0].id).toBe('added-1')
     expect(result.added[1].id).toBe('added-2') // Renamed due to collision
@@ -384,5 +384,42 @@ describe('bundle', () => {
     // deleteModel must be called for m-uploaded1111 to clean up!
     expect(deleteModel).toHaveBeenCalledWith('m-uploaded1111')
     expect(deleteModel).toHaveBeenCalledTimes(1)
+  })
+
+  it('drops bundle overrides on import without modifying existing overrides (append only contract)', async () => {
+    const bundle: RuangBundle = {
+      format: 'ruang-bundle',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      patch: {
+        version: 2,
+        overrides: {
+          'floor-main': null,
+          'desk-2': { position: [999, 0, 999] },
+        },
+        added: [
+          {
+            kind: 'prop',
+            id: 'added-p1',
+            level: 0,
+            type: 'Plant',
+            position: [1, 0, 1],
+          },
+        ],
+      },
+      models: [],
+    }
+
+    const existing: ScenePatch = {
+      version: 2,
+      overrides: { 'desk-1': { rotation: 1.57 } },
+      added: [],
+    }
+
+    const result = await importBundle(bundle, existing)
+    expect(result.overrides).toEqual({ 'desk-1': { rotation: 1.57 } })
+    expect(result.overrides).not.toHaveProperty('floor-main')
+    expect(result.overrides).not.toHaveProperty('desk-2')
+    expect(result.added.length).toBe(1)
   })
 })

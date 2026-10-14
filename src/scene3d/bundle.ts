@@ -658,14 +658,9 @@ export async function importBundle(
     }
   })
 
-  const mergedOverrides = {
-    ...(existingPatch.overrides ?? {}),
-    ...(bundle.patch.overrides ?? {}),
-  }
-
   return {
     version: 2,
-    overrides: mergedOverrides,
+    overrides: existingPatch.overrides ?? {},
     added: [...existingAdded, ...importedAdded],
     itemCount: importedAdded.length,
     modelCount: bundledModels.length,
