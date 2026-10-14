@@ -500,6 +500,7 @@ main { max-width: 1680px; }
 .office-3d-tools button.active { background: #d9534f; border-color: #f4efe6; }
 .office-3d > div:first-child { position: absolute !important; inset: 0; }
 .office-3d-labels { inset: 0; overflow: clip; pointer-events: none; position: absolute; z-index: 2; }
+.office-3d.editing .office-3d-labels { display: none; }
 .office-3d-labels > * { left: 0; position: absolute; top: 0; visibility: hidden; will-change: transform; }
 .agent-tag-3d { align-items: center; background: transparent; border: 0; color: #eef9ef; cursor: pointer; display: grid; gap: 4px; justify-items: center; padding: 0; pointer-events: auto; white-space: nowrap; }
 .agent-tag-row { align-items: center; display: flex; gap: 4px; }
@@ -536,6 +537,7 @@ aside.drawer[hidden] { display: none; }
 .office-stage .office-3d { aspect-ratio: auto; border: 0; box-shadow: none; height: 100%; inset: 0; min-height: 0; position: absolute; }
 .office-stage .office-3d-tools { bottom: 12px; right: 12px; top: auto; }
 .office-3d-hint { background: color-mix(in srgb, var(--surface) 80%, transparent); border-radius: 4px; bottom: 12px; left: 12px; padding: 5px 9px; pointer-events: none; position: absolute; z-index: 3; }
+.office-stage:has(.office-3d.editing) .office-3d-hint { display: none; }
 .office-failed { left: 16px; position: absolute; right: 16px; top: 70px; z-index: 3; }
 .office-note { margin: 0 0 10px; }
 
@@ -905,16 +907,17 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
 
 
 
+.office-3d-editor-stack { display: contents; }
 .office-3d-editbar { align-items: center; background: rgba(18, 26, 24, 0.86); border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 8px; color: #f4efe6; display: grid; font-size: 12px; gap: 4px; justify-items: center; left: 50%; padding: 6px 10px; position: absolute; top: 10px; transform: translateX(-50%); z-index: 3; }
 .office-stage .office-3d-editbar { top: 58px; }
 .office-3d-editbar-row { align-items: center; display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
 .office-3d-editbar button, .office-3d-objpanel button { background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 6px; color: inherit; cursor: pointer; font: inherit; padding: 4px 9px; }
 .office-3d-editbar button:disabled, .office-3d-objpanel button:disabled { cursor: not-allowed; opacity: .45; }
-.office-3d-editstate { color: #b7c9bf; }
-.office-3d-editstate.unsaved { color: #f5bd6d; }
-.office-3d-editbar small { color: #b7c9bf; }
-.office-3d-editerror { color: #ff9b94 !important; }
-.office-3d-editsuccess { color: #73c991 !important; }
+.office-3d-editstate { color: var(--c-9ea79e); }
+.office-3d-editstate.unsaved { color: var(--c-f2c58a); }
+.office-3d-editbar small { color: var(--c-9ea79e); }
+.office-3d-editerror, .office-3d-editbar .office-3d-editerror { color: var(--c-ff9d8f); }
+.office-3d-editsuccess, .office-3d-editbar .office-3d-editsuccess { color: var(--c-74c59a); }
 .office-3d-export-glb-btn .btn-label-short,
 .office-3d-export-bundle-btn .btn-label-short,
 .office-3d-import-bundle-btn .btn-label-short { display: none; }
@@ -923,7 +926,7 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
 .office-3d-import-bundle-btn .btn-label-full { display: inline; }
 .office-3d-import-bundle-btn { align-items: center; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 6px; color: inherit; cursor: pointer; display: inline-flex; font: inherit; padding: 4px 9px; user-select: none; }
 .office-3d-import-bundle-btn.disabled { cursor: not-allowed; opacity: .45; pointer-events: none; }
-.office-3d-editprogress { color: #f5bd6d !important; }
+.office-3d-editprogress, .office-3d-editbar .office-3d-editprogress { color: var(--c-f2c58a); }
 @media (max-width: 520px) {
   .office-3d-export-glb-btn .btn-label-full,
   .office-3d-export-bundle-btn .btn-label-full,
@@ -964,8 +967,8 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
 .office-3d-upload-btn.disabled, .office-3d-upload-btn[aria-disabled="true"] { cursor: not-allowed; opacity: 0.45; }
 .office-3d-file-input-hidden { border: 0; clip: rect(0, 0, 0, 0); height: 1px; margin: -1px; overflow: hidden; padding: 0; position: absolute; white-space: nowrap; width: 1px; }
 .office-3d-palette-status { display: flex; flex-direction: column; gap: 2px; }
-.office-3d-upload-error { color: #ff9b94; font-size: 11px; line-height: 1.3; word-break: break-word; }
-.office-3d-upload-success { color: #6ee7b7; font-size: 11px; line-height: 1.3; }
+.office-3d-upload-error { color: var(--c-ff9d8f); font-size: 11px; line-height: 1.3; word-break: break-word; }
+.office-3d-upload-success { color: var(--c-74c59a); font-size: 11px; line-height: 1.3; }
 .office-3d-palette-empty { color: #8c9c94; font-size: 11px; font-style: italic; margin: 2px 0 4px; }
 .office-3d-palette-imported-header { align-items: baseline; display: flex; justify-content: space-between; margin-bottom: 2px; }
 .office-3d-palette-imported-header h4 { margin: 0; }
@@ -974,15 +977,15 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
 
 /* ModelLibrary modal styles */
 .model-library { display: flex; flex-direction: column; gap: 12px; max-height: 80vh; }
-.model-library-header { align-items: baseline; display: flex; justify-content: space-between; }
+.model-library-header { align-items: baseline; display: flex; justify-content: space-between; padding-right: 40px; }
 .model-library-header h2 { font-size: 16px; font-weight: 600; margin: 0; }
 .model-library-count { color: #b7c9bf; font-size: 11px; }
 .model-library-toolbar { align-items: center; display: flex; gap: 8px; }
 .model-library-toolbar input[type="search"] { background: #101815; border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 4px; color: #f4efe6; flex: 1; font: inherit; padding: 4px 8px; }
 .model-upload-btn { background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 6px; color: inherit; cursor: pointer; font: inherit; font-size: 12px; padding: 4px 10px; white-space: nowrap; }
 .model-upload-btn:hover { background: rgba(255, 255, 255, 0.15); }
-.model-library-error { background: rgba(217, 83, 79, 0.15); border: 1px solid #d9534f; border-radius: 4px; color: #ff9b94; font-size: 12px; padding: 6px 10px; }
-.model-library-fetch-error { align-items: center; background: rgba(217, 83, 79, 0.15); border: 1px solid #d9534f; border-radius: 4px; color: #ff9b94; display: flex; font-size: 12px; justify-content: space-between; padding: 6px 10px; }
+.model-library-error { background: rgba(217, 83, 79, 0.15); border: 1px solid #d9534f; border-radius: 4px; color: var(--c-ff9d8f); font-size: 12px; padding: 6px 10px; }
+.model-library-fetch-error { align-items: center; background: rgba(217, 83, 79, 0.15); border: 1px solid #d9534f; border-radius: 4px; color: var(--c-ff9d8f); display: flex; font-size: 12px; justify-content: space-between; padding: 6px 10px; }
 .model-library-retry { background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 4px; color: inherit; cursor: pointer; font: inherit; font-size: 11px; padding: 2px 8px; }
 .model-library-grid { display: grid; gap: 8px; max-height: 400px; overflow-y: auto; }
 .model-library-loading, .model-library-empty { color: #b7c9bf; font-style: italic; margin: 16px 0; text-align: center; }
@@ -1011,6 +1014,7 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
 :root[data-theme="light"] .model-library-count,
 :root[data-theme="light"] .model-card-meta,
 :root[data-theme="light"] .model-library-empty { color: #5c655d; }
+:root[data-theme="light"] .office-3d-palette input[type="search"],
 :root[data-theme="light"] .office-3d-palette-search,
 :root[data-theme="light"] .office-3d-objpanel input,
 :root[data-theme="light"] .office-3d-objpanel select,
@@ -1025,9 +1029,6 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
 :root[data-theme="light"] .office-3d-palette-list button[aria-pressed="true"] { background: #d4a72c; border-color: #d4a72c; color: #ffffff; }
 :root[data-theme="light"] .office-3d-upload-btn { background: rgba(0, 0, 0, 0.04); border-color: rgba(0, 0, 0, 0.25); color: #334036; }
 :root[data-theme="light"] .office-3d-upload-btn:hover:not(.disabled) { background: rgba(0, 0, 0, 0.08); border-color: rgba(0, 0, 0, 0.4); color: #1a211c; }
-:root[data-theme="light"] .office-3d-upload-error { color: #c92a2a; }
-:root[data-theme="light"] .office-3d-upload-success { color: #1b6c43; }
-:root[data-theme="light"] .office-3d-editsuccess { color: #1b6c43 !important; }
 :root[data-theme="light"] .office-3d-palette-manage-btn { border-color: rgba(0, 0, 0, 0.2); color: #5c655d; }
 :root[data-theme="light"] .office-3d-palette-manage-btn:hover { background: rgba(0, 0, 0, 0.05); color: #1a211c; }
 :root[data-theme="light"] .model-library-error { background: rgba(201, 42, 42, 0.1); border-color: #c92a2a; color: #c92a2a; }
@@ -1043,4 +1044,84 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
   .model-library-toolbar { flex-direction: column; align-items: stretch; }
   .model-library-toolbar input[type="search"] { min-width: 0; width: 100%; }
 }
-@media (max-width: 440px) { .office-3d-editbar, .office-3d-objpanel, .office-3d-palette, .office-3d-tools .edit-toggle { display: none; } }
+
+@media (max-width: 520px) {
+  .office-stage-tools { top: 50px; z-index: 4; }
+  .office-stage .office-3d-floors {
+    bottom: 8px;
+    flex-direction: row;
+    gap: 4px;
+    left: 8px;
+    top: auto;
+    z-index: 2;
+  }
+  .office-stage .office-3d-floors button {
+    border-radius: 6px;
+    gap: 0;
+    grid-template-columns: 24px;
+    min-width: 0;
+    padding: 3px;
+  }
+  .office-stage .office-3d-floors button span,
+  .office-stage .office-3d-floors button small {
+    display: none;
+  }
+  .office-stage .office-3d-floors button b {
+    font-size: 11px;
+    height: 24px;
+    width: 24px;
+  }
+  .office-3d-tools {
+    bottom: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    justify-content: flex-end;
+    max-width: calc(100% - 72px);
+    right: 8px;
+    z-index: 2;
+  }
+  .office-3d-tools button {
+    font-size: 11px;
+    padding: 4px 7px;
+  }
+  .office-3d-editor-stack {
+    bottom: 48px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    left: 8px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    pointer-events: none;
+    position: absolute;
+    right: 8px;
+    scrollbar-width: thin;
+    top: 86px;
+    z-index: 3;
+  }
+  .office-3d-editor-stack > *,
+  .office-stage .office-3d-editor-stack > *,
+  .office-stage .office-3d-editor-stack .office-3d-editbar,
+  .office-stage .office-3d-editor-stack .office-3d-palette,
+  .office-stage .office-3d-editor-stack .office-3d-objpanel {
+    bottom: auto;
+    box-sizing: border-box;
+    flex-shrink: 0;
+    left: auto;
+    margin: 0;
+    max-width: 100%;
+    pointer-events: auto;
+    position: static;
+    right: auto;
+    top: auto;
+    transform: none;
+    width: 100%;
+  }
+  .office-3d-editbar { font-size: 11px; padding: 6px 8px; width: 100%; }
+  .office-3d-editbar-row { gap: 4px; justify-content: center; }
+  .office-3d-editbar small { font-size: 11px; text-align: center; }
+  .office-stage .office-3d-editor-stack .office-3d-objpanel { max-height: 200px; overflow-y: auto; }
+  .office-stage .office-3d-editor-stack .office-3d-palette { max-height: 200px; overflow-y: auto; }
+}

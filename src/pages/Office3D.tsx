@@ -335,9 +335,9 @@ function useClock(interval: number) {
   return now
 }
 
-/** True while the viewport is 440px wide or less (the editor UI is hidden there). */
+/** True while the viewport is 320px wide or less (the editor UI is hidden there). */
 function useNarrow(): boolean {
-  const query = '(max-width: 440px)'
+  const query = '(max-width: 320px)'
   const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && window.matchMedia?.(query).matches === true)
   useEffect(() => {
     const media = window.matchMedia?.(query)
@@ -621,7 +621,7 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
   const levelCount = (value: number) => stations.filter((station) => levelAt(levels, placement(station).position[1]) === value).length
   const occupiedSeats = new Set(stations.filter((station) => station.room === 'Workspace' && station.roomPosition !== 'meeting-area' && station.state !== 'Offline').map((station) => station.seat))
   // The canvas's own blocker unmounts with the placement layer, and on Windows the context menu opens after the right-click that left placing.
-  return <div className="office-3d" ref={setKeyTarget} tabIndex={0} role="region" onContextMenu={editingActive ? (event) => { if (event.target instanceof HTMLCanvasElement) event.preventDefault() } : undefined} aria-label="3D office. Drag to rotate, right-drag or two fingers to pan, scroll to zoom, arrow keys pan when focused. Page Up and Page Down change floors." onKeyDown={(event) => {
+  return <div className={`office-3d${editor.editing ? ' editing' : ''}`} ref={setKeyTarget} tabIndex={0} role="region" onContextMenu={editingActive ? (event) => { if (event.target instanceof HTMLCanvasElement) event.preventDefault() } : undefined} aria-label="3D office. Drag to rotate, right-drag or two fingers to pan, scroll to zoom, arrow keys pan when focused. Page Up and Page Down change floors." onKeyDown={(event) => {
     const typing = /^(INPUT|SELECT|TEXTAREA)$/.test((event.target as HTMLElement).tagName)
     if (editingActive && !typing && !dragging) {
       const action = editKeyAction(event)
@@ -671,35 +671,63 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
       <button type="button" onClick={() => view.current?.reset()} title="Back to the starting view">↺ Reset view</button>
     </div>
     {editor.editing && (
-      <EditorBar
-        canUndo={editor.canUndo}
-        canRedo={editor.canRedo}
-        dirty={editor.dirty}
-        saving={editor.saving}
-        error={editor.error || exportError}
-        viewMode={viewMode}
-        onViewModeChange={setViewMode}
-        onAddStorey={() => editor.apply((patchNow) => addStorey(patchNow, items).patch)}
-        onExportGlb={handleExportGlb}
-        exportingGlb={exporting}
-        exportSuccess={exportSuccess}
-        onExportBundle={handleExportBundle}
-        exportingBundle={exportingBundle}
-        onImportBundle={handleImportBundle}
-        importingBundle={importingBundle}
-        bundleProgress={bundleProgress}
-        bundleSuccess={bundleSuccess}
-        bundleError={bundleError}
-        onManageModels={() => setManageModels(true)}
-        onUndo={editor.undo}
-        onRedo={editor.redo}
-        onSave={() => void editor.save()}
-        onReset={resetEdits}
-        onDone={finishEditing}
-      />
+      <div className="office-3d-editor-stack">
+        <EditorBar
+          canUndo={editor.canUndo}
+          canRedo={editor.canRedo}
+          dirty={editor.dirty}
+          saving={editor.saving}
+          error={editor.error || exportError}
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
+          onAddStorey={() => editor.apply((patchNow) => addStorey(patchNow, items).patch)}
+          onExportGlb={handleExportGlb}
+          exportingGlb={exporting}
+          exportSuccess={exportSuccess}
+          onExportBundle={handleExportBundle}
+          exportingBundle={exportingBundle}
+          onImportBundle={handleImportBundle}
+          importingBundle={importingBundle}
+          bundleProgress={bundleProgress}
+          bundleSuccess={bundleSuccess}
+          bundleError={bundleError}
+          onManageModels={() => setManageModels(true)}
+          onUndo={editor.undo}
+          onRedo={editor.redo}
+          onSave={() => void editor.save()}
+          onReset={resetEdits}
+          onDone={finishEditing}
+        />
+        {selected && (
+          <ObjectPanel
+            item={selected}
+            levels={levels}
+            canDuplicate={!limitReached}
+            onDuplicate={() => editor.addWith((patchNow) => duplicateItem(patchNow, items, selected, bounds))}
+            onProp={(key, value) => editor.apply((patchNow) => setItemProp(patchNow, selected, key, value))}
+            onMove={(x, z) => editor.apply((patchNow) => moveItem(patchNow, selected, x, z, bounds))}
+            onRotate={(degrees) => editor.apply((patchNow) => rotateItem(patchNow, selected, (degrees * Math.PI) / 180))}
+            onScale={(scale) => editor.apply((patchNow) => setItemScale(patchNow, selected, scale))}
+            onLevel={(next) => { editor.apply((patchNow) => setItemLevel(patchNow, selected, next)); setLevelIndex(Math.max(0, levels.indexOf(next))) }}
+            onDelete={() => { editor.apply((patchNow) => deleteItem(patchNow, selected)); editor.select(null); keyTarget?.focus() }}
+            onView={(v) => editor.apply((patchNow) => setItemView(patchNow, selected, v))}
+            onFloorBounds={(min, max, y) => editor.apply((patchNow) => setFloorBounds(patchNow, selected, min, max, y))}
+            onFloorSurface={(surface, roughness) => editor.apply((patchNow) => setFloorSurface(patchNow, selected, surface, roughness))}
+            onWallGeometry={(from, to, height, y) => editor.apply((patchNow) => setWallGeometry(patchNow, selected, from, to, height, y))}
+            onGlassGeometry={(from, to, bottom, top) => editor.apply((patchNow) => setGlassGeometry(patchNow, selected, from, to, bottom, top))}
+            onBoxProps={(size, color, options) => editor.apply((patchNow) => setBoxProps(patchNow, selected, size, color, options))}
+          />
+        )}
+        <PropPalette
+          placing={placing}
+          limitReached={limitReached}
+          models={models}
+          onModelsChange={setModels}
+          onManageModels={() => setManageModels(true)}
+          onPick={(type) => (type ? editor.startPlacing(type) : editor.stopPlacing())}
+        />
+      </div>
     )}
-    {editor.editing && <PropPalette placing={placing} limitReached={limitReached} models={models} onModelsChange={setModels} onManageModels={() => setManageModels(true)} onPick={(type) => (type ? editor.startPlacing(type) : editor.stopPlacing())}/>}
-    {editor.editing && selected && <ObjectPanel item={selected} levels={levels} canDuplicate={!limitReached} onDuplicate={() => editor.addWith((patchNow) => duplicateItem(patchNow, items, selected, bounds))} onProp={(key, value) => editor.apply((patchNow) => setItemProp(patchNow, selected, key, value))} onMove={(x, z) => editor.apply((patchNow) => moveItem(patchNow, selected, x, z, bounds))} onRotate={(degrees) => editor.apply((patchNow) => rotateItem(patchNow, selected, (degrees * Math.PI) / 180))} onScale={(scale) => editor.apply((patchNow) => setItemScale(patchNow, selected, scale))} onLevel={(next) => { editor.apply((patchNow) => setItemLevel(patchNow, selected, next)); setLevelIndex(Math.max(0, levels.indexOf(next))) }} onDelete={() => { editor.apply((patchNow) => deleteItem(patchNow, selected)); editor.select(null); keyTarget?.focus() }} onView={(v) => editor.apply((patchNow) => setItemView(patchNow, selected, v))} onFloorBounds={(min, max, y) => editor.apply((patchNow) => setFloorBounds(patchNow, selected, min, max, y))} onFloorSurface={(surface, roughness) => editor.apply((patchNow) => setFloorSurface(patchNow, selected, surface, roughness))} onWallGeometry={(from, to, height, y) => editor.apply((patchNow) => setWallGeometry(patchNow, selected, from, to, height, y))} onGlassGeometry={(from, to, bottom, top) => editor.apply((patchNow) => setGlassGeometry(patchNow, selected, from, to, bottom, top))} onBoxProps={(size, color, options) => editor.apply((patchNow) => setBoxProps(patchNow, selected, size, color, options))}/>}
     {manageModels && (
       <ModelLibrary
         items={items}
