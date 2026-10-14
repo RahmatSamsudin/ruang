@@ -3,7 +3,7 @@ import type { Vec3 } from '../office3d-layout.ts'
 import { levelName } from '../scene3d/level-names.ts'
 import { PROP_CATALOG, type Field } from '../scene3d/prop-catalog.ts'
 import { canDelete, type EditableItem } from '../scene3d/scene-edit.ts'
-import type { BoxItem, FloorItem, GlassItem, SceneView, Surface, SurfaceType, WallItem } from '../scene3d/scene.ts'
+import type { BoxItem, FloorItem, GlassItem, ModelItem, SceneView, Surface, SurfaceType, WallItem } from '../scene3d/scene.ts'
 
 const LIMIT = 1000
 const fmt = (value: number): string => String(Math.round(value * 100) / 100)
@@ -82,6 +82,7 @@ export interface ObjectPanelProps {
   onProp: (key: string, value: number | string) => void
   onDelete: () => void
   onView?: (view?: SceneView) => void
+  onScale?: (scale: number) => void
   onFloorBounds?: (min: [number, number], max: [number, number], y?: number) => void
   onFloorSurface?: (surface: Surface, roughness?: number) => void
   onWallGeometry?: (from: [number, number], to: [number, number], height: number, y?: number) => void
@@ -239,6 +240,27 @@ function BoxPanel({ item, levels, canDuplicate, onMove, onLevel, onDuplicate, on
   </>
 }
 
+function ModelPanel({ item, levels, canDuplicate, onMove, onRotate, onScale, onLevel, onDuplicate, onDelete, onView }: ObjectPanelProps & { item: ModelItem }) {
+  const x = item.position[0]
+  const z = item.position[2]
+  const deletable = canDelete(item)
+  return <>
+    <h3>Model <small>{item.id}</small></h3>
+    <div className="office-3d-objpanel-grid">
+      <NumberField id={`${item.id}:x`} label="X (m)" value={x} step={0.05} onCommit={(next) => onMove(next, z)}/>
+      <NumberField id={`${item.id}:z`} label="Z (m)" value={z} step={0.05} onCommit={(next) => onMove(x, next)}/>
+      <NumberField id={`${item.id}:rot`} label="Rotation (°)" value={degrees(item.rotation)} step={15} onCommit={onRotate}/>
+      <NumberField id={`${item.id}:scale`} label="Scale" value={item.scale ?? 1.0} step={0.1} min={0.01} max={100} onCommit={(scale) => onScale?.(scale)}/>
+    </div>
+    <FloorSelector value={item.level} levels={levels} onChange={onLevel}/>
+    <ViewSelector value={item.view} onChange={onView}/>
+    <div className="office-3d-objpanel-actions">
+      <button type="button" disabled={!canDuplicate} title={canDuplicate ? 'Duplicate (Ctrl/Cmd+D)' : 'Limit reached (500 added objects)'} onClick={onDuplicate}>Duplicate</button>
+      <button type="button" className="danger" disabled={!deletable} onClick={onDelete}>Delete</button>
+    </div>
+  </>
+}
+
 /** Position, rotation, floor, properties, duplicate and delete for the selected object. */
 export function ObjectPanel(props: ObjectPanelProps) {
   const { item, levels, canDuplicate, onMove, onRotate, onLevel, onDuplicate, onProp, onDelete, onView } = props
@@ -253,6 +275,7 @@ export function ObjectPanel(props: ObjectPanelProps) {
   if (item.kind === 'wall') return <aside className="office-3d-objpanel" aria-label="Selected object"><WallPanel {...props} item={item}/></aside>
   if (item.kind === 'glass') return <aside className="office-3d-objpanel" aria-label="Selected object"><GlassPanel {...props} item={item}/></aside>
   if (item.kind === 'box') return <aside className="office-3d-objpanel" aria-label="Selected object"><BoxPanel {...props} item={item}/></aside>
+  if (item.kind === 'model') return <aside className="office-3d-objpanel" aria-label="Selected object"><ModelPanel {...props} item={item}/></aside>
 
   const x = item.position[0]
   const z = item.position[2]

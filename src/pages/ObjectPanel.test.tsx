@@ -2,7 +2,7 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { BoxItem, FloorItem, GlassItem, PropItem, WallItem, WindowItem } from '../scene3d/scene.ts'
+import type { BoxItem, FloorItem, GlassItem, ModelItem, PropItem, WallItem, WindowItem } from '../scene3d/scene.ts'
 import { ObjectPanel } from './ObjectPanel.tsx'
 
 const testEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -276,5 +276,53 @@ describe('ObjectPanel structure items', () => {
     const shadowBox = [...host.querySelectorAll('label')].find((l) => l.textContent?.includes('Cast Shadow'))!.querySelector('input[type="checkbox"]') as HTMLInputElement
     await act(async () => { shadowBox.click() })
     expect(handlers.onBoxProps).toHaveBeenCalledWith([2, 1, 2], '#a0a0a0', expect.objectContaining({ shadow: false }))
+  })
+
+  it('renders model properties and commits position, rotation, and scale', async () => {
+    const model: ModelItem = {
+      kind: 'model',
+      id: 'added-1',
+      level: 0,
+      modelId: 'm-0123456789ab',
+      position: [1.5, 0, 2.5],
+      rotation: 0,
+      scale: 1.2,
+    }
+    const handlers = {
+      canDuplicate: true,
+      onMove: vi.fn(),
+      onRotate: vi.fn(),
+      onLevel: vi.fn(),
+      onDuplicate: vi.fn(),
+      onProp: vi.fn(),
+      onDelete: vi.fn(),
+      onScale: vi.fn(),
+    }
+    const host = document.body.appendChild(document.createElement('div'))
+    const root = createRoot(host)
+    await act(async () => {
+      root.render(<ObjectPanel item={model} levels={[0, 2.8]} {...handlers} />)
+    })
+    expect(host.textContent).toContain('Model')
+    expect(host.textContent).toContain('added-1')
+
+    const input = (label: string) => [...host.querySelectorAll('label')].find((node) => node.textContent?.startsWith(label))!.querySelector('input')!
+    const type = async (field: HTMLInputElement, value: string) => {
+      await act(async () => {
+        field.value = value
+        field.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
+      })
+    }
+
+    expect(input('Scale').value).toBe('1.2')
+    await type(input('Scale'), '2.5')
+    expect(handlers.onScale).toHaveBeenCalledWith(2.5)
+
+    await type(input('X').value ? input('X') : input('X (m)'), '3.0')
+    expect(handlers.onMove).toHaveBeenCalledWith(3, 2.5)
+
+    const deleteBtn = [...host.querySelectorAll('button')].find((b) => b.textContent === 'Delete')!
+    await act(async () => { deleteBtn.click() })
+    expect(handlers.onDelete).toHaveBeenCalled()
   })
 })

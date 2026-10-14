@@ -2,18 +2,29 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { ModelRecord } from '../scene3d/models.ts'
 import { PROP_TYPES } from '../scene3d/scene.ts'
-import { PropPalette } from './PropPalette.tsx'
+import { PropPalette, type PropPaletteProps } from './PropPalette.tsx'
 
 const testEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 testEnvironment.IS_REACT_ACT_ENVIRONMENT = true
 
 afterEach(() => { document.body.replaceChildren() })
 
-async function mount(props: { placing?: Parameters<typeof PropPalette>[0]['placing']; limitReached?: boolean } = {}) {
-  const onPick = vi.fn()
+async function mount(props: Partial<PropPaletteProps> = {}) {
+  const onPick = props.onPick ?? vi.fn()
   const host = document.body.appendChild(document.createElement('div'))
-  await act(async () => { createRoot(host).render(<PropPalette placing={props.placing ?? null} limitReached={props.limitReached ?? false} onPick={onPick}/>) })
+  await act(async () => {
+    createRoot(host).render(
+      <PropPalette
+        placing={props.placing ?? null}
+        limitReached={props.limitReached ?? false}
+        onPick={onPick}
+        models={props.models}
+        onUpload={props.onUpload}
+      />,
+    )
+  })
   const buttons = () => [...host.querySelectorAll('.office-3d-palette-list button')] as HTMLButtonElement[]
   const button = (label: string) => buttons().find((node) => node.textContent === label)!
   return { host, onPick, buttons, button }
@@ -23,7 +34,7 @@ describe('PropPalette', () => {
   it('lists every object type once, in groups', async () => {
     const { host, buttons } = await mount()
     expect(buttons()).toHaveLength(PROP_TYPES.length)
-    expect([...host.querySelectorAll('h4')].map((node) => node.textContent)).toEqual(['Furniture', 'Kitchen', 'Leisure', 'Bedroom', 'Outdoor', 'Structure'])
+    expect([...host.querySelectorAll('h4')].map((node) => node.textContent)).toEqual(['Furniture', 'Kitchen', 'Leisure', 'Bedroom', 'Outdoor', 'Structure', 'Imported'])
   })
 
   it('picks a type, and clicking the active one leaves placing', async () => {
@@ -104,5 +115,39 @@ describe('PropPalette', () => {
     expect(onPick).toHaveBeenCalledWith('floor')
     await act(async () => { structureButtons[1].click() })
     expect(onPick).toHaveBeenCalledWith('wall')
+  })
+
+  it('renders imported models and selects them for placement', async () => {
+    const models: ModelRecord[] = [
+      { id: 'm-1234567890ab', name: 'Custom Lamp', format: 'glb', size: 2048, createdAt: '2026-10-14T00:00:00Z' },
+    ]
+    const { host, onPick } = await mount({ models })
+    const importedBtn = [...host.querySelectorAll('.office-3d-palette-imported button')].find((b) => b.textContent?.includes('Custom Lamp')) as HTMLButtonElement | undefined
+    expect(importedBtn).toBeDefined()
+
+    await act(async () => { importedBtn!.click() })
+    expect(onPick).toHaveBeenCalledWith('model:m-1234567890ab')
+  })
+
+  it('triggers model upload via file input', async () => {
+    const onUpload = vi.fn().mockResolvedValue({
+      id: 'm-newmodel1234',
+      name: 'chair.glb',
+      format: 'glb',
+      size: 4096,
+      createdAt: '2026-10-14T00:00:00Z',
+    })
+    const { host, onPick } = await mount({ onUpload })
+    const fileInput = host.querySelector('.office-3d-palette-imported input[type="file"]') as HTMLInputElement
+    expect(fileInput).toBeDefined()
+
+    const file = new File(['dummy content'], 'chair.glb', { type: 'model/gltf-binary' })
+    await act(async () => {
+      Object.defineProperty(fileInput, 'files', { value: [file], configurable: true })
+      fileInput.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    expect(onUpload).toHaveBeenCalledWith(file)
+    expect(onPick).toHaveBeenCalledWith('model:m-newmodel1234')
   })
 })
