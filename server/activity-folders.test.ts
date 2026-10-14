@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { excludedFor, FolderError, fsError, hermesRoot, listFolder, publicAgent, readFolderFile, resolveAgentFolders, safeRelativePath } from './folders.js'
-import { buildOfficeSnapshot, collectAgentActivity, CommandError, parseRecentActivity, type AgentActivitySnapshot } from './mission-control.js'
+import { buildOfficeSnapshot, collectAgentActivity, CommandError, parseRecentActivity, profileActivityPaths, type AgentActivitySnapshot, type StatFn } from './mission-control.js'
 
 const at = '2026-09-27T12:00:00.000Z'
 const runtime = { profiles: { availability: 'available' as const, data: [{ name: 'default', model: 'm', gateway: 'Running' as const }, { name: 'coder', model: 'm', gateway: 'Running' as const }] }, openCode: { availability: 'available' as const, data: '1' }, fetchedAt: at }
@@ -44,6 +44,141 @@ describe('live agent activity', () => {
   })
 })
 
+describe('activity gating', () => {
+  const now = 1_000_000_000
+  const stale = now - 400_000 // > 5m ago
+  const fresh = now - 60_000 // 1m ago
+
+  it('(a) skips all CLI spawns when all profiles are stale and marks all active:false', async () => {
+    const calls: string[] = []
+    const stat: StatFn = async () => ({ mtimeMs: stale })
+    const run = async (_file: string, args: readonly string[]) => {
+      calls.push(args.join(' '))
+      return ''
+    }
+
+    const snapshot = await collectAgentActivity(['default', 'coder'], run, stat, now)
+    expect(calls).toHaveLength(0)
+    expect(snapshot.agents).toEqual([
+      { profile: 'default', availability: 'available', active: false, mentionsOpenCode: false, gated: true },
+      { profile: 'coder', availability: 'available', active: false, mentionsOpenCode: false, gated: true },
+    ])
+  })
+
+  it('(b) runs exactly 2 spawns for the fresh profile only', async () => {
+    const calls: string[] = []
+    const stat: StatFn = async (target) => ({
+      mtimeMs: target.includes('coder') ? fresh : stale,
+    })
+    const run = async (_file: string, args: readonly string[]) => {
+      calls.push(args.join(' '))
+      return ''
+    }
+
+    const snapshot = await collectAgentActivity(['default', 'coder'], run, stat, now)
+    expect(calls).toHaveLength(2)
+    expect(calls).toEqual([
+      '-p coder logs agent -n 80 --since 3m',
+      '-p coder sessions list --limit 3',
+    ])
+    expect(snapshot.agents).toMatchObject([
+      { profile: 'default', availability: 'available', active: false, gated: true },
+      { profile: 'coder', availability: 'available', active: false },
+    ])
+    expect(snapshot.agents[1].gated).toBeUndefined()
+  })
+
+  it('(c) spawns only sessions when only log is stale, and only logs when only sessions is stale', async () => {
+    // only log stale
+    const callsLogStale: string[] = []
+    const statLogStale: StatFn = async (target) => ({
+      mtimeMs: target.includes('agent.log') ? stale : fresh,
+    })
+    const runLogStale = async (_file: string, args: readonly string[]) => {
+      callsLogStale.push(args.join(' '))
+      return ''
+    }
+    const resLogStale = await collectAgentActivity(['coder'], runLogStale, statLogStale, now)
+    expect(callsLogStale).toEqual(['-p coder sessions list --limit 3'])
+    expect(resLogStale.agents[0]).toMatchObject({ profile: 'coder', availability: 'available', gated: 'logs' })
+
+    // only sessions/db stale
+    const callsDbStale: string[] = []
+    const statDbStale: StatFn = async (target) => ({
+      mtimeMs: target.includes('agent.log') ? fresh : stale,
+    })
+    const runDbStale = async (_file: string, args: readonly string[]) => {
+      callsDbStale.push(args.join(' '))
+      return ''
+    }
+    const resDbStale = await collectAgentActivity(['coder'], runDbStale, statDbStale, now)
+    expect(callsDbStale).toEqual(['-p coder logs agent -n 80 --since 3m'])
+    expect(resDbStale.agents[0]).toMatchObject({ profile: 'coder', availability: 'available', gated: 'sessions' })
+  })
+
+  it('(d) runs both spawns (fail open) when stat throws', async () => {
+    const calls: string[] = []
+    const stat: StatFn = async () => {
+      throw new Error('EACCES: permission denied')
+    }
+    const run = async (_file: string, args: readonly string[]) => {
+      calls.push(args.join(' '))
+      return ''
+    }
+
+    const snapshot = await collectAgentActivity(['coder'], run, stat, now)
+    expect(calls).toHaveLength(2)
+    expect(calls).toEqual([
+      '-p coder logs agent -n 80 --since 3m',
+      '-p coder sessions list --limit 3',
+    ])
+    expect(snapshot.agents[0]).toMatchObject({ profile: 'coder', availability: 'available', active: false })
+  })
+
+  it('(e) preserves invalid profile-name filtering and never builds gated paths for invalid names', async () => {
+    const checkedPaths: string[] = []
+    const stat: StatFn = async (target) => {
+      checkedPaths.push(target)
+      return { mtimeMs: fresh }
+    }
+    const calls: string[] = []
+    const run = async (_file: string, args: readonly string[]) => {
+      calls.push(args.join(' '))
+      return ''
+    }
+
+    const invalidProfiles = ['--evil', '../escape', '/absolute', 'name with spaces']
+    await collectAgentActivity(['coder', ...invalidProfiles, ''], run, stat, now)
+
+    expect(profileActivityPaths('')).toBeUndefined()
+    for (const invalid of invalidProfiles) {
+      expect(profileActivityPaths(invalid)).toBeUndefined()
+      expect(checkedPaths.some((p) => p.includes(invalid))).toBe(false)
+      expect(calls.some((c) => c.includes(invalid))).toBe(false)
+    }
+  })
+
+  it('(f) produces byte-identical active result for a fresh profile compared to ungated run', async () => {
+    const logOutput = '2026-09-27 12:00:01,000 INFO run_agent: turn started\n'
+    const sessionOutput = 'No sessions found.\n'
+    const fakeRun = async (_file: string, args: readonly string[]) => {
+      if (args.includes('logs')) return logOutput
+      return sessionOutput
+    }
+
+    const statFresh: StatFn = async () => ({ mtimeMs: fresh })
+    const gatedFreshSnapshot = await collectAgentActivity(['coder'], fakeRun, statFresh, now)
+
+    const expected = {
+      profile: 'coder',
+      availability: 'available',
+      ...parseRecentActivity(logOutput, sessionOutput),
+    }
+
+    expect(JSON.stringify(gatedFreshSnapshot.agents[0])).toBe(JSON.stringify(expected))
+  })
+})
+
 describe('office placement from live activity', () => {
   const live = (agents: AgentActivitySnapshot['agents']): AgentActivitySnapshot => ({ agents, fetchedAt: at })
 
@@ -73,6 +208,20 @@ describe('office placement from live activity', () => {
     expect(office.stations[0]).toMatchObject({ state: 'Working', activity: 'Kanban: Ship v2' })
     expect(office.stations[1].state).toBe('Unknown')
     expect(office.stations[2].state).toBe('Unknown')
+  })
+
+  it('reports truthful provenance including skipped writes when agent was gated', () => {
+    const office = buildOfficeSnapshot(runtime, emptyBoard, emptyActivity, {
+      now: at,
+      agentActivity: live([
+        { profile: 'default', availability: 'available', active: false, mentionsOpenCode: false, gated: true },
+        { profile: 'coder', availability: 'available', active: false, mentionsOpenCode: false },
+      ]),
+    })
+    const defaultStation = office.stations.find((s) => s.id === 'default')
+    const coderStation = office.stations.find((s) => s.id === 'coder')
+    expect(defaultStation?.provenance).toContain('live activity (hermes -p default (skipped: no writes in 5m), last 3m): none')
+    expect(coderStation?.provenance).toContain('live activity (hermes -p coder logs/sessions, last 3m): none')
   })
 })
 
