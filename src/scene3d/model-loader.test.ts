@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import * as THREE from 'three'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { describe, expect, it } from 'vitest'
 import { normalizeModel } from './model-loader.ts'
 
@@ -82,7 +82,7 @@ describe('model-loader normalization', () => {
     expect(glbBuffer.byteLength).toBeGreaterThan(0)
 
     const loader = new GLTFLoader()
-    const loadedGltf = await new Promise<any>((resolve, reject) => {
+    const loadedGltf = await new Promise<GLTF>((resolve, reject) => {
       loader.parse(glbBuffer, '', (gltf) => resolve(gltf), (err) => reject(err))
     })
 
