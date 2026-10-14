@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   base64ToBytes,
   bytesToBase64,
+  createMinimalGlb,
   exportBundle,
+  formatBundleFilename,
   importBundle,
   type RuangBundle,
 } from './bundle.ts'
@@ -31,6 +33,11 @@ describe('bundle', () => {
     ],
   }
 
+  it('formats bundle filename correctly', () => {
+    const fixedDate = new Date(2026, 9, 14, 15, 30) // month is 0-indexed: 9 = October
+    expect(formatBundleFilename(fixedDate)).toBe('ruang-bundle-20261014-1530.json')
+  })
+
   it('encodes and decodes base64 bytes symmetrically', () => {
     const original = new Uint8Array([0, 1, 2, 255, 128, 64, 32, 16])
     const b64 = bytesToBase64(original)
@@ -44,7 +51,7 @@ describe('bundle', () => {
         return {
           name: 'chair.glb',
           format: 'glb' as const,
-          bytes: new Uint8Array([10, 20, 30, 40]),
+          bytes: createMinimalGlb(),
         }
       }
       return null
@@ -54,14 +61,16 @@ describe('bundle', () => {
     expect(bundle.format).toBe('ruang-bundle')
     expect(bundle.version).toBe(1)
     expect(bundle.patch.version).toBe(2)
+    expect(bundle.patch.overrides).toEqual({})
     expect(bundle.models.length).toBe(1)
     expect(bundle.models[0].id).toBe('m-aaaaaaaaaaaa')
     expect(bundle.models[0].name).toBe('chair.glb')
     expect(bundle.models[0].format).toBe('glb')
-    expect(base64ToBytes(bundle.models[0].dataBase64)).toEqual(new Uint8Array([10, 20, 30, 40]))
+    expect(base64ToBytes(bundle.models[0].dataBase64)).toEqual(createMinimalGlb())
   })
 
   it('imports bundle, uploads models, remaps modelIds, and resolves item id collisions', async () => {
+    const glbBytes = createMinimalGlb()
     const bundle: RuangBundle = {
       format: 'ruang-bundle',
       version: 1,
@@ -84,7 +93,7 @@ describe('bundle', () => {
           id: 'm-oldmodel1111',
           name: 'table.glb',
           format: 'glb',
-          dataBase64: bytesToBase64(new Uint8Array([1, 2, 3])),
+          dataBase64: bytesToBase64(glbBytes),
         },
       ],
     }
@@ -115,6 +124,60 @@ describe('bundle', () => {
     expect(result.added[0].id).toBe('added-1')
     expect(result.added[1].id).toBe('added-2') // Renamed due to collision
     expect((result.added[1] as ModelItem).modelId).toBe('m-newmodel2222') // Remapped ID
+    expect(result.itemCount).toBe(1)
+    expect(result.modelCount).toBe(1)
+  })
+
+  it('importing same bundle twice into same scene yields re-id items and 2 copies of models without collision', async () => {
+    const glbBytes = createMinimalGlb()
+    const bundle: RuangBundle = {
+      format: 'ruang-bundle',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      patch: {
+        version: 2,
+        overrides: {},
+        added: [
+          {
+            kind: 'model',
+            id: 'm-item-1',
+            level: 0,
+            modelId: 'm-source0001',
+            position: [1, 0, 1],
+          } as ModelItem,
+        ],
+      },
+      models: [
+        {
+          id: 'm-source0001',
+          name: 'lamp.glb',
+          format: 'glb',
+          dataBase64: bytesToBase64(glbBytes),
+        },
+      ],
+    }
+
+    let uploadCount = 0
+    const uploadModel = vi.fn().mockImplementation(async () => {
+      uploadCount++
+      return { id: `m-assigned000${uploadCount}` }
+    })
+
+    const initial: ScenePatch = { version: 2, overrides: {}, added: [] }
+    const firstImport = await importBundle(bundle, initial, { uploadModel })
+
+    expect(firstImport.added.length).toBe(1)
+    expect(firstImport.added[0].id).toBe('m-item-1')
+    expect((firstImport.added[0] as ModelItem).modelId).toBe('m-assigned0001')
+
+    // Second import into the result of the first import
+    const secondImport = await importBundle(bundle, firstImport, { uploadModel })
+    expect(secondImport.added.length).toBe(2)
+    expect(secondImport.added[0].id).toBe('m-item-1')
+    expect((secondImport.added[0] as ModelItem).modelId).toBe('m-assigned0001')
+    // Second item should have remapped unique ID and newly assigned model ID
+    expect(secondImport.added[1].id).toBe('added-1')
+    expect((secondImport.added[1] as ModelItem).modelId).toBe('m-assigned0002')
   })
 
   it('rejects invalid bundle format or version', async () => {
@@ -129,12 +192,12 @@ describe('bundle', () => {
     )
   })
 
-  it('rejects bundles exceeding model count cap', async () => {
-    const tooManyModels = Array.from({ length: 25 }, (_, i) => ({
-      id: `m-${i}`,
+  it('rejects bundles exceeding model count cap (20)', async () => {
+    const tooManyModels = Array.from({ length: 21 }, (_, i) => ({
+      id: `m-0000000000${i.toString().padStart(2, '0')}`,
       name: `model-${i}.glb`,
       format: 'glb' as const,
-      dataBase64: '',
+      dataBase64: bytesToBase64(createMinimalGlb()),
     }))
 
     const bundle: RuangBundle = {
@@ -146,7 +209,180 @@ describe('bundle', () => {
     }
 
     await expect(importBundle(bundle, samplePatch)).rejects.toThrow(
-      'Bundle contains 25 models, exceeding cap of 20',
+      'Bundle contains 21 models, exceeding cap of 20',
     )
+  })
+
+  it('rejects bundles exceeding item count cap (500)', async () => {
+    const tooManyItems = Array.from({ length: 501 }, (_, i) => ({
+      id: `item-${i}`,
+      kind: 'prop' as const,
+      type: 'Plant' as const,
+      level: 0,
+      position: [0, 0, 0] as [number, number, number],
+    }))
+
+    const bundle: RuangBundle = {
+      format: 'ruang-bundle',
+      version: 1,
+      exportedAt: '',
+      patch: { version: 2, overrides: {}, added: tooManyItems },
+      models: [],
+    }
+
+    await expect(importBundle(bundle, samplePatch)).rejects.toThrow(
+      'Bundle contains 501 items, exceeding cap of 500',
+    )
+  })
+
+  it('rejects bundle with bad base64 before upload', async () => {
+    const uploadModel = vi.fn()
+    const bundle: RuangBundle = {
+      format: 'ruang-bundle',
+      version: 1,
+      exportedAt: '',
+      patch: {
+        version: 2,
+        overrides: {},
+        added: [{ id: 'm-1', kind: 'model', modelId: 'm-model0000001', level: 0, position: [0, 0, 0] }],
+      },
+      models: [
+        {
+          id: 'm-model0000001',
+          name: 'bad.glb',
+          format: 'glb',
+          dataBase64: '!!!NOT_VALID_BASE64@@@',
+        },
+      ],
+    }
+
+    await expect(importBundle(bundle, samplePatch, { uploadModel })).rejects.toThrow(
+      'Invalid base64 encoding',
+    )
+    expect(uploadModel).not.toHaveBeenCalled()
+  })
+
+  it('rejects bundle with invalid model bytes before upload', async () => {
+    const uploadModel = vi.fn()
+    const bundle: RuangBundle = {
+      format: 'ruang-bundle',
+      version: 1,
+      exportedAt: '',
+      patch: {
+        version: 2,
+        overrides: {},
+        added: [{ id: 'm-1', kind: 'model', modelId: 'm-model0000001', level: 0, position: [0, 0, 0] }],
+      },
+      models: [
+        {
+          id: 'm-model0000001',
+          name: 'corrupt.glb',
+          format: 'glb',
+          dataBase64: bytesToBase64(new Uint8Array([1, 2, 3, 4, 5])),
+        },
+      ],
+    }
+
+    await expect(importBundle(bundle, samplePatch, { uploadModel })).rejects.toThrow(
+      'not a valid GLB: file too short',
+    )
+    expect(uploadModel).not.toHaveBeenCalled()
+  })
+
+  it('rejects prototype pollution attempts before upload', async () => {
+    const uploadModel = vi.fn()
+    const maliciousJson = JSON.stringify({
+      format: 'ruang-bundle',
+      version: 1,
+      exportedAt: '',
+      patch: {
+        version: 2,
+        overrides: {},
+        added: [],
+      },
+      models: [],
+      constructor: { prototype: { admin: true } },
+    })
+
+    await expect(importBundle(maliciousJson, samplePatch, { uploadModel })).rejects.toThrow(
+      'Forbidden key "constructor"',
+    )
+
+    const maliciousProto = '{"format":"ruang-bundle","version":1,"patch":{"version":2,"overrides":{},"added":[]},"models":[],"__proto__":{"polluted":true}}'
+    await expect(importBundle(maliciousProto, samplePatch, { uploadModel })).rejects.toThrow(
+      /Prototype safety violation|Forbidden key/,
+    )
+
+    const forbiddenIdBundle = {
+      format: 'ruang-bundle' as const,
+      version: 1 as const,
+      exportedAt: '',
+      patch: {
+        version: 2 as const,
+        overrides: {},
+        added: [
+          {
+            id: '__proto__',
+            kind: 'prop' as const,
+            type: 'Plant' as const,
+            level: 0,
+            position: [0, 0, 0] as [number, number, number],
+          },
+        ],
+      },
+      models: [],
+    }
+    await expect(importBundle(forbiddenIdBundle, samplePatch, { uploadModel })).rejects.toThrow(
+      'invalid id: __proto__',
+    )
+
+    expect(uploadModel).not.toHaveBeenCalled()
+  })
+
+  it('rolls back uploaded models when mid-import failure occurs', async () => {
+    const glb = createMinimalGlb()
+    const bundle: RuangBundle = {
+      format: 'ruang-bundle',
+      version: 1,
+      exportedAt: '',
+      patch: {
+        version: 2,
+        overrides: {},
+        added: [
+          { id: 'm-1', kind: 'model', modelId: 'm-model0000001', level: 0, position: [0, 0, 0] },
+          { id: 'm-2', kind: 'model', modelId: 'm-model0000002', level: 0, position: [0, 0, 0] },
+        ],
+      },
+      models: [
+        {
+          id: 'm-model0000001',
+          name: 'model1.glb',
+          format: 'glb',
+          dataBase64: bytesToBase64(glb),
+        },
+        {
+          id: 'm-model0000002',
+          name: 'model2.glb',
+          format: 'glb',
+          dataBase64: bytesToBase64(glb),
+        },
+      ],
+    }
+
+    const uploadModel = vi
+      .fn()
+      .mockResolvedValueOnce({ id: 'm-uploaded1111' })
+      .mockRejectedValueOnce(new Error('Storage quota exceeded 409'))
+
+    const deleteModel = vi.fn().mockResolvedValue(undefined)
+
+    await expect(
+      importBundle(bundle, samplePatch, { uploadModel, deleteModel }),
+    ).rejects.toThrow('Storage quota exceeded 409')
+
+    expect(uploadModel).toHaveBeenCalledTimes(2)
+    // deleteModel must be called for m-uploaded1111 to clean up!
+    expect(deleteModel).toHaveBeenCalledWith('m-uploaded1111')
+    expect(deleteModel).toHaveBeenCalledTimes(1)
   })
 })

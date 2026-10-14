@@ -20,7 +20,8 @@ import { ModelLibrary } from './ModelLibrary.tsx'
 import { ObjectPanel } from './ObjectPanel.tsx'
 import { PropPalette } from './PropPalette.tsx'
 import { exportSceneGlb, downloadBlob, formatSceneGlbFilename } from '../scene3d/export-glb.ts'
-import { exportBundle, importBundle } from '../scene3d/bundle.ts'
+import { exportBundle, formatBundleFilename, importBundle } from '../scene3d/bundle.ts'
+import { fetchModels } from '../models-api.ts'
 
 // 3D view of the same Office snapshot the 2D view renders. Positions come from each station's
 // room, roomPosition and seat, so the 3D office shows exactly the states the server derived.
@@ -434,6 +435,11 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
   const [exportSuccess, setExportSuccess] = useState<string | null>(null)
+  const [exportingBundle, setExportingBundle] = useState(false)
+  const [importingBundle, setImportingBundle] = useState(false)
+  const [bundleProgress, setBundleProgress] = useState<string | null>(null)
+  const [bundleError, setBundleError] = useState<string | null>(null)
+  const [bundleSuccess, setBundleSuccess] = useState<string | null>(null)
   const sceneRef = useRef<THREE.Scene | null>(null)
 
   useEffect(() => {
@@ -472,25 +478,73 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
   }
 
   const handleExportBundle = async () => {
-    setExporting(true)
+    setExportingBundle(true)
+    setBundleError(null)
+    setBundleSuccess(null)
     try {
-      const bundle = await exportBundle(editor.draft)
+      let exportModels = models
+      if (exportModels.length === 0) {
+        try {
+          const fresh = await fetchModels()
+          if (Array.isArray(fresh) && fresh.length > 0) {
+            exportModels = fresh
+            setModels(fresh)
+          }
+        } catch {
+          // fallback to current models state
+        }
+      }
+      const bundle = await exportBundle(editor.draft, {
+        includeModelIds: exportModels.map((m) => m.id),
+      })
+      const filename = formatBundleFilename()
       const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' })
-      downloadBlob(blob, `office-bundle-${new Date().toISOString().slice(0, 10)}.ruang-bundle`)
+      downloadBlob(blob, filename)
+      setBundleSuccess(`Exported ${filename}`)
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setBundleError(`Export failed: ${msg}`)
       console.error('Failed to export scene bundle:', err)
     } finally {
-      setExporting(false)
+      setExportingBundle(false)
     }
   }
 
   const handleImportBundle = async (file: File) => {
+    setImportingBundle(true)
+    setBundleError(null)
+    setBundleSuccess(null)
+    setBundleProgress(null)
     try {
       const text = await file.text()
-      const updatedPatch = await importBundle(text, editor.draft)
-      editor.apply(() => updatedPatch)
+      const result = await importBundle(text, editor.draft, {
+        onProgress: ({ current, total }) => {
+          setBundleProgress(`Uploading ${current}/${total} models…`)
+        },
+      })
+      editor.apply(() => ({
+        version: result.version,
+        overrides: result.overrides,
+        added: result.added,
+      }))
+      if (result.modelCount > 0) {
+        try {
+          const freshModels = await fetchModels()
+          setModels(freshModels)
+          window.dispatchEvent(new CustomEvent('ruang:models-changed', { detail: freshModels }))
+        } catch (fetchErr) {
+          console.warn('Failed to refresh models after bundle import:', fetchErr)
+        }
+      }
+      setBundleProgress(null)
+      setBundleSuccess(`Imported ${result.itemCount} item${result.itemCount === 1 ? '' : 's'}, ${result.modelCount} model${result.modelCount === 1 ? '' : 's'}`)
     } catch (err: unknown) {
-      alert(`Import failed: ${(err as Error).message || String(err)}`)
+      const msg = err instanceof Error ? err.message : String(err)
+      setBundleError(`Failed to import bundle: ${msg}`)
+      console.error('Failed to import scene bundle:', err)
+    } finally {
+      setImportingBundle(false)
+      setBundleProgress(null)
     }
   }
   const selectedItem = editor.selectedId ? items.find((item) => item.id === editor.selectedId) : undefined
@@ -603,7 +657,34 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
       <button type="button" className={panMode ? 'active' : ''} aria-pressed={panMode} onClick={() => setPanMode((value) => !value)} title="Drag moves the view instead of rotating it">✥ Geser</button>
       <button type="button" onClick={() => view.current?.reset()} title="Back to the starting view">↺ Reset view</button>
     </div>
-    {editor.editing && <EditorBar canUndo={editor.canUndo} canRedo={editor.canRedo} dirty={editor.dirty} saving={editor.saving} error={editor.error || exportError} viewMode={viewMode} onViewModeChange={setViewMode} onAddStorey={() => editor.apply((patchNow) => addStorey(patchNow, items).patch)} onExportGlb={handleExportGlb} exportingGlb={exporting} exportSuccess={exportSuccess} onExportBundle={handleExportBundle} onImportBundle={handleImportBundle} onManageModels={() => setManageModels(true)} onUndo={editor.undo} onRedo={editor.redo} onSave={() => void editor.save()} onReset={resetEdits} onDone={finishEditing}/>}
+    {editor.editing && (
+      <EditorBar
+        canUndo={editor.canUndo}
+        canRedo={editor.canRedo}
+        dirty={editor.dirty}
+        saving={editor.saving}
+        error={editor.error || exportError}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        onAddStorey={() => editor.apply((patchNow) => addStorey(patchNow, items).patch)}
+        onExportGlb={handleExportGlb}
+        exportingGlb={exporting}
+        exportSuccess={exportSuccess}
+        onExportBundle={handleExportBundle}
+        exportingBundle={exportingBundle}
+        onImportBundle={handleImportBundle}
+        importingBundle={importingBundle}
+        bundleProgress={bundleProgress}
+        bundleSuccess={bundleSuccess}
+        bundleError={bundleError}
+        onManageModels={() => setManageModels(true)}
+        onUndo={editor.undo}
+        onRedo={editor.redo}
+        onSave={() => void editor.save()}
+        onReset={resetEdits}
+        onDone={finishEditing}
+      />
+    )}
     {editor.editing && <PropPalette placing={placing} limitReached={limitReached} models={models} onModelsChange={setModels} onManageModels={() => setManageModels(true)} onPick={(type) => (type ? editor.startPlacing(type) : editor.stopPlacing())}/>}
     {editor.editing && selected && <ObjectPanel item={selected} levels={levels} canDuplicate={!limitReached} onDuplicate={() => editor.addWith((patchNow) => duplicateItem(patchNow, items, selected, bounds))} onProp={(key, value) => editor.apply((patchNow) => setItemProp(patchNow, selected, key, value))} onMove={(x, z) => editor.apply((patchNow) => moveItem(patchNow, selected, x, z, bounds))} onRotate={(degrees) => editor.apply((patchNow) => rotateItem(patchNow, selected, (degrees * Math.PI) / 180))} onScale={(scale) => editor.apply((patchNow) => setItemScale(patchNow, selected, scale))} onLevel={(next) => { editor.apply((patchNow) => setItemLevel(patchNow, selected, next)); setLevelIndex(Math.max(0, levels.indexOf(next))) }} onDelete={() => { editor.apply((patchNow) => deleteItem(patchNow, selected)); editor.select(null); keyTarget?.focus() }} onView={(v) => editor.apply((patchNow) => setItemView(patchNow, selected, v))} onFloorBounds={(min, max, y) => editor.apply((patchNow) => setFloorBounds(patchNow, selected, min, max, y))} onFloorSurface={(surface, roughness) => editor.apply((patchNow) => setFloorSurface(patchNow, selected, surface, roughness))} onWallGeometry={(from, to, height, y) => editor.apply((patchNow) => setWallGeometry(patchNow, selected, from, to, height, y))} onGlassGeometry={(from, to, bottom, top) => editor.apply((patchNow) => setGlassGeometry(patchNow, selected, from, to, bottom, top))} onBoxProps={(size, color, options) => editor.apply((patchNow) => setBoxProps(patchNow, selected, size, color, options))}/>}
     {manageModels && (

@@ -915,11 +915,22 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
 .office-3d-editbar small { color: #b7c9bf; }
 .office-3d-editerror { color: #ff9b94 !important; }
 .office-3d-editsuccess { color: #73c991 !important; }
-.office-3d-export-glb-btn .btn-label-short { display: none; }
-.office-3d-export-glb-btn .btn-label-full { display: inline; }
+.office-3d-export-glb-btn .btn-label-short,
+.office-3d-export-bundle-btn .btn-label-short,
+.office-3d-import-bundle-btn .btn-label-short { display: none; }
+.office-3d-export-glb-btn .btn-label-full,
+.office-3d-export-bundle-btn .btn-label-full,
+.office-3d-import-bundle-btn .btn-label-full { display: inline; }
+.office-3d-import-bundle-btn { align-items: center; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 6px; color: inherit; cursor: pointer; display: inline-flex; font: inherit; padding: 4px 9px; user-select: none; }
+.office-3d-import-bundle-btn.disabled { cursor: not-allowed; opacity: .45; pointer-events: none; }
+.office-3d-editprogress { color: #f5bd6d !important; }
 @media (max-width: 520px) {
-  .office-3d-export-glb-btn .btn-label-full { display: none; }
-  .office-3d-export-glb-btn .btn-label-short { display: inline; }
+  .office-3d-export-glb-btn .btn-label-full,
+  .office-3d-export-bundle-btn .btn-label-full,
+  .office-3d-import-bundle-btn .btn-label-full { display: none; }
+  .office-3d-export-glb-btn .btn-label-short,
+  .office-3d-export-bundle-btn .btn-label-short,
+  .office-3d-import-bundle-btn .btn-label-short { display: inline; }
 }
 .office-3d-objpanel { align-content: start; background: rgba(18, 26, 24, 0.86); border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 8px; color: #f4efe6; display: grid; font-size: 12px; gap: 8px; max-height: calc(100% - 74px); overflow-y: auto; overscroll-behavior: contain; padding: 10px; position: absolute; right: 10px; top: 64px; width: 220px; z-index: 3; }
 .office-3d-objpanel h3 { font-size: 13px; margin: 0; }

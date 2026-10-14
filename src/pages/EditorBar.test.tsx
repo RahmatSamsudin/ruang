@@ -3,9 +3,22 @@ import { describe, expect, it } from 'vitest'
 import { EditorBar } from './EditorBar.tsx'
 
 const noop = () => {}
-const bar = (props: Partial<Parameters<typeof EditorBar>[0]> = {}) => renderToStaticMarkup(
-  <EditorBar canUndo={false} canRedo={false} dirty={false} saving={false} error={null} onUndo={noop} onRedo={noop} onSave={noop} onReset={noop} onDone={noop} {...props}/>,
-)
+const bar = (props: Partial<Parameters<typeof EditorBar>[0]> = {}) =>
+  renderToStaticMarkup(
+    <EditorBar
+      canUndo={false}
+      canRedo={false}
+      dirty={false}
+      saving={false}
+      error={null}
+      onUndo={noop}
+      onRedo={noop}
+      onSave={noop}
+      onReset={noop}
+      onDone={noop}
+      {...props}
+    />,
+  )
 
 describe('EditorBar', () => {
   it('disables Undo, Redo and Save when there is nothing to do', () => {
@@ -66,5 +79,29 @@ describe('EditorBar', () => {
 
     const success = bar({ onExportGlb: noop, exportSuccess: 'Exported ruang-scene-20261014-1200.glb' })
     expect(success).toMatch(/role="status"[^>]*aria-live="polite"[^>]*>Exported ruang-scene-20261014-1200\.glb/)
+  })
+
+  it('handles bundle exporting, importing, progress, and error feedback', () => {
+    const exporting = bar({ onExportBundle: noop, exportingBundle: true })
+    expect(exporting).toMatch(/<button[^>]*disabled[^>]*class="office-3d-export-bundle-btn"/)
+    expect(exporting).toContain('Exporting…')
+
+    const importing = bar({
+      onExportBundle: noop,
+      onImportBundle: noop,
+      importingBundle: true,
+      bundleProgress: 'Uploading 2/5 models…',
+    })
+    expect(importing).toMatch(/<button[^>]*disabled[^>]*class="office-3d-export-bundle-btn"/)
+    expect(importing).toMatch(/class="office-3d-import-bundle-btn disabled"/)
+    expect(importing).toContain('Uploading 2/5 models…')
+    expect(importing).toMatch(/class="office-3d-editprogress"[^>]*>Uploading 2\/5 models…/)
+
+    const feedback = bar({
+      bundleSuccess: 'Imported 12 items, 2 models',
+      bundleError: 'Invalid bundle format',
+    })
+    expect(feedback).toMatch(/class="office-3d-editsuccess[^"]*"[^>]*>Imported 12 items, 2 models/)
+    expect(feedback).toMatch(/class="office-3d-editerror[^"]*"[^>]*>Invalid bundle format/)
   })
 })

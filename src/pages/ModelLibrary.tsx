@@ -44,8 +44,11 @@ export function ModelLibrary({ onClose, initialModels, onModelsChange, items }: 
   }, [onModelsChange])
 
   useEffect(() => {
-    if (initialModels) return
-    loadModels()
+    if (initialModels) {
+      setModels(initialModels)
+    } else {
+      loadModels()
+    }
   }, [initialModels, loadModels])
 
   const getLiveUsages = (modelId: string) => {
@@ -85,10 +88,12 @@ export function ModelLibrary({ onClose, initialModels, onModelsChange, items }: 
       }
       const data = await response.json()
       if (data.model) {
-        const updated = [data.model, ...models]
-        setModels(updated)
-        onModelsChange?.(updated)
-        window.dispatchEvent(new CustomEvent('ruang:models-changed', { detail: updated }))
+        setModels((prev) => {
+          const updated = [data.model, ...prev.filter((m) => m.id !== data.model.id)]
+          onModelsChange?.(updated)
+          window.dispatchEvent(new CustomEvent('ruang:models-changed', { detail: updated }))
+          return updated
+        })
         setStatusAnnouncement(`Model ${data.model.name} uploaded`)
       }
     } catch (err: unknown) {
@@ -131,10 +136,12 @@ export function ModelLibrary({ onClose, initialModels, onModelsChange, items }: 
         return
       }
       if (response.status === 404 || response.status === 204 || response.ok) {
-        const updated = models.filter((m) => m.id !== id)
-        setModels(updated)
-        onModelsChange?.(updated)
-        window.dispatchEvent(new CustomEvent('ruang:models-changed', { detail: updated }))
+        setModels((prev) => {
+          const updated = prev.filter((m) => m.id !== id)
+          onModelsChange?.(updated)
+          window.dispatchEvent(new CustomEvent('ruang:models-changed', { detail: updated }))
+          return updated
+        })
         setConfirmingId(null)
         setStatusAnnouncement(`Model ${name} deleted`)
         return
