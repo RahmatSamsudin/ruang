@@ -210,15 +210,16 @@ export function addStructureItem(
   if (patch.added.length >= MAX_ADDED) return { patch, id: null }
   const [px, pz] = placePoint([x, z], true, bounds)
   const id = nextAddedId(patch, items)
+  const safeLevel = round4(safeNum(level, 0))
 
   if (kind === 'floor') {
     const item: FloorItem = {
       kind: 'floor',
       id,
-      level,
+      level: safeLevel,
       min: [round4(px - 2), round4(pz - 2)],
       max: [round4(px + 2), round4(pz + 2)],
-      y: round4(level + 0.005),
+      y: round4(safeLevel + 0.005),
       surface: { type: 'wood', repeat: [2, 2] },
       roughness: 0.55,
     }
@@ -229,10 +230,10 @@ export function addStructureItem(
     const item: WallItem = {
       kind: 'wall',
       id,
-      level,
-      from: [round4(px - 2), pz],
-      to: [round4(px + 2), pz],
-      y: level,
+      level: safeLevel,
+      from: [round4(px - 2), round4(pz)],
+      to: [round4(px + 2), round4(pz)],
+      y: safeLevel,
       height: 2.6,
     }
     return { patch: { ...patch, added: [...patch.added, item] }, id }
@@ -242,11 +243,11 @@ export function addStructureItem(
     const item: GlassItem = {
       kind: 'glass',
       id,
-      level,
-      from: [round4(px - 1.5), pz],
-      to: [round4(px + 1.5), pz],
-      bottom: level,
-      top: round4(level + 2.2),
+      level: safeLevel,
+      from: [round4(px - 1.5), round4(pz)],
+      to: [round4(px + 1.5), round4(pz)],
+      bottom: safeLevel,
+      top: round4(safeLevel + 2.2),
     }
     return { patch: { ...patch, added: [...patch.added, item] }, id }
   }
@@ -255,8 +256,8 @@ export function addStructureItem(
     const item: BoxItem = {
       kind: 'box',
       id,
-      level,
-      position: [px, round4(level + 0.5), pz],
+      level: safeLevel,
+      position: [px, round4(safeLevel + 0.5), pz],
       size: [1, 1, 1],
       color: '#a0a0a0',
       roughness: 0.5,
@@ -447,7 +448,7 @@ export function setFloorBounds(patch: ScenePatch, item: SceneItem, min: [number,
   const depth = clamp(maxZ - minZ, 0.5, 100)
   const normMin: [number, number] = [round4(minX), round4(minZ)]
   const normMax: [number, number] = [round4(minX + width), round4(minZ + depth)]
-  const clampedY = y !== undefined ? round4(item.level + clamp(safeNum(y) - item.level, -5, 5)) : undefined
+  const clampedY = y !== undefined ? round4(item.level + clamp(safeNum(y, item.y) - item.level, -5, 5)) : undefined
   if (normMin[0] === item.min[0] && normMin[1] === item.min[1] && normMax[0] === item.max[0] && normMax[1] === item.max[1] && (clampedY === undefined || clampedY === item.y)) return patch
   const fields: Partial<FloorItem> = { min: normMin, max: normMax }
   if (clampedY !== undefined) fields.y = clampedY
@@ -506,8 +507,8 @@ export function setGlassGeometry(patch: ScenePatch, item: SceneItem, from: [numb
   }
   const normTo: [number, number] = [round4(toX), round4(toZ)]
 
-  let bRel = clamp(safeNum(bottom) - item.level, -20, 20)
-  let tRel = clamp(safeNum(top) - item.level, -20, 20)
+  let bRel = clamp(safeNum(bottom, item.bottom) - item.level, -20, 20)
+  let tRel = clamp(safeNum(top, item.top) - item.level, -20, 20)
   if (bRel > tRel) {
     const tmp = bRel
     bRel = tRel

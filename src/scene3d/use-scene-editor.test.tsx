@@ -2,7 +2,8 @@
 import { act, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { EMPTY_PATCH, type ScenePatch } from './scene.ts'
+import { EMPTY_PATCH, type FloorItem, type ScenePatch } from './scene.ts'
+import { addStructureItem } from './scene-edit.ts'
 import { useSceneEditor, type SceneEditor } from './use-scene-editor.ts'
 
 const testEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -227,5 +228,29 @@ describe('placing and adding', () => {
     await run((e) => e.reset())
     expect(request).toHaveBeenCalled()
     expect(editor().placing).toBeNull()
+  })
+
+  it('places structure primitives via addStructureItem with undo and redo', async () => {
+    const bounds = { minX: -10, maxX: 10, minZ: -10, maxZ: 10 }
+    const { editor, run } = await mount()
+    await run((e) => e.enter())
+    await run((e) => e.startPlacing('floor'))
+    expect(editor().placing).toBe('floor')
+    await run((e) => e.addWith((patch) => addStructureItem(patch, [], 'floor', 2, 4, 2.8, bounds)))
+    expect(editor().draft.added).toHaveLength(1)
+    const floor = editor().draft.added[0] as FloorItem
+    expect(floor.kind).toBe('floor')
+    expect(floor.level).toBe(2.8)
+    expect(floor.y).toBe(2.805)
+    expect(editor().selectedId).toBe(floor.id)
+    expect(editor().canUndo).toBe(true)
+
+    await run((e) => e.undo())
+    expect(editor().draft.added).toHaveLength(0)
+    expect(editor().canRedo).toBe(true)
+
+    await run((e) => e.redo())
+    expect(editor().draft.added).toHaveLength(1)
+    expect(editor().draft.added[0].id).toBe(floor.id)
   })
 })

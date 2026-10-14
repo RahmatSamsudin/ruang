@@ -104,5 +104,26 @@ describe('PropPalette', () => {
     expect(onPick).toHaveBeenCalledWith('floor')
     await act(async () => { structureButtons[1].click() })
     expect(onPick).toHaveBeenCalledWith('wall')
+    await act(async () => { structureButtons[2].click() })
+    expect(onPick).toHaveBeenCalledWith('glass')
+    await act(async () => { structureButtons[3].click() })
+    expect(onPick).toHaveBeenCalledWith('box')
+  })
+
+  it('toggles structure tool off when clicked while active', async () => {
+    const { host, onPick } = await mount({ placing: 'floor' })
+    const structureButtons = [...host.querySelectorAll('.office-3d-palette-structures button')] as HTMLButtonElement[]
+    expect(structureButtons[0].getAttribute('aria-pressed')).toBe('true')
+    await act(async () => { structureButtons[0].click() })
+    expect(onPick).toHaveBeenCalledWith(null)
+  })
+
+  it('disables inactive structure tools when limitReached is true', async () => {
+    const { host } = await mount({ limitReached: true, placing: 'floor' })
+    const structureButtons = [...host.querySelectorAll('.office-3d-palette-structures button')] as HTMLButtonElement[]
+    expect(structureButtons[0].disabled).toBe(false)
+    expect(structureButtons[1].disabled).toBe(true)
+    expect(structureButtons[2].disabled).toBe(true)
+    expect(structureButtons[3].disabled).toBe(true)
   })
 })

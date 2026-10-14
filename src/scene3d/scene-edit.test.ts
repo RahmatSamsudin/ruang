@@ -887,5 +887,51 @@ describe('addStructureItem and dragPreviewItem', () => {
     const b: BoxItem = { kind: 'box', id: 'b1', level: 0, position: [1, 0.5, 1], size: [1, 1, 1], color: '#fff' }
     const draggedB = dragPreviewItem(b, 5, 8) as BoxItem
     expect(draggedB.position).toEqual([5, 0.5, 8])
+
+    const g: GlassItem = { kind: 'glass', id: 'g1', level: 2.8, from: [-1.5, 0], to: [1.5, 0], bottom: 2.8, top: 5.0 }
+    const draggedG = dragPreviewItem(g, 4, 3) as GlassItem
+    expect(draggedG.from).toEqual([2.5, 3])
+    expect(draggedG.to).toEqual([5.5, 3])
+    expect(draggedG.bottom).toBe(2.8)
+    expect(draggedG.top).toBe(5.0)
+  })
+
+  it('respects MAX_ADDED limit and returns id null for structure items when full', () => {
+    const fullPatch: ScenePatch = {
+      ...EMPTY_PATCH,
+      added: Array.from({ length: MAX_ADDED }, (_, i) => ({
+        kind: 'box',
+        id: `added-${i + 1}`,
+        level: 0,
+        position: [0, 0, 0],
+        size: [1, 1, 1],
+        color: '#fff',
+      }) as BoxItem),
+    }
+    const { patch: next, id } = addStructureItem(fullPatch, [], 'wall', 0, 0, 0, bounds)
+    expect(id).toBeNull()
+    expect(next.added).toHaveLength(MAX_ADDED)
+  })
+
+  it('clamps placement coordinates to bounds and handles non-finite levels', () => {
+    const { patch: next, id } = addStructureItem(EMPTY_PATCH, [], 'floor', 100, -100, Number.NaN, bounds)
+    expect(id).toBe('added-1')
+    const added = next.added[0] as FloorItem
+    expect(added.level).toBe(0)
+    expect(added.y).toBe(0.005)
+    expect(added.min).toEqual([bounds.maxX - 2, bounds.minZ - 2])
+    expect(added.max).toEqual([bounds.maxX + 2, bounds.minZ + 2])
+  })
+
+  it('preserves existing floor y and glass elevations when NaN is passed to setters', () => {
+    const floor: FloorItem = { kind: 'floor', id: 'f1', level: 2.8, min: [0, 0], max: [4, 4], y: 2.805, surface: { type: 'wood', repeat: [1, 1] } }
+    const patchedFloor = setFloorBounds(EMPTY_PATCH, floor, [0, 0], [4, 4], Number.NaN)
+    expect((patchedFloor.overrides['f1'] as Partial<FloorItem> | undefined)?.y).toBeUndefined()
+
+    const glass: GlassItem = { kind: 'glass', id: 'g1', level: 2.8, from: [-1, 0], to: [1, 0], bottom: 2.8, top: 5.0 }
+    const patchedGlass = setGlassGeometry(EMPTY_PATCH, glass, [-1, 0], [1, 0], Number.NaN, Number.NaN)
+    const override = patchedGlass.overrides['g1'] as Partial<GlassItem>
+    expect(override.bottom).toBe(2.8)
+    expect(override.top).toBe(5.0)
   })
 })
