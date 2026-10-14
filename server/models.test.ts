@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -204,6 +204,108 @@ describe('models unit tests', () => {
       expect(list).toHaveLength(1)
       expect(list[0].id).toBe(record.id)
     } finally {
+      await rm(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it('propagates non-ENOENT index read errors as 503 ModelError and aborts mutations without writes', async () => {
+    const tmp = await mkdtemp(join(tmpdir(), 'ruang-model-read-err-test-'))
+    try {
+      const modelsPath = join(tmp, 'models')
+      const store = new ModelStore(modelsPath)
+      await store.init()
+
+      // 1. EISDIR: index.json is a directory
+      const indexPath = join(modelsPath, 'index.json')
+      await mkdir(indexPath)
+
+      await expect(store.list()).rejects.toMatchObject({
+        name: 'ModelError',
+        status: 503,
+        message: 'Model library unavailable.',
+      })
+
+      // Verify original cause is attached
+      try {
+        await store.list()
+        expect.unreachable('should have thrown')
+      } catch (err: unknown) {
+        expect(err).toBeInstanceOf(ModelError)
+        const me = err as ModelError & { cause?: { code?: string } }
+        expect(me.cause).toBeDefined()
+        expect(me.cause?.code).toBe('EISDIR')
+      }
+
+      // Save must abort before write; directory unchanged
+      await expect(store.save('test.glb', validGlbBuffer)).rejects.toMatchObject({
+        name: 'ModelError',
+        status: 503,
+      })
+
+      // Delete must abort before write; directory unchanged
+      await expect(store.delete('m-123456789abc')).rejects.toMatchObject({
+        name: 'ModelError',
+        status: 503,
+      })
+
+      // index.json still a directory, no temp or corrupt files created
+      const entriesAfterEisdir = await readdir(modelsPath)
+      expect(entriesAfterEisdir).toEqual(['index.json'])
+
+      await rm(indexPath, { recursive: true, force: true })
+
+      // 2. EACCES: chmod 000 (when not root)
+      if (typeof process.getuid === 'function' && process.getuid() !== 0) {
+        const initialContent = JSON.stringify([
+          {
+            id: 'm-0123456789ab',
+            name: 'existing',
+            format: 'glb',
+            size: 100,
+            createdAt: new Date().toISOString(),
+          },
+        ])
+        await writeFile(indexPath, initialContent, { mode: 0o000 })
+        await chmod(indexPath, 0o000)
+
+        await expect(store.list()).rejects.toMatchObject({
+          name: 'ModelError',
+          status: 503,
+          message: 'Model library unavailable.',
+        })
+
+        try {
+          await store.list()
+          expect.unreachable('should have thrown')
+        } catch (err: unknown) {
+          expect(err).toBeInstanceOf(ModelError)
+          const me = err as ModelError & { cause?: { code?: string } }
+          expect(me.cause).toBeDefined()
+          expect(me.cause?.code).toBe('EACCES')
+        }
+
+        // Save must abort before write
+        await expect(store.save('test.glb', validGlbBuffer)).rejects.toMatchObject({
+          name: 'ModelError',
+          status: 503,
+        })
+
+        // Delete must abort before write
+        await expect(store.delete('m-0123456789ab')).rejects.toMatchObject({
+          name: 'ModelError',
+          status: 503,
+        })
+
+        // Restore permissions to inspect and clean up
+        await chmod(indexPath, 0o600)
+        const contentAfter = await readFile(indexPath, 'utf8')
+        expect(contentAfter).toBe(initialContent)
+
+        const allFiles = await readdir(modelsPath)
+        expect(allFiles).toEqual(['index.json'])
+      }
+    } finally {
+      await chmod(join(tmp, 'models', 'index.json'), 0o600).catch(() => {})
       await rm(tmp, { recursive: true, force: true })
     }
   })
@@ -876,5 +978,64 @@ describe('models concurrency and resilience', () => {
     expect(Array.isArray(parsed)).toBe(true)
     expect(parsed).toHaveLength(1)
     expect(parsed[0].name).toBe('fresh')
+  })
+
+  it('returns 503 on GET, POST, and DELETE when index.json encounters non-ENOENT read errors without creating temp files', async () => {
+    // Populate an initial model first
+    const postRes1 = await fetch(`${base}/api/models?name=existing.glb`, {
+      method: 'POST',
+      headers: {
+        'Origin': base,
+        'Host': host,
+        'Content-Type': 'model/gltf-binary',
+      },
+      body: validGlbBuffer,
+    })
+    expect(postRes1.status).toBe(201)
+    const { model: existingModel } = (await postRes1.json()) as { model: ModelRecord }
+
+    const indexPath = join(modelsDirStr, 'index.json')
+
+    // Turn index.json into a directory to force EISDIR on readFile
+    await rm(indexPath, { force: true })
+    await mkdir(indexPath)
+
+    // GET /api/models -> 503
+    const getRes = await fetch(`${base}/api/models`)
+    expect(getRes.status).toBe(503)
+    const getBody = (await getRes.json()) as { error: string }
+    expect(getBody.error).toBe('Model library unavailable.')
+
+    // POST /api/models -> 503
+    const postRes2 = await fetch(`${base}/api/models?name=fail.glb`, {
+      method: 'POST',
+      headers: {
+        'Origin': base,
+        'Host': host,
+        'Content-Type': 'model/gltf-binary',
+      },
+      body: validGlbBuffer,
+    })
+    expect(postRes2.status).toBe(503)
+    const postBody = (await postRes2.json()) as { error: string }
+    expect(postBody.error).toBe('Model library unavailable.')
+
+    // DELETE /api/models/:id -> 503
+    const delRes = await fetch(`${base}/api/models/${existingModel.id}`, {
+      method: 'DELETE',
+      headers: {
+        'Origin': base,
+        'Host': host,
+      },
+    })
+    expect(delRes.status).toBe(503)
+    const delBody = (await delRes.json()) as { error: string }
+    expect(delBody.error).toBe('Model library unavailable.')
+
+    // Verify existing model file is still intact and no temp or corrupt files created
+    const dirEntries = await readdir(modelsDirStr)
+    expect(dirEntries.some((f) => f.startsWith('.index.json') || f.includes('.tmp'))).toBe(false)
+    expect(dirEntries.some((f) => f.startsWith('index.json.corrupt-'))).toBe(false)
+    expect(dirEntries).toContain(`${existingModel.id}.glb`)
   })
 })

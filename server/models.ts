@@ -23,8 +23,9 @@ export class ModelError extends Error {
     message: string,
     readonly status = 400,
     readonly extra?: Record<string, unknown>,
+    options?: ErrorOptions,
   ) {
-    super(message)
+    super(message, options)
     this.name = 'ModelError'
   }
 }
@@ -333,7 +334,7 @@ export class ModelStore {
       if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
         return []
       }
-      return []
+      throw new ModelError('Model library unavailable.', 503, undefined, { cause: err })
     }
 
     let parsed: unknown
@@ -550,6 +551,10 @@ export function createModelsRouter(options: ModelsRouterOptions = {}): Router {
       const models = await store.list()
       response.json({ models })
     } catch (error) {
+      if (error instanceof ModelError) {
+        response.status(error.status).json({ error: error.message, ...(error.extra ?? {}) })
+        return
+      }
       next(error)
     }
   })
@@ -585,6 +590,7 @@ export function createModelsRouter(options: ModelsRouterOptions = {}): Router {
 
       response.status(201).json({ model: record })
     } catch (error) {
+      request.resume()
       if (error instanceof ModelError) {
         response.status(error.status).json({ error: error.message, ...(error.extra ?? {}) })
         return
