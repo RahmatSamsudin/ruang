@@ -13,17 +13,36 @@ export function prepareSceneForExport(scene: THREE.Object3D): THREE.Object3D {
   const root = new THREE.Group()
   root.name = 'OfficeScene'
 
-  scene.children.forEach((child) => {
+  const isExcluded = (obj: THREE.Object3D): boolean => {
+    if (obj.userData?.noExport === true) return true
     if (
-      child.name.startsWith('editor-') ||
-      child.name === 'TransformGizmo' ||
-      child.name === 'edit-layer' ||
-      child.type.includes('Helper')
+      obj.name.startsWith('editor-') ||
+      obj.name === 'TransformGizmo' ||
+      obj.name === 'edit-layer' ||
+      obj.name === 'ghost' ||
+      obj.name.toLowerCase().includes('gizmo') ||
+      obj.type.includes('Helper')
     ) {
+      return true
+    }
+    return false
+  }
+
+  scene.children.forEach((child) => {
+    if (isExcluded(child)) {
       return
     }
     try {
       const cloned = child.clone(true)
+      const toRemove: THREE.Object3D[] = []
+      cloned.traverse((descendant) => {
+        if (descendant !== cloned && isExcluded(descendant)) {
+          toRemove.push(descendant)
+        }
+      })
+      toRemove.forEach((node) => {
+        node.parent?.remove(node)
+      })
       root.add(cloned)
     } catch {
       // If cloning fails on an object, skip
@@ -31,6 +50,19 @@ export function prepareSceneForExport(scene: THREE.Object3D): THREE.Object3D {
   })
 
   return root
+}
+
+/**
+ * Format GLB filename matching DECISIONS: ruang-scene-<yyyymmdd-hhmm>.glb
+ */
+export function formatSceneGlbFilename(date: Date = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const yyyy = date.getFullYear()
+  const mm = pad(date.getMonth() + 1)
+  const dd = pad(date.getDate())
+  const hh = pad(date.getHours())
+  const min = pad(date.getMinutes())
+  return `ruang-scene-${yyyy}${mm}${dd}-${hh}${min}.glb`
 }
 
 /**

@@ -38,6 +38,8 @@ describe('ModelLibrary', () => {
     expect(downloadLinks.length).toBe(2)
     expect(downloadLinks[0].getAttribute('href')).toBe('/api/models/m-111111111111/file')
     expect(downloadLinks[0].getAttribute('download')).toBe('Meeting Chair')
+    expect(downloadLinks[0].textContent?.trim()).toBe('Export')
+    expect(downloadLinks[0].classList.contains('export-btn')).toBe(true)
   })
 
   it('filters models by search query', async () => {

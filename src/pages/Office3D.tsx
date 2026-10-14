@@ -19,7 +19,7 @@ import { EditorBar } from './EditorBar.tsx'
 import { ModelLibrary } from './ModelLibrary.tsx'
 import { ObjectPanel } from './ObjectPanel.tsx'
 import { PropPalette } from './PropPalette.tsx'
-import { exportSceneGlb, downloadBlob } from '../scene3d/export-glb.ts'
+import { exportSceneGlb, downloadBlob, formatSceneGlbFilename } from '../scene3d/export-glb.ts'
 import { exportBundle, importBundle } from '../scene3d/bundle.ts'
 
 // 3D view of the same Office snapshot the 2D view renders. Positions come from each station's
@@ -432,6 +432,8 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
   const [manageModels, setManageModels] = useState(false)
   const [models, setModels] = useState<ModelRecord[]>([])
   const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
+  const [exportSuccess, setExportSuccess] = useState<string | null>(null)
   const sceneRef = useRef<THREE.Scene | null>(null)
 
   useEffect(() => {
@@ -448,12 +450,21 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
   }, [])
 
   const handleExportGlb = async () => {
-    if (!sceneRef.current) return
+    if (!sceneRef.current) {
+      setExportError('Export failed: 3D scene not ready')
+      return
+    }
     setExporting(true)
+    setExportError(null)
+    setExportSuccess(null)
     try {
+      const filename = formatSceneGlbFilename()
       const blob = await exportSceneGlb(sceneRef.current)
-      downloadBlob(blob, `office-scene-${new Date().toISOString().slice(0, 10)}.glb`)
+      downloadBlob(blob, filename)
+      setExportSuccess(`Exported ${filename}`)
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setExportError(`Export failed: ${msg}`)
       console.error('Failed to export scene to GLB:', err)
     } finally {
       setExporting(false)
@@ -592,7 +603,7 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
       <button type="button" className={panMode ? 'active' : ''} aria-pressed={panMode} onClick={() => setPanMode((value) => !value)} title="Drag moves the view instead of rotating it">✥ Geser</button>
       <button type="button" onClick={() => view.current?.reset()} title="Back to the starting view">↺ Reset view</button>
     </div>
-    {editor.editing && <EditorBar canUndo={editor.canUndo} canRedo={editor.canRedo} dirty={editor.dirty} saving={editor.saving || exporting} error={editor.error} viewMode={viewMode} onViewModeChange={setViewMode} onAddStorey={() => editor.apply((patchNow) => addStorey(patchNow, items).patch)} onExportGlb={handleExportGlb} onExportBundle={handleExportBundle} onImportBundle={handleImportBundle} onManageModels={() => setManageModels(true)} onUndo={editor.undo} onRedo={editor.redo} onSave={() => void editor.save()} onReset={resetEdits} onDone={finishEditing}/>}
+    {editor.editing && <EditorBar canUndo={editor.canUndo} canRedo={editor.canRedo} dirty={editor.dirty} saving={editor.saving} error={editor.error || exportError} viewMode={viewMode} onViewModeChange={setViewMode} onAddStorey={() => editor.apply((patchNow) => addStorey(patchNow, items).patch)} onExportGlb={handleExportGlb} exportingGlb={exporting} exportSuccess={exportSuccess} onExportBundle={handleExportBundle} onImportBundle={handleImportBundle} onManageModels={() => setManageModels(true)} onUndo={editor.undo} onRedo={editor.redo} onSave={() => void editor.save()} onReset={resetEdits} onDone={finishEditing}/>}
     {editor.editing && <PropPalette placing={placing} limitReached={limitReached} models={models} onModelsChange={setModels} onManageModels={() => setManageModels(true)} onPick={(type) => (type ? editor.startPlacing(type) : editor.stopPlacing())}/>}
     {editor.editing && selected && <ObjectPanel item={selected} levels={levels} canDuplicate={!limitReached} onDuplicate={() => editor.addWith((patchNow) => duplicateItem(patchNow, items, selected, bounds))} onProp={(key, value) => editor.apply((patchNow) => setItemProp(patchNow, selected, key, value))} onMove={(x, z) => editor.apply((patchNow) => moveItem(patchNow, selected, x, z, bounds))} onRotate={(degrees) => editor.apply((patchNow) => rotateItem(patchNow, selected, (degrees * Math.PI) / 180))} onScale={(scale) => editor.apply((patchNow) => setItemScale(patchNow, selected, scale))} onLevel={(next) => { editor.apply((patchNow) => setItemLevel(patchNow, selected, next)); setLevelIndex(Math.max(0, levels.indexOf(next))) }} onDelete={() => { editor.apply((patchNow) => deleteItem(patchNow, selected)); editor.select(null); keyTarget?.focus() }} onView={(v) => editor.apply((patchNow) => setItemView(patchNow, selected, v))} onFloorBounds={(min, max, y) => editor.apply((patchNow) => setFloorBounds(patchNow, selected, min, max, y))} onFloorSurface={(surface, roughness) => editor.apply((patchNow) => setFloorSurface(patchNow, selected, surface, roughness))} onWallGeometry={(from, to, height, y) => editor.apply((patchNow) => setWallGeometry(patchNow, selected, from, to, height, y))} onGlassGeometry={(from, to, bottom, top) => editor.apply((patchNow) => setGlassGeometry(patchNow, selected, from, to, bottom, top))} onBoxProps={(size, color, options) => editor.apply((patchNow) => setBoxProps(patchNow, selected, size, color, options))}/>}
     {manageModels && (

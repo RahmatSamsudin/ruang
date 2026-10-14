@@ -225,10 +225,11 @@ export function ModelLibrary({ onClose, initialModels, onModelsChange, items }: 
                   <a
                     href={`/api/models/${encodeURIComponent(model.id)}/file`}
                     download={model.name}
-                    className="download-btn"
-                    title="Download model file"
+                    className="download-btn export-btn"
+                    title="Export model file"
+                    aria-label={`Export ${model.name}`}
                   >
-                    Download
+                    Export
                   </a>
                   {confirmingId === model.id ? (
                     <div className="model-card-confirm">

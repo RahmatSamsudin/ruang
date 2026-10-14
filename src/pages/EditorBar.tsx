@@ -8,6 +8,8 @@ export interface EditorBarProps {
   onViewModeChange?: (mode: 'cutaway' | 'shell') => void
   onAddStorey?: () => void
   onExportGlb?: () => void
+  exportingGlb?: boolean
+  exportSuccess?: string | null
   onExportBundle?: () => void
   onImportBundle?: (file: File) => void
   onManageModels?: () => void
@@ -19,7 +21,7 @@ export interface EditorBarProps {
 }
 
 /** The bar shown while editing the office: undo/redo, save state, save, reset and done. */
-export function EditorBar({ canUndo, canRedo, dirty, saving, error, viewMode, onViewModeChange, onAddStorey, onExportGlb, onExportBundle, onImportBundle, onManageModels, onUndo, onRedo, onSave, onReset, onDone }: EditorBarProps) {
+export function EditorBar({ canUndo, canRedo, dirty, saving, error, viewMode, onViewModeChange, onAddStorey, onExportGlb, exportingGlb, exportSuccess, onExportBundle, onImportBundle, onManageModels, onUndo, onRedo, onSave, onReset, onDone }: EditorBarProps) {
   return <div className="office-3d-editbar" role="toolbar" aria-label="Office editor">
     <div className="office-3d-editbar-row">
       <button type="button" disabled={!canUndo} onClick={onUndo} title="Undo (Ctrl/Cmd+Z)">↶ Undo</button>
@@ -54,10 +56,14 @@ export function EditorBar({ canUndo, canRedo, dirty, saving, error, viewMode, on
       {onExportGlb && (
         <button
           type="button"
+          disabled={exportingGlb}
           onClick={onExportGlb}
-          title="Export 3D scene to binary GLB"
+          className="office-3d-export-glb-btn"
+          title="Export scene (.glb)"
+          aria-label="Export scene (.glb)"
         >
-          ⬇ Export GLB
+          <span className="btn-label-full">{exportingGlb ? 'Exporting...' : 'Export scene (.glb)'}</span>
+          <span className="btn-label-short" aria-hidden="true">{exportingGlb ? 'Exporting...' : '⬇ .glb'}</span>
         </button>
       )}
       {onExportBundle && (
@@ -92,6 +98,7 @@ export function EditorBar({ canUndo, canRedo, dirty, saving, error, viewMode, on
       <button type="button" disabled={saving} onClick={onDone}>Done</button>
     </div>
     <small>Walking routes don't follow moved furniture yet (desks and beds do).</small>
+    {exportSuccess && <small className="office-3d-editsuccess" role="status" aria-live="polite">{exportSuccess}</small>}
     {error && <small className="office-3d-editerror" role="alert">{error}</small>}
   </div>
 }

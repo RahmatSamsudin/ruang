@@ -54,8 +54,17 @@ describe('EditorBar', () => {
       onImportBundle: noop,
     })
     expect(markup).toContain('📦 Models')
-    expect(markup).toContain('⬇ Export GLB')
+    expect(markup).toContain('Export scene (.glb)')
     expect(markup).toContain('⬇ Export Bundle')
     expect(markup).toContain('⬆ Import Bundle')
+  })
+
+  it('handles GLB exporting and success states', () => {
+    const exporting = bar({ onExportGlb: noop, exportingGlb: true })
+    expect(exporting).toMatch(/<button[^>]*disabled[^>]*class="office-3d-export-glb-btn"/)
+    expect(exporting).toContain('Exporting...')
+
+    const success = bar({ onExportGlb: noop, exportSuccess: 'Exported ruang-scene-20261014-1200.glb' })
+    expect(success).toMatch(/role="status"[^>]*aria-live="polite"[^>]*>Exported ruang-scene-20261014-1200\.glb/)
   })
 })

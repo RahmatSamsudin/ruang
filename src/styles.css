@@ -914,6 +914,13 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
 .office-3d-editstate.unsaved { color: #f5bd6d; }
 .office-3d-editbar small { color: #b7c9bf; }
 .office-3d-editerror { color: #ff9b94 !important; }
+.office-3d-editsuccess { color: #73c991 !important; }
+.office-3d-export-glb-btn .btn-label-short { display: none; }
+.office-3d-export-glb-btn .btn-label-full { display: inline; }
+@media (max-width: 520px) {
+  .office-3d-export-glb-btn .btn-label-full { display: none; }
+  .office-3d-export-glb-btn .btn-label-short { display: inline; }
+}
 .office-3d-objpanel { align-content: start; background: rgba(18, 26, 24, 0.86); border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 8px; color: #f4efe6; display: grid; font-size: 12px; gap: 8px; max-height: calc(100% - 74px); overflow-y: auto; overscroll-behavior: contain; padding: 10px; position: absolute; right: 10px; top: 64px; width: 220px; z-index: 3; }
 .office-3d-objpanel h3 { font-size: 13px; margin: 0; }
 .office-3d-objpanel h3 small { color: #b7c9bf; font-weight: normal; margin-left: 4px; }
@@ -1009,6 +1016,7 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
 :root[data-theme="light"] .office-3d-upload-btn:hover:not(.disabled) { background: rgba(0, 0, 0, 0.08); border-color: rgba(0, 0, 0, 0.4); color: #1a211c; }
 :root[data-theme="light"] .office-3d-upload-error { color: #c92a2a; }
 :root[data-theme="light"] .office-3d-upload-success { color: #1b6c43; }
+:root[data-theme="light"] .office-3d-editsuccess { color: #1b6c43 !important; }
 :root[data-theme="light"] .office-3d-palette-manage-btn { border-color: rgba(0, 0, 0, 0.2); color: #5c655d; }
 :root[data-theme="light"] .office-3d-palette-manage-btn:hover { background: rgba(0, 0, 0, 0.05); color: #1a211c; }
 :root[data-theme="light"] .model-library-error { background: rgba(201, 42, 42, 0.1); border-color: #c92a2a; color: #c92a2a; }
