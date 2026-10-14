@@ -34,3 +34,21 @@ export function loadModel(modelId: string): Promise<THREE.Group> {
 export function clearModelCache(): void {
   cache.clear()
 }
+
+/**
+ * Normalises a model group so its largest bounding box dimension is 1.5 units * scale,
+ * centered on X and Z with the base (min Y) at Y = 0.
+ */
+export function normalizeModel(group: THREE.Group, scale = 1.0): THREE.Group {
+  const clone = group.clone(true)
+  const box = new THREE.Box3().setFromObject(clone)
+  const size = new THREE.Vector3()
+  const center = new THREE.Vector3()
+  box.getSize(size)
+  box.getCenter(center)
+  const maxDim = Math.max(size.x, size.y, size.z)
+  const s = (maxDim > 0 ? 1.5 / maxDim : 1) * scale
+  clone.scale.setScalar(s)
+  clone.position.set(-center.x * s, -box.min.y * s, -center.z * s)
+  return clone
+}

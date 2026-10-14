@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState, type ComponentType, type ReactNode } from 'react'
 import * as THREE from 'three'
-import { loadModel } from './model-loader.ts'
+import { loadModel, normalizeModel } from './model-loader.ts'
 import { AcOutdoorUnit, AirConditioner, ArcadeCabinet, Armchair, BaksoStall, BathroomFittings, Beanbag, Bed, Bookshelf, CarromTable, ClothesLine, CoffeeTable, FlagPole, FloorCushion, Fridge, GalonDispenser, Hammock, KopiStall, LowTable, MeetingTable, Nightstand, OfficeLight, PantryCounter, PingPongTable, Plant, Railing, RattanChair, RBox, SideTable, Sofa, Staircase, StreetLamp, StringLights, Television, Tree, WallClock, Wardrobe, WaterTank, WorkDesk } from './props.tsx'
 import { visibleAt, type BoxItem, type FloorItem, type GlassItem, type ModelItem, type PropItem, type PropType, type SceneItem, type Surface, type WallItem, type WindowItem } from './scene.ts'
 import { asphalt, carpet, grass, pavingStones, tileFloor, woodFloor } from './textures.ts'
@@ -91,17 +91,8 @@ function ModelNode({ item }: { item: ModelItem }) {
     loadModel(item.modelId)
       .then((group) => {
         if (!active) return
-        const clone = group.clone(true)
-        const box = new THREE.Box3().setFromObject(clone)
-        const size = new THREE.Vector3()
-        const center = new THREE.Vector3()
-        box.getSize(size)
-        box.getCenter(center)
-        const maxDim = Math.max(size.x, size.y, size.z)
-        const s = (maxDim > 0 ? 1.5 / maxDim : 1) * (item.scale ?? 1.0)
-        clone.scale.setScalar(s)
-        clone.position.set(-center.x * s, -box.min.y * s, -center.z * s)
-        setScene(clone)
+        const normalized = normalizeModel(group, item.scale ?? 1.0)
+        setScene(normalized)
         setStatus('loaded')
       })
       .catch(() => {
