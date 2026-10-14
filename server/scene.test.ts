@@ -206,4 +206,30 @@ describe('scene api routes', () => {
       warn.mockRestore()
     }
   })
+
+  it('rejects PUT with 400 and missing ids when a model item references an absent modelId, and accepts when present', async () => {
+    // 1. Model m-0123456789ab is not in ModelStore -> rejects with 400 and lists missing ids
+    const patchWithMissing = { version: 2, overrides: {}, added: [validModel] }
+    const rejected = await put(patchWithMissing)
+    expect(rejected.status).toBe(400)
+    const errorBody = (await rejected.json()) as { error: string; missing: string[] }
+    expect(errorBody.error).toContain('m-0123456789ab')
+    expect(errorBody.missing).toEqual(['m-0123456789ab'])
+
+    // 2. Add model to ModelStore index -> PUT succeeds with 200
+    const modelsDir = join(tmp, 'data', 'models')
+    await mkdir(modelsDir, { recursive: true })
+    const modelRecord = {
+      id: validModel.modelId,
+      name: 'model1.glb',
+      format: 'glb',
+      size: 1024,
+      createdAt: new Date().toISOString(),
+    }
+    await writeFile(join(modelsDir, 'index.json'), JSON.stringify([modelRecord]))
+
+    const accepted = await put(patchWithMissing)
+    expect(accepted.status).toBe(200)
+    expect(await accepted.json()).toEqual(patchWithMissing)
+  })
 })

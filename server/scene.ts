@@ -3,6 +3,7 @@ import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import express, { type Express, type NextFunction, type Request, type Response, type Router } from 'express'
+import { ModelStore } from './models.js'
 import { matchOriginHost } from './skins.js'
 
 // The saved edits to the 3D office: a patch against the default scene the UI generates
@@ -28,7 +29,7 @@ export interface ScenePatch {
 }
 
 export class SceneError extends Error {
-  constructor(message: string, readonly status = 400) {
+  constructor(message: string, readonly status = 400, readonly extra?: Record<string, unknown>) {
     super(message)
   }
 }
@@ -154,7 +155,11 @@ export class SceneStore {
   }
 }
 
-export function createSceneRouter(store: SceneStore = new SceneStore()): Router {
+export function createSceneRouter(
+  store: SceneStore = new SceneStore(),
+  models?: ModelStore,
+): Router {
+  const modelStore = models ?? new ModelStore(join(dirname(store.file), 'models'))
   const router = express.Router()
 
   router.use((request, response, next) => {
@@ -180,11 +185,21 @@ export function createSceneRouter(store: SceneStore = new SceneStore()): Router 
     }
     try {
       const patch = validatePatch(request.body)
+      const modelItems = patch.added.filter((item) => item.kind === 'model')
+      if (modelItems.length > 0) {
+        const requiredIds = Array.from(new Set(modelItems.map((item) => item.modelId as string)))
+        const available = await modelStore.list()
+        const availableIds = new Set(available.map((m) => m.id))
+        const missing = requiredIds.filter((id) => !availableIds.has(id))
+        if (missing.length > 0) {
+          throw new SceneError(`Missing model(s) in library: ${missing.join(', ')}`, 400, { missing, missingModelIds: missing })
+        }
+      }
       await store.write(patch)
       response.json(patch)
     } catch (error) {
       if (error instanceof SceneError) {
-        response.status(error.status).json({ error: error.message })
+        response.status(error.status).json({ error: error.message, ...(error.extra ?? {}) })
         return
       }
       next(error)
@@ -214,8 +229,12 @@ export function createSceneRouter(store: SceneStore = new SceneStore()): Router 
   return router
 }
 
-export function installScene(app: Express, store: SceneStore = new SceneStore()): Router {
-  const router = createSceneRouter(store)
+export function installScene(
+  app: Express,
+  store: SceneStore = new SceneStore(),
+  models?: ModelStore,
+): Router {
+  const router = createSceneRouter(store, models)
   app.use('/api/scene', router)
   return router
 }
