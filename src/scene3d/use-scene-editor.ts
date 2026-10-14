@@ -54,6 +54,7 @@ export interface SceneEditor {
   endDrag: () => void
   save: () => Promise<void>
   reset: () => Promise<void>
+  purgeModel: (modelId: string) => void
 }
 
 export function useSceneEditor(saved: ScenePatch, refresh: () => void, request?: typeof fetch): SceneEditor {
@@ -119,10 +120,52 @@ export function useSceneEditor(saved: ScenePatch, refresh: () => void, request?:
     }
   }, [send])
 
+  const purgeModel = useCallback((modelId: string) => {
+    setState((s) => {
+      const isItemDeletedModel = (item: unknown) =>
+        Boolean(
+          item &&
+          typeof item === 'object' &&
+          (item as { kind?: string }).kind === 'model' &&
+          (item as { modelId?: string }).modelId === modelId,
+        )
+
+      const stripModel = (patch: ScenePatch): ScenePatch => ({
+        ...patch,
+        added: (patch.added ?? []).filter((item) => !isItemDeletedModel(item)),
+      })
+
+      const patchReferencesModel = (patch: ScenePatch): boolean =>
+        (patch.added ?? []).some(isItemDeletedModel)
+
+      let past = s.past.filter((p) => !patchReferencesModel(p)).map(stripModel)
+      let future = s.future.filter((p) => !patchReferencesModel(p)).map(stripModel)
+      const draft = stripModel(s.draft)
+      const baseline = stripModel(s.baseline)
+
+      past = past.filter((p, i) => i === 0 || !same(p, past[i - 1]))
+      while (past.length > 0 && same(past[past.length - 1], draft)) {
+        past.pop()
+      }
+      future = future.filter((p, i) => i === 0 || !same(p, future[i - 1]))
+      while (future.length > 0 && same(future[0], draft)) {
+        future.shift()
+      }
+
+      return {
+        ...s,
+        draft,
+        baseline,
+        past,
+        future,
+      }
+    })
+  }, [])
+
   return {
     editing: state.editing, draft: state.draft, selectedId: state.selectedId, drag: state.drag, placing: state.placing,
     canUndo: state.past.length > 0, canRedo: state.future.length > 0,
     dirty: !same(state.draft, state.baseline), saving: state.saving, error: state.error,
-    enter, exit, select, apply, undo, redo, startPlacing, stopPlacing, addWith, previewDrag, endDrag, save, reset,
+    enter, exit, select, apply, undo, redo, startPlacing, stopPlacing, addWith, previewDrag, endDrag, save, reset, purgeModel,
   }
 }

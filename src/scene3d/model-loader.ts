@@ -30,9 +30,13 @@ export function loadModel(modelId: string): Promise<THREE.Group> {
   return promise
 }
 
-/** Clears the in-memory model cache. Useful for tests or when models are updated. */
-export function clearModelCache(): void {
-  cache.clear()
+/** Clears the in-memory model cache. If modelId is provided, clears only that model. */
+export function clearModelCache(modelId?: string): void {
+  if (modelId) {
+    cache.delete(modelId)
+  } else {
+    cache.clear()
+  }
 }
 
 /**

@@ -228,4 +228,28 @@ describe('placing and adding', () => {
     expect(request).toHaveBeenCalled()
     expect(editor().placing).toBeNull()
   })
+
+  it('purges deleted model from undo/redo history and draft', async () => {
+    const { editor, run } = await mount()
+    await run((e) => e.enter())
+
+    const modelItem = { id: 'm1', kind: 'model' as const, level: 0, modelId: 'm-deleted1111', position: [0, 0, 0] as [number, number, number] }
+    // 1. Add model
+    await run((e) => e.apply((patch) => ({ ...patch, added: [...patch.added, modelItem] })))
+    // 2. Delete model
+    await run((e) => e.apply((patch) => ({ ...patch, added: patch.added.filter((i) => i.id !== 'm1') })))
+
+    expect(editor().canUndo).toBe(true)
+
+    // Purge model
+    await run((e) => e.purgeModel('m-deleted1111'))
+
+    // Undo history referencing the model is cleared; canUndo is false
+    expect(editor().canUndo).toBe(false)
+    expect(editor().draft.added).toEqual([])
+
+    // Calling undo is a safe no-op
+    await run((e) => e.undo())
+    expect(editor().draft.added).toEqual([])
+  })
 })

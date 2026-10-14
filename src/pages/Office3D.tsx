@@ -21,6 +21,7 @@ import { ObjectPanel } from './ObjectPanel.tsx'
 import { PropPalette } from './PropPalette.tsx'
 import { exportSceneGlb, downloadBlob, formatSceneGlbFilename } from '../scene3d/export-glb.ts'
 import { exportBundle, formatBundleFilename, importBundle } from '../scene3d/bundle.ts'
+import { clearModelCache } from '../scene3d/model-loader.ts'
 import { fetchModels } from '../models-api.ts'
 
 // 3D view of the same Office snapshot the 2D view renders. Positions come from each station's
@@ -455,6 +456,18 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
     }
   }, [])
 
+  useEffect(() => {
+    const handleModelDeleted = (e: Event) => {
+      const id = (e as CustomEvent<{ id: string }>).detail?.id
+      if (id) {
+        clearModelCache(id)
+        editor.purgeModel(id)
+      }
+    }
+    window.addEventListener('ruang:model-deleted', handleModelDeleted)
+    return () => window.removeEventListener('ruang:model-deleted', handleModelDeleted)
+  }, [editor])
+
   const handleExportGlb = async () => {
     if (!sceneRef.current) {
       setExportError('Export failed: 3D scene not ready')
@@ -692,7 +705,16 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
         items={items}
         initialModels={models}
         onClose={() => setManageModels(false)}
+        onModelDeleted={(deletedId) => {
+          clearModelCache(deletedId)
+          editor.purgeModel(deletedId)
+        }}
         onModelsChange={(updated) => {
+          const removed = models.filter((m) => !updated.some((u) => u.id === m.id))
+          for (const m of removed) {
+            clearModelCache(m.id)
+            editor.purgeModel(m.id)
+          }
           setModels(updated)
           if (typeof placing === 'string' && placing.startsWith('model:') && !updated.some((m) => `model:${m.id}` === placing)) {
             editor.stopPlacing()

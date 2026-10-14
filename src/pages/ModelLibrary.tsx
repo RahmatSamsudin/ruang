@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { formatModelSize } from '../models-api.ts'
+import { clearModelCache } from '../scene3d/model-loader.ts'
 import type { ModelRecord } from '../scene3d/models.ts'
 import type { SceneItem } from '../scene3d/scene.ts'
 import { Dialog } from '../ui.tsx'
@@ -8,10 +9,11 @@ export interface ModelLibraryProps {
   onClose: () => void
   initialModels?: ModelRecord[]
   onModelsChange?: (models: ModelRecord[]) => void
+  onModelDeleted?: (id: string) => void
   items?: SceneItem[]
 }
 
-export function ModelLibrary({ onClose, initialModels, onModelsChange, items }: ModelLibraryProps) {
+export function ModelLibrary({ onClose, initialModels, onModelsChange, onModelDeleted, items }: ModelLibraryProps) {
   const [models, setModels] = useState<ModelRecord[]>(initialModels ?? [])
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(false)
@@ -136,12 +138,15 @@ export function ModelLibrary({ onClose, initialModels, onModelsChange, items }: 
         return
       }
       if (response.status === 404 || response.status === 204 || response.ok) {
+        clearModelCache(id)
         setModels((prev) => {
           const updated = prev.filter((m) => m.id !== id)
           onModelsChange?.(updated)
           window.dispatchEvent(new CustomEvent('ruang:models-changed', { detail: updated }))
           return updated
         })
+        onModelDeleted?.(id)
+        window.dispatchEvent(new CustomEvent('ruang:model-deleted', { detail: { id } }))
         setConfirmingId(null)
         setStatusAnnouncement(`Model ${name} deleted`)
         return

@@ -67,9 +67,10 @@ describe('ModelLibrary', () => {
     } as Response)
 
     const onModelsChange = vi.fn()
+    const onModelDeleted = vi.fn()
     const host = document.body.appendChild(document.createElement('div'))
     await act(async () => {
-      createRoot(host).render(<ModelLibrary onClose={vi.fn()} initialModels={sampleModels} onModelsChange={onModelsChange} />)
+      createRoot(host).render(<ModelLibrary onClose={vi.fn()} initialModels={sampleModels} onModelsChange={onModelsChange} onModelDeleted={onModelDeleted} />)
     })
 
     const deleteBtn = host.querySelector('.delete-btn') as HTMLButtonElement
@@ -87,6 +88,7 @@ describe('ModelLibrary', () => {
 
     expect(fetchMock).toHaveBeenCalledWith('/api/models/m-111111111111', { method: 'DELETE' })
     expect(onModelsChange).toHaveBeenCalledWith([sampleModels[1]])
+    expect(onModelDeleted).toHaveBeenCalledWith('m-111111111111')
   })
 
   it('displays error when delete conflicts (409 in use)', async () => {
