@@ -7,6 +7,10 @@ export interface EditorBarProps {
   viewMode?: 'cutaway' | 'shell'
   onViewModeChange?: (mode: 'cutaway' | 'shell') => void
   onAddStorey?: () => void
+  onExportGlb?: () => void
+  onExportBundle?: () => void
+  onImportBundle?: (file: File) => void
+  onManageModels?: () => void
   onUndo: () => void
   onRedo: () => void
   onSave: () => void
@@ -15,7 +19,7 @@ export interface EditorBarProps {
 }
 
 /** The bar shown while editing the office: undo/redo, save state, save, reset and done. */
-export function EditorBar({ canUndo, canRedo, dirty, saving, error, viewMode, onViewModeChange, onAddStorey, onUndo, onRedo, onSave, onReset, onDone }: EditorBarProps) {
+export function EditorBar({ canUndo, canRedo, dirty, saving, error, viewMode, onViewModeChange, onAddStorey, onExportGlb, onExportBundle, onImportBundle, onManageModels, onUndo, onRedo, onSave, onReset, onDone }: EditorBarProps) {
   return <div className="office-3d-editbar" role="toolbar" aria-label="Office editor">
     <div className="office-3d-editbar-row">
       <button type="button" disabled={!canUndo} onClick={onUndo} title="Undo (Ctrl/Cmd+Z)">↶ Undo</button>
@@ -37,6 +41,50 @@ export function EditorBar({ canUndo, canRedo, dirty, saving, error, viewMode, on
         >
           + Add Storey
         </button>
+      )}
+      {onManageModels && (
+        <button
+          type="button"
+          onClick={onManageModels}
+          title="Open 3D model library manager"
+        >
+          📦 Models
+        </button>
+      )}
+      {onExportGlb && (
+        <button
+          type="button"
+          onClick={onExportGlb}
+          title="Export 3D scene to binary GLB"
+        >
+          ⬇ Export GLB
+        </button>
+      )}
+      {onExportBundle && (
+        <button
+          type="button"
+          onClick={onExportBundle}
+          title="Export scene bundle (.ruang-bundle) with models"
+        >
+          ⬇ Export Bundle
+        </button>
+      )}
+      {onImportBundle && (
+        <label className="office-3d-bundle-import" title="Import scene bundle (.ruang-bundle)">
+          <input
+            type="file"
+            accept=".ruang-bundle,.json"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (file) {
+                e.target.value = ''
+                onImportBundle(file)
+              }
+            }}
+          />
+          ⬆ Import Bundle
+        </label>
       )}
       <span className={`office-3d-editstate${dirty ? ' unsaved' : ''}`}>{dirty ? '● unsaved' : 'saved'}</span>
       <button type="button" disabled={!dirty || saving} onClick={onSave}>{saving ? 'Saving…' : 'Save'}</button>

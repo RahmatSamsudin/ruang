@@ -6,22 +6,33 @@ import { officeStateBadge } from '../office-state.ts'
 import { clampTarget, createLayout, FLOOR_HEIGHT, GAME_ROOM, idlePlan, placementFor, walkPath3, withMovedSeats, type OfficeLayout, type Placement, type Vec3 } from '../office3d-layout.ts'
 import { defaultScene } from '../scene3d/default-scene.ts'
 import { levelName } from '../scene3d/level-names.ts'
-import { applyPatch, deskSeatNumber, isStructureType, levelAt, levelsOf, MAX_ADDED, seatPositions, visibleAt, type SceneItem } from '../scene3d/scene.ts'
+import { applyPatch, deskSeatNumber, isStructureType, levelAt, levelsOf, MAX_ADDED, seatPositions, visibleAt, type PropType, type SceneItem } from '../scene3d/scene.ts'
 import { EditTarget, PlacementLayer, type EditHandlers } from '../scene3d/edit-layer.tsx'
-import { addProp, addStorey, addStructureItem, canDelete, deleteItem, dragPreviewItem, duplicateItem, editKeyAction, isEditable, moveItem, rotateBy, rotateItem, ROTATION_STEP, setBoxProps, setFloorBounds, setFloorSurface, setGlassGeometry, setItemLevel, setItemProp, setItemView, setWallGeometry, type EditKeyAction, type StructureKind } from '../scene3d/scene-edit.ts'
+import { addModelItem, addProp, addStorey, addStructureItem, canDelete, deleteItem, dragPreviewItem, duplicateItem, editKeyAction, isEditable, moveItem, rotateBy, rotateItem, ROTATION_STEP, setBoxProps, setFloorBounds, setFloorSurface, setGlassGeometry, setItemLevel, setItemProp, setItemScale, setItemView, setWallGeometry, type EditKeyAction, type StructureKind } from '../scene3d/scene-edit.ts'
 import { SceneRenderer } from '../scene3d/scene-renderer.tsx'
 import { useSceneEditor } from '../scene3d/use-scene-editor.ts'
 import { useScenePatch } from '../scene3d/use-scene.ts'
 import { createSkinBoxGeometry, useSkinTexture, useSkins } from '../scene3d/skin.ts'
 import type { OfficeStation } from '../types.ts'
 import { EditorBar } from './EditorBar.tsx'
+import { ModelLibrary } from './ModelLibrary.tsx'
 import { ObjectPanel } from './ObjectPanel.tsx'
 import { PropPalette } from './PropPalette.tsx'
+import { exportSceneGlb, downloadBlob } from '../scene3d/export-glb.ts'
+import { exportBundle, importBundle } from '../scene3d/bundle.ts'
 
 // 3D view of the same Office snapshot the 2D view renders. Positions come from each station's
 // room, roomPosition and seat, so the 3D office shows exactly the states the server derived.
 
 type Registry<T> = MutableRefObject<Map<string, T>>
+
+function SceneCapture({ onScene }: { onScene: (scene: THREE.Scene) => void }) {
+  const scene = useThree((state) => state.scene)
+  useEffect(() => {
+    onScene(scene)
+  }, [scene, onScene])
+  return null
+}
 
 /** Ground-floor spots outside the building (gang, sidewalk, yard) stay in view from lantai 2. */
 function outdoors(x: number, z: number, layout: OfficeLayout): boolean {
@@ -417,6 +428,45 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
   const [viewMode, setViewMode] = useState<'cutaway' | 'shell'>('cutaway')
   const [hovering, setHovering] = useState(false)
   const [dragging, setDragging] = useState(false)
+  const [manageModels, setManageModels] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const sceneRef = useRef<THREE.Scene | null>(null)
+
+  const handleExportGlb = async () => {
+    if (!sceneRef.current) return
+    setExporting(true)
+    try {
+      const blob = await exportSceneGlb(sceneRef.current)
+      downloadBlob(blob, `office-scene-${new Date().toISOString().slice(0, 10)}.glb`)
+    } catch (err) {
+      console.error('Failed to export scene to GLB:', err)
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const handleExportBundle = async () => {
+    setExporting(true)
+    try {
+      const bundle = await exportBundle(editor.draft)
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' })
+      downloadBlob(blob, `office-bundle-${new Date().toISOString().slice(0, 10)}.ruang-bundle`)
+    } catch (err) {
+      console.error('Failed to export scene bundle:', err)
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const handleImportBundle = async (file: File) => {
+    try {
+      const text = await file.text()
+      const updatedPatch = await importBundle(text, editor.draft)
+      editor.apply(() => updatedPatch)
+    } catch (err: unknown) {
+      alert(`Import failed: ${(err as Error).message || String(err)}`)
+    }
+  }
   const selectedItem = editor.selectedId ? items.find((item) => item.id === editor.selectedId) : undefined
   // A selection that is not drawn on the floor in view (floor switch, undone floor change) is not acted on.
   const selected = selectedItem && isEditable(selectedItem) && visibleAt(selectedItem, level, viewMode) ? selectedItem : undefined
@@ -487,13 +537,17 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
     if (event.key === 'PageUp' || event.key === 'PageDown') { event.preventDefault(); setLevelIndex(Math.min(Math.max(levelIndex + (event.key === 'PageUp' ? 1 : -1), 0), levels.length - 1)) }
   }}>
     <Canvas shadows dpr={[1, 2]} camera={{ position: [-3, 13, 16], fov: 40, near: 0.5, far: 150 }} gl={{ antialias: true }} onPointerMissed={editingActive && !placing ? () => editor.select(null) : undefined}>
+      <SceneCapture onScene={(scene) => { sceneRef.current = scene }} />
       <Lighting theme={theme}/>
       <SceneRenderer items={drawItems} level={level} night={theme === 'dark'} deskActive={(id) => occupiedSeats.has(deskSeatNumber(id) ?? -1)} wrap={editingActive && !placing ? (item, node) => (isEditable(item) ? <EditTarget item={item} edit={edit}>{node}</EditTarget> : node) : undefined} viewMode={viewMode}/>
       {placing && <PlacementLayer type={placing} level={level} bounds={bounds} night={theme === 'dark'} onPlace={(x, z) => {
         if (isStructureType(placing)) {
           editor.addWith((patchNow) => addStructureItem(patchNow, items, placing as StructureKind, x, z, level, bounds))
+        } else if (typeof placing === 'string' && placing.startsWith('model:')) {
+          const modelId = placing.slice('model:'.length)
+          editor.addWith((patchNow) => addModelItem(patchNow, items, modelId, x, z, level, bounds))
         } else {
-          editor.addWith((patchNow) => addProp(patchNow, items, placing, x, z, level, bounds))
+          editor.addWith((patchNow) => addProp(patchNow, items, placing as PropType, x, z, level, bounds))
         }
       }} onExit={editor.stopPlacing}/>}
       {stations.map((station) => <Character key={station.id} station={station} placement={placement(station)} layout={layout} level={level} levels={levels} onSelect={selectAgent} anchor={register(anchors, `agent-${station.id}`)} skinVersion={skins?.[station.id]?.version}/>)}
@@ -523,8 +577,9 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
       <button type="button" className={panMode ? 'active' : ''} aria-pressed={panMode} onClick={() => setPanMode((value) => !value)} title="Drag moves the view instead of rotating it">✥ Geser</button>
       <button type="button" onClick={() => view.current?.reset()} title="Back to the starting view">↺ Reset view</button>
     </div>
-    {editor.editing && <EditorBar canUndo={editor.canUndo} canRedo={editor.canRedo} dirty={editor.dirty} saving={editor.saving} error={editor.error} viewMode={viewMode} onViewModeChange={setViewMode} onAddStorey={() => editor.apply((patchNow) => addStorey(patchNow, items).patch)} onUndo={editor.undo} onRedo={editor.redo} onSave={() => void editor.save()} onReset={resetEdits} onDone={finishEditing}/>}
+    {editor.editing && <EditorBar canUndo={editor.canUndo} canRedo={editor.canRedo} dirty={editor.dirty} saving={editor.saving || exporting} error={editor.error} viewMode={viewMode} onViewModeChange={setViewMode} onAddStorey={() => editor.apply((patchNow) => addStorey(patchNow, items).patch)} onExportGlb={handleExportGlb} onExportBundle={handleExportBundle} onImportBundle={handleImportBundle} onManageModels={() => setManageModels(true)} onUndo={editor.undo} onRedo={editor.redo} onSave={() => void editor.save()} onReset={resetEdits} onDone={finishEditing}/>}
     {editor.editing && <PropPalette placing={placing} limitReached={limitReached} onPick={(type) => (type ? editor.startPlacing(type) : editor.stopPlacing())}/>}
-    {editor.editing && selected && <ObjectPanel item={selected} levels={levels} canDuplicate={!limitReached} onDuplicate={() => editor.addWith((patchNow) => duplicateItem(patchNow, items, selected, bounds))} onProp={(key, value) => editor.apply((patchNow) => setItemProp(patchNow, selected, key, value))} onMove={(x, z) => editor.apply((patchNow) => moveItem(patchNow, selected, x, z, bounds))} onRotate={(degrees) => editor.apply((patchNow) => rotateItem(patchNow, selected, (degrees * Math.PI) / 180))} onLevel={(next) => { editor.apply((patchNow) => setItemLevel(patchNow, selected, next)); setLevelIndex(Math.max(0, levels.indexOf(next))) }} onDelete={() => { editor.apply((patchNow) => deleteItem(patchNow, selected)); editor.select(null); keyTarget?.focus() }} onView={(v) => editor.apply((patchNow) => setItemView(patchNow, selected, v))} onFloorBounds={(min, max, y) => editor.apply((patchNow) => setFloorBounds(patchNow, selected, min, max, y))} onFloorSurface={(surface, roughness) => editor.apply((patchNow) => setFloorSurface(patchNow, selected, surface, roughness))} onWallGeometry={(from, to, height, y) => editor.apply((patchNow) => setWallGeometry(patchNow, selected, from, to, height, y))} onGlassGeometry={(from, to, bottom, top) => editor.apply((patchNow) => setGlassGeometry(patchNow, selected, from, to, bottom, top))} onBoxProps={(size, color, options) => editor.apply((patchNow) => setBoxProps(patchNow, selected, size, color, options))}/>}
+    {editor.editing && selected && <ObjectPanel item={selected} levels={levels} canDuplicate={!limitReached} onDuplicate={() => editor.addWith((patchNow) => duplicateItem(patchNow, items, selected, bounds))} onProp={(key, value) => editor.apply((patchNow) => setItemProp(patchNow, selected, key, value))} onMove={(x, z) => editor.apply((patchNow) => moveItem(patchNow, selected, x, z, bounds))} onRotate={(degrees) => editor.apply((patchNow) => rotateItem(patchNow, selected, (degrees * Math.PI) / 180))} onScale={(scale) => editor.apply((patchNow) => setItemScale(patchNow, selected, scale))} onLevel={(next) => { editor.apply((patchNow) => setItemLevel(patchNow, selected, next)); setLevelIndex(Math.max(0, levels.indexOf(next))) }} onDelete={() => { editor.apply((patchNow) => deleteItem(patchNow, selected)); editor.select(null); keyTarget?.focus() }} onView={(v) => editor.apply((patchNow) => setItemView(patchNow, selected, v))} onFloorBounds={(min, max, y) => editor.apply((patchNow) => setFloorBounds(patchNow, selected, min, max, y))} onFloorSurface={(surface, roughness) => editor.apply((patchNow) => setFloorSurface(patchNow, selected, surface, roughness))} onWallGeometry={(from, to, height, y) => editor.apply((patchNow) => setWallGeometry(patchNow, selected, from, to, height, y))} onGlassGeometry={(from, to, bottom, top) => editor.apply((patchNow) => setGlassGeometry(patchNow, selected, from, to, bottom, top))} onBoxProps={(size, color, options) => editor.apply((patchNow) => setBoxProps(patchNow, selected, size, color, options))}/>}
+    {manageModels && <ModelLibrary onClose={() => setManageModels(false)} onModelsChange={() => refreshScene()}/>}
   </div>
 }

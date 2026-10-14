@@ -45,4 +45,17 @@ describe('EditorBar', () => {
     const shellMarkup = bar({ viewMode: 'shell', onViewModeChange: noop })
     expect(shellMarkup).toContain('Shell')
   })
+
+  it('renders model management and export/import actions when provided', () => {
+    const markup = bar({
+      onManageModels: noop,
+      onExportGlb: noop,
+      onExportBundle: noop,
+      onImportBundle: noop,
+    })
+    expect(markup).toContain('📦 Models')
+    expect(markup).toContain('⬇ Export GLB')
+    expect(markup).toContain('⬇ Export Bundle')
+    expect(markup).toContain('⬆ Import Bundle')
+  })
 })
