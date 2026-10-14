@@ -15,6 +15,7 @@ import {
   ModelRecord,
   modelsDir,
   ModelStore,
+  parseMaxModelBytes,
   sanitizeModelName,
   validateModel,
 } from './models.js'
@@ -1037,5 +1038,19 @@ describe('models concurrency and resilience', () => {
     expect(dirEntries.some((f) => f.startsWith('.index.json') || f.includes('.tmp'))).toBe(false)
     expect(dirEntries.some((f) => f.startsWith('index.json.corrupt-'))).toBe(false)
     expect(dirEntries).toContain(`${existingModel.id}.glb`)
+  })
+})
+
+describe('parseMaxModelBytes', () => {
+  it('parses valid positive byte count', () => {
+    expect(parseMaxModelBytes('5242880')).toBe(5242880)
+  })
+
+  it('falls back to default for negative, zero, non-numeric, or undefined values', () => {
+    const DEFAULT_BYTES = 10 * 1024 * 1024
+    expect(parseMaxModelBytes('-1000')).toBe(DEFAULT_BYTES)
+    expect(parseMaxModelBytes('0')).toBe(DEFAULT_BYTES)
+    expect(parseMaxModelBytes('abc')).toBe(DEFAULT_BYTES)
+    expect(parseMaxModelBytes(undefined)).toBe(DEFAULT_BYTES)
   })
 })

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { formatModelSize } from '../models-api.ts'
 import { clearModelCache } from '../scene3d/model-loader.ts'
-import type { ModelRecord } from '../scene3d/models.ts'
+import { MAX_MODELS, type ModelRecord } from '../scene3d/models.ts'
 import type { SceneItem } from '../scene3d/scene.ts'
 import { Dialog } from '../ui.tsx'
 
@@ -72,8 +72,8 @@ export function ModelLibrary({ onClose, initialModels, onModelsChange, onModelDe
       setError('File exceeds 10 MiB limit.')
       return
     }
-    if (models.length >= 50) {
-      setError('Model limit reached (max 50).')
+    if (models.length >= MAX_MODELS) {
+      setError(`Model limit reached (max ${MAX_MODELS}).`)
       return
     }
     setUploading(true)
@@ -175,7 +175,7 @@ export function ModelLibrary({ onClose, initialModels, onModelsChange, onModelDe
 
         <header className="model-library-header">
           <h2 id="model-library-title">Model Library</h2>
-          <span className="model-library-count">{models.length} / 50 models</span>
+          <span className="model-library-count">{models.length} / {MAX_MODELS} models</span>
         </header>
 
         <div className="model-library-toolbar">
@@ -191,7 +191,7 @@ export function ModelLibrary({ onClose, initialModels, onModelsChange, onModelDe
               type="file"
               accept=".glb,.gltf"
               style={{ display: 'none' }}
-              disabled={uploading || models.length >= 50}
+              disabled={uploading || models.length >= MAX_MODELS}
               onChange={handleUpload}
             />
             {uploading ? 'Uploading...' : '+ Upload Model'}

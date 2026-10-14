@@ -495,21 +495,7 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
     setBundleError(null)
     setBundleSuccess(null)
     try {
-      let exportModels = models
-      if (exportModels.length === 0) {
-        try {
-          const fresh = await fetchModels()
-          if (Array.isArray(fresh) && fresh.length > 0) {
-            exportModels = fresh
-            setModels(fresh)
-          }
-        } catch {
-          // fallback to current models state
-        }
-      }
-      const bundle = await exportBundle(editor.draft, {
-        includeModelIds: exportModels.map((m) => m.id),
-      })
+      const bundle = await exportBundle(editor.draft)
       const filename = formatBundleFilename()
       const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' })
       downloadBlob(blob, filename)

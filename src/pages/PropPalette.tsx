@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { ModelRecord } from '../scene3d/models.ts'
+import { MAX_MODELS, type ModelRecord } from '../scene3d/models.ts'
 import { GROUPS, PROP_CATALOG } from '../scene3d/prop-catalog.ts'
 import { MAX_ADDED, PROP_TYPES, type PlaceableType, type PropType, type StructureType } from '../scene3d/scene.ts'
 
@@ -220,12 +220,12 @@ export function PropPalette({ placing, limitReached, onPick, models: propModels,
           <div className="office-3d-palette-upload">
             <label
               htmlFor="office-3d-model-input"
-              className={`office-3d-upload-btn${uploading || limitReached || models.length >= 50 ? ' disabled' : ''}`}
-              tabIndex={uploading || limitReached || models.length >= 50 ? -1 : 0}
+              className={`office-3d-upload-btn${uploading || limitReached || models.length >= MAX_MODELS ? ' disabled' : ''}`}
+              tabIndex={uploading || limitReached || models.length >= MAX_MODELS ? -1 : 0}
               role="button"
-              aria-disabled={uploading || limitReached || models.length >= 50}
+              aria-disabled={uploading || limitReached || models.length >= MAX_MODELS}
               onKeyDown={(event) => {
-                if (uploading || limitReached || models.length >= 50) return
+                if (uploading || limitReached || models.length >= MAX_MODELS) return
                 if (event.key === 'Enter' || event.key === ' ') {
                   event.preventDefault()
                   document.getElementById('office-3d-model-input')?.click()
@@ -238,7 +238,7 @@ export function PropPalette({ placing, limitReached, onPick, models: propModels,
                 accept=".glb,.gltf"
                 className="office-3d-file-input-hidden"
                 aria-label="Upload 3D model (.glb, .gltf)"
-                disabled={uploading || limitReached || models.length >= 50}
+                disabled={uploading || limitReached || models.length >= MAX_MODELS}
                 onChange={handleUpload}
               />
               {uploading ? `Uploading ${uploadingName ?? ''}...` : '+ Upload Model'}

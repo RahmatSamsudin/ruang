@@ -6,6 +6,7 @@ import {
   exportBundle,
   formatBundleFilename,
   importBundle,
+  type BundledModel,
   type RuangBundle,
 } from './bundle.ts'
 import type { ModelItem, PropItem, ScenePatch } from './scene.ts'
@@ -421,5 +422,297 @@ describe('bundle', () => {
     expect(result.overrides).not.toHaveProperty('floor-main')
     expect(result.overrides).not.toHaveProperty('desk-2')
     expect(result.added.length).toBe(1)
+  })
+
+  it('rejects bundle item missing level', async () => {
+    const bundle = {
+      format: 'ruang-bundle',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      patch: {
+        version: 2,
+        overrides: {},
+        added: [{ kind: 'prop', id: 'p1', type: 'Plant', position: [0, 0, 0] }],
+      },
+      models: [],
+    } as unknown as RuangBundle
+    await expect(importBundle(bundle, samplePatch)).rejects.toThrow('Item p1 missing level')
+  })
+
+  it('rejects bundle model item missing position', async () => {
+    const glbBytes = createMinimalGlb()
+    const bundle: RuangBundle = {
+      format: 'ruang-bundle',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      patch: {
+        version: 2,
+        overrides: {},
+        added: [{ kind: 'model', id: 'm1', level: 0, modelId: 'm-mod11111111' } as unknown as ModelItem],
+      },
+      models: [{ id: 'm-mod11111111', name: 'm.glb', format: 'glb', dataBase64: bytesToBase64(glbBytes) }],
+    }
+    await expect(importBundle(bundle, samplePatch)).rejects.toThrow('Item m1 missing position')
+  })
+
+  it('rejects bundle floor item with invalid surface extra property', async () => {
+    const bundle = {
+      format: 'ruang-bundle',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      patch: {
+        version: 2,
+        overrides: {},
+        added: [
+          {
+            kind: 'floor',
+            id: 'f1',
+            level: 0,
+            min: [0, 0],
+            max: [4, 4],
+            y: 0,
+            surface: { type: 'wood', repeat: [1, 1], extra: 'evil' },
+          },
+        ],
+      },
+      models: [],
+    } as unknown as RuangBundle
+    await expect(importBundle(bundle, samplePatch)).rejects.toThrow('Item f1 has invalid surface')
+  })
+
+  it('rejects bundle item with forbidden or unexpected field', async () => {
+    const bundle = {
+      format: 'ruang-bundle',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      patch: {
+        version: 2,
+        overrides: {},
+        added: [{ kind: 'prop', id: 'p1', level: 0, type: 'Plant', position: [0, 0, 0], extraField: true }],
+      },
+      models: [],
+    } as unknown as RuangBundle
+    await expect(importBundle(bundle, samplePatch)).rejects.toThrow(
+      'Item p1 contains forbidden or unexpected field "extraField"',
+    )
+  })
+
+  it('rejects import when existing + bundle items exceed 500 cap', async () => {
+    const makeItems = (count: number, prefix: string) =>
+      Array.from({ length: count }, (_, i) => ({
+        kind: 'prop' as const,
+        id: `${prefix}-${i}`,
+        level: 0,
+        type: 'Plant' as const,
+        position: [0, 0, 0] as [number, number, number],
+      }))
+
+    const existing: ScenePatch = {
+      version: 2,
+      overrides: {},
+      added: makeItems(300, 'existing'),
+    }
+
+    const bundle: RuangBundle = {
+      format: 'ruang-bundle',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      patch: {
+        version: 2,
+        overrides: {},
+        added: makeItems(201, 'bundle'),
+      },
+      models: [],
+    }
+
+    await expect(importBundle(bundle, existing)).rejects.toThrow(
+      'Import would result in 501 items, exceeding cap of 500',
+    )
+  })
+
+  it('rejects bundle containing duplicate model ids', async () => {
+    const glbBytes = createMinimalGlb()
+    const bundle: RuangBundle = {
+      format: 'ruang-bundle',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      patch: {
+        version: 2,
+        overrides: {},
+        added: [],
+      },
+      models: [
+        { id: 'm-dup11111111', name: 'one.glb', format: 'glb', dataBase64: bytesToBase64(glbBytes) },
+        { id: 'm-dup11111111', name: 'two.glb', format: 'glb', dataBase64: bytesToBase64(glbBytes) },
+      ],
+    }
+
+    await expect(importBundle(bundle, samplePatch)).rejects.toThrow(
+      'Bundle contains duplicate model id: m-dup11111111',
+    )
+  })
+
+  it('resolves item id collision with built-in default scene items', async () => {
+    const bundle: RuangBundle = {
+      format: 'ruang-bundle',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      patch: {
+        version: 2,
+        overrides: {},
+        added: [
+          {
+            kind: 'floor',
+            id: 'floor-main',
+            level: 0,
+            min: [-10, -10],
+            max: [10, 10],
+            y: 0,
+            surface: { type: 'wood', repeat: [1, 1] },
+          },
+        ],
+      },
+      models: [],
+    }
+
+    const result = await importBundle(bundle, { version: 2, overrides: {}, added: [] })
+    expect(result.added.length).toBe(1)
+    expect(result.added[0].id).not.toBe('floor-main')
+    expect(result.added[0].id).toBe('added-1')
+  })
+
+  it('exports only referenced models and omits duplicate patch.items', async () => {
+    const glbBytes = createMinimalGlb()
+    const fetchModel = vi.fn().mockImplementation(async (id: string) => {
+      return { name: `${id}.glb`, format: 'glb' as const, bytes: glbBytes }
+    })
+
+    const patch: ScenePatch = {
+      version: 2,
+      overrides: {},
+      added: [
+        {
+          kind: 'model',
+          id: 'm-item',
+          level: 0,
+          modelId: 'm-referenced1',
+          position: [1, 0, 1],
+        },
+        {
+          kind: 'prop',
+          id: 'p-item',
+          level: 0,
+          type: 'Plant',
+          position: [2, 0, 2],
+        },
+      ],
+    }
+
+    const bundle = await exportBundle(patch, { fetchModel })
+    expect(bundle.models.length).toBe(1)
+    expect(bundle.models[0].id).toBe('m-referenced1')
+    expect(bundle.patch.added.length).toBe(2)
+    expect((bundle.patch as unknown as { items?: unknown }).items).toBeUndefined()
+  })
+
+  it('supports reading legacy bundles with patch.items when patch.added is omitted', async () => {
+    const bundle = {
+      format: 'ruang-bundle',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      patch: {
+        version: 1,
+        overrides: {},
+        items: [
+          {
+            kind: 'prop',
+            id: 'legacy-p1',
+            level: 0,
+            type: 'Plant',
+            position: [0, 0, 0],
+          },
+        ],
+      },
+      models: [],
+    } as unknown as RuangBundle
+
+    const result = await importBundle(bundle, { version: 2, overrides: {}, added: [] })
+    expect(result.added.length).toBe(1)
+    expect(result.added[0].id).toBe('legacy-p1')
+  })
+
+  it('reports orphan DELETE failure in error message during rollback', async () => {
+    const glbBytes = createMinimalGlb()
+    const bundle: RuangBundle = {
+      format: 'ruang-bundle',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      patch: {
+        version: 2,
+        overrides: {},
+        added: [
+          { kind: 'model', id: 'm1', level: 0, modelId: 'm-1', position: [0, 0, 0] },
+          { kind: 'model', id: 'm2', level: 0, modelId: 'm-2', position: [0, 0, 0] },
+        ],
+      },
+      models: [
+        { id: 'm-1', name: 'one.glb', format: 'glb', dataBase64: bytesToBase64(glbBytes) },
+        { id: 'm-2', name: 'two.glb', format: 'glb', dataBase64: bytesToBase64(glbBytes) },
+      ],
+    }
+
+    let uploadCount = 0
+    const uploadModel = vi.fn().mockImplementation(async () => {
+      uploadCount++
+      if (uploadCount === 2) {
+        throw new Error('Upload failed 500')
+      }
+      return { id: 'm-orphan1' }
+    })
+
+    const deleteModel = vi.fn().mockRejectedValue(new Error('Network error on delete'))
+
+    await expect(importBundle(bundle, samplePatch, { uploadModel, deleteModel })).rejects.toThrow(
+      'Upload failed 500 (Rollback failed to delete orphan models: m-orphan1)',
+    )
+  })
+
+  it('supports importing 12 models with progress callbacks and custom throttle', async () => {
+    const glbBytes = createMinimalGlb()
+    const models: BundledModel[] = Array.from({ length: 12 }, (_, i) => ({
+      id: `m-bulk${String(i).padStart(8, '0')}`,
+      name: `model-${i}.glb`,
+      format: 'glb' as const,
+      dataBase64: bytesToBase64(glbBytes),
+    }))
+    const added: ModelItem[] = models.map((m, i) => ({
+      kind: 'model',
+      id: `item-${i}`,
+      level: 0,
+      modelId: m.id,
+      position: [i, 0, 0],
+    }))
+
+    const bundle: RuangBundle = {
+      format: 'ruang-bundle',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      patch: { version: 2, overrides: {}, added },
+      models,
+    }
+
+    const progressReports: string[] = []
+    const uploadModel = vi.fn().mockImplementation(async (name) => ({ id: `uploaded-${name}` }))
+
+    const result = await importBundle(bundle, samplePatch, {
+      uploadModel,
+      throttleMs: 1,
+      onProgress: (p) => progressReports.push(p.name),
+    })
+
+    expect(result.modelCount).toBe(12)
+    expect(result.itemCount).toBe(12)
+    expect(progressReports.length).toBe(12)
+    expect(uploadModel).toHaveBeenCalledTimes(12)
   })
 })

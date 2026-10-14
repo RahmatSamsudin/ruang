@@ -296,11 +296,16 @@ function getDirLock(dir: string): AsyncLock {
   return lock
 }
 
+export function parseMaxModelBytes(envValue = process.env.RUANG_MODEL_MAX_BYTES): number {
+  const parsed = Number(envValue)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MAX_MODEL_BYTES
+}
+
 export class ModelStore {
   constructor(
     readonly dir: string = modelsDir(),
     readonly maxModels: number = MAX_MODELS,
-    readonly maxBytes: number = Number(process.env.RUANG_MODEL_MAX_BYTES) || DEFAULT_MAX_MODEL_BYTES,
+    readonly maxBytes: number = parseMaxModelBytes(),
   ) {}
 
   private get lock(): AsyncLock {

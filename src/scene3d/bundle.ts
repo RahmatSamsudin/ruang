@@ -1,4 +1,6 @@
 import { PROP_TYPES, type ModelItem, type SceneItem, type ScenePatch } from './scene.ts'
+import { defaultScene } from './default-scene.ts'
+import { createLayout } from '../office3d-layout.ts'
 
 export type Vec2 = [number, number]
 export type Vec3 = [number, number, number]
@@ -38,9 +40,6 @@ const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
 const ID_REGEX = /^[A-Za-z0-9._-]{1,64}$/
 const MODEL_ID_REGEX = /^[A-Za-z0-9._-]{1,64}$/
 const SEAT_ID_REGEX = /^(desk|bed)-\d+$/
-const COLOR_REGEX = /^#[0-9a-fA-F]{6}$/
-const PROP_KEY_REGEX = /^[A-Za-z]{1,24}$/
-const KNOWN_PROP_TYPES = new Set<string>(PROP_TYPES)
 const KNOWN_SURFACES = new Set(['wood', 'tile', 'carpet', 'grass', 'asphalt', 'paving'])
 
 export function formatBundleFilename(date: Date = new Date()): string {
@@ -191,201 +190,105 @@ export function validateModelBytes(bytes: Uint8Array, format: 'glb' | 'gltf', na
   }
 }
 
-const isNum = (n: unknown, min = -Infinity, max = Infinity): n is number =>
-  typeof n === 'number' && Number.isFinite(n) && n >= min && n <= max
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
 
-const isPos = (n: unknown): n is number => isNum(n, 0.001, 1000)
-const isUnit = (n: unknown): n is number => isNum(n, 0, 1)
+type Check = (value: unknown) => boolean
+const num: Check = (value) => typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= 1000
+const positive: Check = (value) => num(value) && (value as number) > 0
+const unit: Check = (value) => num(value) && (value as number) >= 0 && (value as number) <= 1
+const bool: Check = (value) => typeof value === 'boolean'
+const tuple = (length: number, check: Check = num): Check => (value) =>
+  Array.isArray(value) && value.length === length && value.every(check)
+const oneOf = (list: readonly string[]): Check => (value) =>
+  typeof value === 'string' && list.includes(value)
+const color: Check = (value) => typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value)
+const surface: Check = (value) =>
+  isRecord(value) &&
+  Object.keys(value).every((key) => ['type', 'repeat', 'color'].includes(key)) &&
+  oneOf(Array.from(KNOWN_SURFACES))(value.type) &&
+  tuple(2, positive)(value.repeat) &&
+  (value.color === undefined || color(value.color))
+const propValues: Check = (value) =>
+  isRecord(value) &&
+  Object.keys(value).length <= 16 &&
+  Object.entries(value).every(
+    ([key, item]) =>
+      /^[A-Za-z]{1,24}$/.test(key) &&
+      !FORBIDDEN_KEYS.has(key) &&
+      ((num(item) && Math.abs(item as number) <= 100) || bool(item) || (typeof item === 'string' && item.length <= 64)),
+  )
 
-const isVec2 = (v: unknown): v is Vec2 =>
-  Array.isArray(v) && v.length === 2 && isNum(v[0], -1000, 1000) && isNum(v[1], -1000, 1000)
+const modelIdCheck: Check = (value) =>
+  typeof value === 'string' && MODEL_ID_REGEX.test(value) && !FORBIDDEN_KEYS.has(value)
+const scaleCheck: Check = (value) => typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= 100
 
-const isVec3 = (v: unknown): v is Vec3 =>
-  Array.isArray(v) && v.length === 3 && isNum(v[0], -1000, 1000) && isNum(v[1], -1000, 1000) && isNum(v[2], -1000, 1000)
+const FIELDS: Record<string, Record<string, Check>> = {
+  prop: { type: oneOf(PROP_TYPES), position: tuple(3), rotation: num, props: propValues },
+  floor: { min: tuple(2), max: tuple(2), y: num, surface, roughness: unit },
+  wall: { from: tuple(2), to: tuple(2), y: num, height: positive },
+  glass: { from: tuple(2), to: tuple(2), bottom: num, top: num },
+  window: { position: tuple(3), rotation: num, width: positive },
+  box: { position: tuple(3), size: tuple(3, positive), color, radius: num, roughness: unit, opacity: unit, shadow: bool },
+  model: { modelId: modelIdCheck, position: tuple(3), rotation: num, scale: scaleCheck },
+}
+const REQUIRED: Record<string, string[]> = {
+  prop: ['type', 'position'],
+  floor: ['min', 'max', 'y', 'surface'],
+  wall: ['from', 'to', 'y', 'height'],
+  glass: ['from', 'to', 'bottom', 'top'],
+  window: ['position'],
+  box: ['position', 'size', 'color'],
+  model: ['modelId', 'position'],
+}
+const COMMON: Record<string, Check> = { level: num, view: oneOf(['cutaway', 'shell', 'both']) }
+const checkOf = (fields: Record<string, Check>, key: string): Check | undefined =>
+  Object.hasOwn(fields, key) ? fields[key] : undefined
+
+const validId = (id: unknown): id is string =>
+  typeof id === 'string' && ID_REGEX.test(id) && !FORBIDDEN_KEYS.has(id)
 
 function validateSceneItem(item: unknown, index: number, availableModelIds: Set<string>): SceneItem {
-  if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+  if (!isRecord(item)) {
     throw new Error(`Item [${index}] must be an object`)
   }
-  const obj = item as Record<string, unknown>
-  const id = obj.id
-  if (typeof id !== 'string' || !ID_REGEX.test(id) || FORBIDDEN_KEYS.has(id)) {
+  const id = item.id
+  if (!validId(id)) {
     throw new Error(`Item [${index}] has invalid id: ${String(id)}`)
   }
   if (SEAT_ID_REGEX.test(id)) {
     throw new Error(`Item [${index}] cannot use reserved seat id: ${id}`)
   }
-  const kind = obj.kind
-  if (typeof kind !== 'string' || !['prop', 'floor', 'wall', 'glass', 'window', 'box', 'model'].includes(kind)) {
+  const kind = item.kind
+  if (typeof kind !== 'string' || !Object.hasOwn(FIELDS, kind)) {
     throw new Error(`Item ${id} has invalid kind: ${String(kind)}`)
   }
 
-  if (obj.level !== undefined && !isNum(obj.level, -1000, 1000)) {
-    throw new Error(`Item ${id} has invalid level`)
-  }
-  if (obj.view !== undefined && obj.view !== 'cutaway' && obj.view !== 'shell' && obj.view !== 'both') {
-    throw new Error(`Item ${id} has invalid view`)
-  }
-
-  const allowedCommonKeys = new Set(['id', 'kind', 'level', 'view'])
-  const extraKeys = new Set<string>()
-
-  if (kind === 'prop') {
-    extraKeys.add('type')
-    extraKeys.add('position')
-    extraKeys.add('rotation')
-    extraKeys.add('props')
-
-    if (typeof obj.type !== 'string' || !KNOWN_PROP_TYPES.has(obj.type)) {
-      throw new Error(`Prop ${id} has unknown or invalid type: ${String(obj.type)}`)
-    }
-    if (!isVec3(obj.position)) {
-      throw new Error(`Prop ${id} has invalid position`)
-    }
-    if (obj.rotation !== undefined && !isNum(obj.rotation, -360, 360)) {
-      throw new Error(`Prop ${id} has invalid rotation`)
-    }
-    if (obj.props !== undefined) {
-      if (typeof obj.props !== 'object' || obj.props === null || Array.isArray(obj.props)) {
-        throw new Error(`Prop ${id} has invalid props record`)
-      }
-      const p = obj.props as Record<string, unknown>
-      const keys = Object.keys(p)
-      if (keys.length > 16) {
-        throw new Error(`Prop ${id} props record exceeds 16 keys`)
-      }
-      for (const k of keys) {
-        if (!PROP_KEY_REGEX.test(k) || FORBIDDEN_KEYS.has(k)) {
-          throw new Error(`Prop ${id} props has invalid key: ${k}`)
-        }
-        const val = p[k]
-        const validVal =
-          typeof val === 'boolean' ||
-          isNum(val, -100, 100) ||
-          (typeof val === 'string' && val.length <= 64)
-        if (!validVal) {
-          throw new Error(`Prop ${id} props has invalid value for key: ${k}`)
-        }
-      }
-    }
-  } else if (kind === 'floor') {
-    extraKeys.add('min')
-    extraKeys.add('max')
-    extraKeys.add('y')
-    extraKeys.add('surface')
-    extraKeys.add('roughness')
-
-    if (!isVec2(obj.min) || !isVec2(obj.max) || !isNum(obj.y, -1000, 1000)) {
-      throw new Error(`Floor ${id} has invalid coordinates`)
-    }
-    if (typeof obj.surface !== 'object' || obj.surface === null || Array.isArray(obj.surface)) {
-      throw new Error(`Floor ${id} has invalid surface`)
-    }
-    const surf = obj.surface as Record<string, unknown>
-    if (typeof surf.type !== 'string' || !KNOWN_SURFACES.has(surf.type)) {
-      throw new Error(`Floor ${id} has invalid surface type`)
-    }
-    if (!Array.isArray(surf.repeat) || surf.repeat.length !== 2 || !isPos(surf.repeat[0]) || !isPos(surf.repeat[1])) {
-      throw new Error(`Floor ${id} surface has invalid repeat`)
-    }
-    if (surf.color !== undefined && (typeof surf.color !== 'string' || !COLOR_REGEX.test(surf.color))) {
-      throw new Error(`Floor ${id} surface has invalid color`)
-    }
-    if (obj.roughness !== undefined && !isUnit(obj.roughness)) {
-      throw new Error(`Floor ${id} has invalid roughness`)
-    }
-  } else if (kind === 'wall') {
-    extraKeys.add('from')
-    extraKeys.add('to')
-    extraKeys.add('y')
-    extraKeys.add('height')
-
-    if (!isVec2(obj.from) || !isVec2(obj.to) || !isNum(obj.y, -1000, 1000) || !isPos(obj.height)) {
-      throw new Error(`Wall ${id} has invalid coordinates or height`)
-    }
-  } else if (kind === 'glass') {
-    extraKeys.add('from')
-    extraKeys.add('to')
-    extraKeys.add('bottom')
-    extraKeys.add('top')
-
-    if (!isVec2(obj.from) || !isVec2(obj.to) || !isNum(obj.bottom, -1000, 1000) || !isNum(obj.top, -1000, 1000)) {
-      throw new Error(`Glass ${id} has invalid coordinates`)
-    }
-  } else if (kind === 'window') {
-    extraKeys.add('position')
-    extraKeys.add('rotation')
-    extraKeys.add('width')
-
-    if (!isVec3(obj.position)) {
-      throw new Error(`Window ${id} has invalid position`)
-    }
-    if (obj.rotation !== undefined && !isNum(obj.rotation, -360, 360)) {
-      throw new Error(`Window ${id} has invalid rotation`)
-    }
-    if (obj.width !== undefined && !isPos(obj.width)) {
-      throw new Error(`Window ${id} has invalid width`)
-    }
-  } else if (kind === 'box') {
-    extraKeys.add('position')
-    extraKeys.add('size')
-    extraKeys.add('color')
-    extraKeys.add('radius')
-    extraKeys.add('roughness')
-    extraKeys.add('opacity')
-    extraKeys.add('shadow')
-
-    if (!isVec3(obj.position)) {
-      throw new Error(`Box ${id} has invalid position`)
-    }
-    if (!Array.isArray(obj.size) || obj.size.length !== 3 || !isPos(obj.size[0]) || !isPos(obj.size[1]) || !isPos(obj.size[2])) {
-      throw new Error(`Box ${id} has invalid size`)
-    }
-    if (typeof obj.color !== 'string' || !COLOR_REGEX.test(obj.color)) {
-      throw new Error(`Box ${id} has invalid color`)
-    }
-    if (obj.radius !== undefined && !isNum(obj.radius, 0, 100)) {
-      throw new Error(`Box ${id} has invalid radius`)
-    }
-    if (obj.roughness !== undefined && !isUnit(obj.roughness)) {
-      throw new Error(`Box ${id} has invalid roughness`)
-    }
-    if (obj.opacity !== undefined && !isUnit(obj.opacity)) {
-      throw new Error(`Box ${id} has invalid opacity`)
-    }
-    if (obj.shadow !== undefined && typeof obj.shadow !== 'boolean') {
-      throw new Error(`Box ${id} has invalid shadow`)
-    }
-  } else if (kind === 'model') {
-    extraKeys.add('modelId')
-    extraKeys.add('position')
-    extraKeys.add('rotation')
-    extraKeys.add('scale')
-
-    if (typeof obj.modelId !== 'string' || !MODEL_ID_REGEX.test(obj.modelId)) {
-      throw new Error(`Model item ${id} has invalid modelId: ${String(obj.modelId)}`)
-    }
-    if (!availableModelIds.has(obj.modelId)) {
-      throw new Error(`Model item ${id} references modelId ${obj.modelId} not found in bundle models`)
-    }
-    if (obj.position !== undefined && !isVec3(obj.position)) {
-      throw new Error(`Model item ${id} has invalid position`)
-    }
-    if (obj.rotation !== undefined && !isNum(obj.rotation, -360, 360)) {
-      throw new Error(`Model item ${id} has invalid rotation`)
-    }
-    if (obj.scale !== undefined && (!isPos(obj.scale) || obj.scale > 100)) {
-      throw new Error(`Model item ${id} has invalid scale`)
-    }
-  }
-
-  for (const key of Object.keys(obj)) {
-    if (!allowedCommonKeys.has(key) && !extraKeys.has(key)) {
+  for (const [key, field] of Object.entries(item)) {
+    if (key === 'id' || key === 'kind') continue
+    const check = checkOf(COMMON, key) ?? checkOf(FIELDS[kind], key)
+    if (!check) {
       throw new Error(`Item ${id} contains forbidden or unexpected field "${key}"`)
     }
+    if (!check(field)) {
+      throw new Error(`Item ${id} has invalid ${key}`)
+    }
   }
 
-  return obj as unknown as SceneItem
+  for (const key of ['level', ...REQUIRED[kind]]) {
+    if (!Object.hasOwn(item, key)) {
+      throw new Error(`Item ${id} missing ${key}`)
+    }
+  }
+
+  if (kind === 'model') {
+    const modelId = item.modelId as string
+    if (!availableModelIds.has(modelId)) {
+      throw new Error(`Model item ${id} references modelId ${modelId} not found in bundle models`)
+    }
+  }
+
+  return item as unknown as SceneItem
 }
 
 export interface ExportBundleOptions {
@@ -470,7 +373,6 @@ export async function exportBundle(
       version: 2,
       overrides: {},
       added: [...added],
-      items: [...added],
     },
     models,
   }
@@ -480,6 +382,7 @@ export interface ImportBundleOptions {
   uploadModel?: (name: string, format: 'glb' | 'gltf', bytes: Uint8Array) => Promise<{ id: string }>
   deleteModel?: (id: string) => Promise<void>
   onProgress?: (progress: { current: number; total: number; name: string }) => void
+  throttleMs?: number
 }
 
 /**
@@ -533,6 +436,11 @@ export async function importBundle(
     throw new Error(`Bundle contains ${rawAdded.length} items, exceeding cap of ${MAX_BUNDLE_ITEMS}`)
   }
 
+  const existingCount = existingPatch.added?.length ?? 0
+  if (existingCount + rawAdded.length > MAX_BUNDLE_ITEMS) {
+    throw new Error(`Import would result in ${existingCount + rawAdded.length} items, exceeding cap of ${MAX_BUNDLE_ITEMS}`)
+  }
+
   const bundledModels = Array.isArray(bundle.models) ? bundle.models : []
   if (bundledModels.length > MAX_BUNDLE_MODELS) {
     throw new Error(`Bundle contains ${bundledModels.length} models, exceeding cap of ${MAX_BUNDLE_MODELS}`)
@@ -549,6 +457,9 @@ export async function importBundle(
     }
     if (typeof model.id !== 'string' || !MODEL_ID_REGEX.test(model.id)) {
       throw new Error(`Bundle model [${i}] has invalid id: ${String(model.id)}`)
+    }
+    if (availableModelIds.has(model.id)) {
+      throw new Error(`Bundle contains duplicate model id: ${model.id}`)
     }
     if (typeof model.name !== 'string' || model.name.trim().length === 0 || model.name.length > 128) {
       throw new Error(`Bundle model ${model.id} has invalid name`)
@@ -580,6 +491,10 @@ export async function importBundle(
         total: bundledModels.length,
         name: model.name,
       })
+      const delay = options.throttleMs ?? (!options.uploadModel && bundledModels.length > 10 ? 6000 : 0)
+      if (i > 0 && delay > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delay))
+      }
       const bytes = decodedModelBytes.get(model.id) ?? base64ToBytes(model.dataBase64)
       if (options.uploadModel) {
         const created = await options.uploadModel(model.name, model.format, bytes)
@@ -604,23 +519,33 @@ export async function importBundle(
     }
   } catch (err) {
     // Roll back uploaded models
+    const orphanErrors: string[] = []
     for (const uploadedId of uploadedIds) {
       try {
         if (options.deleteModel) {
           await options.deleteModel(uploadedId)
         } else {
-          await fetch(`/api/models/${encodeURIComponent(uploadedId)}`, { method: 'DELETE' })
+          const res = await fetch(`/api/models/${encodeURIComponent(uploadedId)}`, { method: 'DELETE' })
+          if (!res.ok) {
+            orphanErrors.push(uploadedId)
+          }
         }
       } catch {
-        // ignore rollback errors
+        orphanErrors.push(uploadedId)
       }
+    }
+    const origMsg = err instanceof Error ? err.message : String(err)
+    if (orphanErrors.length > 0) {
+      throw new Error(`${origMsg} (Rollback failed to delete orphan models: ${orphanErrors.join(', ')})`)
     }
     throw err
   }
 
   // Re-map items and resolve item ID collisions
   const existingAdded = existingPatch.added ?? []
+  const baseItems = defaultScene(createLayout(16))
   const usedIds = new Set<string>([
+    ...baseItems.map((item) => item.id),
     ...existingAdded.map((item) => item.id),
     ...Object.keys(existingPatch.overrides ?? {}),
   ])

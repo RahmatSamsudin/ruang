@@ -28,7 +28,7 @@ describe('ModelLibrary', () => {
     })
 
     expect(host.textContent).toContain('Model Library')
-    expect(host.textContent).toContain('2 / 50 models')
+    expect(host.textContent).toContain('2 / 100 models')
     expect(host.textContent).toContain('Meeting Chair')
     expect(host.textContent).toContain('Wooden Desk')
     expect(host.textContent).toContain('GLB')
