@@ -16,6 +16,8 @@ export const AGENT_ACTIVITY_CACHE_MS = 60_000
 export const LOGS_CACHE_MS = 5_000
 export const INSIGHTS_CACHE_MS = 60_000
 export const FRESH_MAX_AGE_MS = 2_000
+/** Slack on top of a cache TTL before office inputs count as stale (covers slow hermes CLI collects). */
+export const STALE_GRACE_MS = 30_000
 const COMMAND_TIMEOUT_MS = 8_000
 const COMMAND_LOG_LIMIT = 100
 const LOG_TAIL_LINES = 200
@@ -1010,10 +1012,12 @@ function liveState(agent: AgentSpec, snapshot: AgentActivitySnapshot | undefined
 export function buildOfficeSnapshot(runtime: RuntimeSnapshot, board: TaskBoardSnapshot, activity: ActivitySnapshot, options: OfficeBuildOptions = {}): OfficeSnapshot {
   const fetchedAt = new Date().toISOString()
   const now = typeof options.now === 'number' ? options.now : options.now ? Date.parse(options.now) : Date.now()
-  const freshRuntime = isFresh(runtime.fetchedAt, now, RUNTIME_CACHE_MS)
-  const freshBoard = board.tasks.availability === 'available' && isFresh(board.fetchedAt, now, TASK_BOARD_CACHE_MS)
-  const freshActivity = activity.sessions.availability === 'available' && isFresh(activity.fetchedAt, now, ACTIVITY_CACHE_MS)
-  const agentActivity = options.agentActivity && isFresh(options.agentActivity.fetchedAt, now, AGENT_ACTIVITY_CACHE_MS) ? options.agentActivity : undefined
+  // fetchedAt is stamped when a collect starts and the cache keeps it for TTL after it ends, so a
+  // healthy cached value is up to TTL + collect time old; the grace keeps that from reading as stale.
+  const freshRuntime = isFresh(runtime.fetchedAt, now, RUNTIME_CACHE_MS + STALE_GRACE_MS)
+  const freshBoard = board.tasks.availability === 'available' && isFresh(board.fetchedAt, now, TASK_BOARD_CACHE_MS + STALE_GRACE_MS)
+  const freshActivity = activity.sessions.availability === 'available' && isFresh(activity.fetchedAt, now, ACTIVITY_CACHE_MS + STALE_GRACE_MS)
+  const agentActivity = options.agentActivity && isFresh(options.agentActivity.fetchedAt, now, AGENT_ACTIVITY_CACHE_MS + STALE_GRACE_MS) ? options.agentActivity : undefined
   const explicitStates = options.explicitStates ?? []
   const stations = agentRoster(runtime).map((agent, index): OfficeStation => {
     const gateway = agent.gateway

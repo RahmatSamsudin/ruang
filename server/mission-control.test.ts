@@ -185,6 +185,12 @@ describe('Office snapshot', () => {
     expect(stale.stations.map((station) => station.state)).toEqual(['Unknown', 'Unknown', 'Unknown'])
   })
 
+  it('keeps a cached board that aged past its TTL while being collected as fresh (no Unknown flicker)', () => {
+    // Board stamped 40s ago: older than TASK_BOARD_CACHE_MS (30s) but within the collect grace.
+    const office = buildOfficeSnapshot(runtime, { tasks: { availability: 'available', data: [] }, fetchedAt: '2026-09-27T11:59:20.000Z' }, { sessions: { availability: 'available', data: [] }, fetchedAt: runtime.fetchedAt }, { now: runtime.fetchedAt })
+    expect(office.stations.every((station) => station.state !== 'Unknown')).toBe(true)
+  })
+
   it('maps office states to rooms and keeps unknown agents in a labelled neutral workspace position', () => {
     const office = buildOfficeSnapshot(runtime, { tasks: { availability: 'available', data: [] }, fetchedAt: runtime.fetchedAt }, { sessions: { availability: 'available', data: [] }, fetchedAt: runtime.fetchedAt }, { now: runtime.fetchedAt })
     expect(office.stations).toMatchObject([
