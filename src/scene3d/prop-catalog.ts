@@ -49,9 +49,11 @@ export const PROP_CATALOG: Record<PropType, PropEntry> = {
   GalonDispenser: { label: 'Water dispenser', group: 'Kitchen', y: 0 },
   Hammock: { label: 'Hammock', group: 'Leisure', y: 0 },
   KopiStall: { label: 'Kopi stall', group: 'Outdoor', y: 0 },
+  LongTable: { label: 'Long table', group: 'Furniture', y: 0, defaults: { length: 3 }, fields: [length(8, 1)] },
   LowTable: { label: 'Low table', group: 'Furniture', y: 0 },
   MeetingTable: { label: 'Meeting table', group: 'Furniture', y: 0 },
   Nightstand: { label: 'Nightstand', group: 'Bedroom', y: 0 },
+  OfficeChair: { label: 'Office chair', group: 'Furniture', y: 0, defaults: { color: '#2f3a44' }, fields: [color] },
   OfficeLight: { label: 'Ceiling light', group: 'Structure', y: 2.4 },
   PantryCounter: { label: 'Pantry counter', group: 'Kitchen', y: 0 },
   PingPongTable: { label: 'Ping-pong table', group: 'Leisure', y: 0 },
@@ -71,5 +73,6 @@ export const PROP_CATALOG: Record<PropType, PropEntry> = {
   WallClock: { label: 'Wall clock', group: 'Structure', y: 2.35 },
   Wardrobe: { label: 'Wardrobe', group: 'Bedroom', y: 0 },
   WaterTank: { label: 'Water tank', group: 'Outdoor', y: 0 },
+  Whiteboard: { label: 'Whiteboard', group: 'Furniture', y: 0 },
   WorkDesk: { label: 'Work desk', group: 'Furniture', y: 0, note: SEAT_NOTE },
 }

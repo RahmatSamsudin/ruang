@@ -62,7 +62,7 @@ Checks: `npm run lint`, `npm test`, `npm run build`.
 - **Office** (home page): the office fills the screen below the header. A HUD across the top shows crew active, gateways running, running/open tasks, the next cron run and (when any) failed CLI reads; chips link to their page. The **Panel** button opens one side panel with three tabs: **Crew** (crew snapshot and a clickable list of stations), **Stats** (statistics across every source, token usage, the Kanban status breakdown, runtime and what is up next; tiles link to their pages) and **Activity** (unattributed session metadata and messaging channels). The **Tasks**, **Calendar** and **Tokens** buttons open the Task Board, a month calendar of cron runs or token usage over the office, without leaving it (Esc or ✕ closes them; *Open full page* goes to the page). `#/dashboard` opens the Office.
 
   The view switches between **3D** (the default) and **2D**, remembered per browser; browsers without WebGL stay on 2D. The 3D view (three.js via React Three Fiber, loaded only when used) is an office of several rooms with an Indonesian touch:
-  - the workspace: hot desking, with one unlabeled desk per agent in two rows (the building widens for a larger crew), and a meeting table with gorengan (fried snacks) on it
+  - the workspace: hot desking, with one unlabeled desk per agent in two rows (the building widens for a larger crew), and a glass-walled meeting room by the aisle: a long table with a chair for every agent (it grows with the crew), a TV on a stand showing a slide, and a whiteboard
   - a lounge behind a glass partition, where the sofa faces a TV on the back wall
   - a game room through a door from the lounge: ping-pong, two arcade machines, a console corner with beanbags, and a karambol (carrom) board
   - a pantry with a galon (water-jug) dispenser
@@ -73,7 +73,8 @@ Checks: `npm run lint`, `npm test`, `npm run build`.
   It follows the theme: day in light mode, evening in dark mode, when the office lights, street lamps and cart lamps light up. The office building, rooms and furniture use procedural textures with no external 3D model files, while agent characters render with classic 3D character skins (procedural defaults or custom 64x64 PNG textures; see *Agent skins*). Drag to rotate, scroll to zoom, and pan with right-drag, two fingers, the arrow keys, or the **Geser** button (which makes a plain drag pan). Panning stays within the grounds, and **Reset view** returns to the starting view.
 
   The building has two floors; the buttons at the top left of the 3D view (or Page Up / Page Down) switch between them, each showing how many agents are on it. **Lantai 1** is the office. **Lantai 2**, up the stairs by the entrance, has a dorm bedroom with one bed per agent, a lesehan corner, a bathroom, and a ruko-style balcony with rattan chairs, a hammock, a clothes line and string lights; the lower floor turns into a closed building below it, and agents outside on the ground stay in view. Idle agents also go upstairs to sleep, nap in the hammock or sit on the balcony; the **💤 Tidur** button sends every idle agent to bed (remembered per browser, like the floor). Sleeping is decorative only, like the rest of the idle wandering.
-  Each agent has its own desk. An agent replying to a chat walks to the meeting table; one running a cron job, tools or a Kanban task sits at its desk with a speech bubble saying what it is doing. Agents walk along the aisle and use the entrance, never through furniture or walls. Idle agents do not just sit: every 32 seconds each one moves on to another stop, such as relaxing in the lounge, ping-pong, arcade games or the console in the game room, getting water from the galon, the kitchen, bakso on the cart's stools, coffee at the bike, or a stroll to the flag or the bookshelf. A dashed bubble says where they are. This wandering is decorative only (the same clock-based route for everyone), and the Idle state itself comes from the server. Click an agent for its detail dialog, with four tabs: **Overview** (state, task, provenance, freshness), **Folder** (that agent's own folder, read-only, as on the Folders page), **Memory** (its SOUL.md, MEMORY.md, USER.md and context files) and **Skin** (custom 3D character skin, 64x64 pixel editor, PNG import/export, save/reset, and AI prompt generation; see *Agent skins* below).
+  Each agent has its own desk. An agent replying to a chat walks into the meeting room through its door: the first one presents at the whiteboard, the others take a chair; one running a cron job, tools or a Kanban task sits at its desk with a speech bubble saying what it is doing. Agents walk along the aisle and use the entrance, never through furniture or walls. Idle agents do not just sit: every 32 seconds each one moves on to another stop, such as relaxing in the lounge, ping-pong, arcade games or the console in the game room, getting water from the galon, the kitchen, bakso on the cart's stools, coffee at the bike, or a stroll to the flag or the bookshelf. A dashed bubble says where they are. This wandering is decorative only (the same clock-based route for everyone), and the Idle state itself comes from the server. Click an agent for its detail dialog, with four tabs: **Overview** (state, task, provenance, freshness), **Folder** (that agent's own folder, read-only, as on the Folders page), **Memory** (its SOUL.md, MEMORY.md, USER.md and context files) and **Skin** (custom 3D character skin, 64x64 pixel editor, PNG import/export, save/reset, and AI prompt generation; see *Agent skins* below).
+
 - **Task Board**: Hermes Kanban in board order (triage → todo → scheduled → ready → running → blocked → review → done) with search, assignee filter and priority. Tasks from every Kanban board are shown (not only the current one), with a board filter when there is more than one. Each column is at most as tall as the screen and scrolls on its own, so the board's sideways scrollbar stays in view; the strip above the board scrolls it (‹ ›) or jumps to a column by its status chip. Click a card for its full detail from `hermes kanban show <id> --json`: description, result or latest summary, workspace, branch, skills, model, timestamps, dependencies (clickable), runs, comments and activity. Free text is secret-redacted; only ids on the board snapshot can be opened.
 - **Calendar**: a month calendar of the cron runs of every agent (each job is labelled with its agent, and the calendar can be filtered by agent) (upcoming runs from today, repeating jobs, overdue runs and last-run outcomes, read from 5-field cron expressions and `every …` intervals, in the Hermes host's local time), plus the list of jobs with status, next run, overdue and last-run outcome. Paused jobs only show their last run.
 - **Activity**: the 20 most recent sessions with search.
@@ -135,7 +136,7 @@ Off by default. In **Settings → Profile lock**, pick the agents to lock and se
 | Folder and file contents, memory (SOUL.md, MEMORY.md, USER.md, context files) | refused (HTTP 423); the Folder and Memory tabs ask for the PIN |
 | Kanban tasks assigned to it | the card stays, titled *🔒 Private task*; its details ask for the PIN |
 | Its cron jobs | the schedule stays, named *🔒 Private job* |
-| Live activity and current task in the office | generic (*🔒 Working*, *On a break*) |
+| Live activity, current task and the provenance of its state in the office | generic (*🔒 Working*, *On a break*, *🔒 Private*) |
 | Sessions, logs and the latest session (these come from the `default` profile) | hidden when `default` is locked |
 | Token usage | totals stay; its biggest session is hidden |
 
@@ -343,7 +344,7 @@ Empty source results remain available and show truthful empty states; unparseabl
 
 ## Office
 
-`/api/office` is a read-only composition of the existing cached runtime, Kanban and activity reads. It has one station per agent (every Hermes profile, plus OpenCode when installed), in the order `hermes profile list` gives them. Desks are hot desks: there is one per agent and none carries a name. Character colours are derived from the agent name, so they are the same on every device. The 2D view lays out Workspace (desks and the meeting table) and Lounge for any number of agents with CSS only; no image or art assets are used.
+`/api/office` is a read-only composition of the existing cached runtime, Kanban and activity reads. It has one station per agent (every Hermes profile, plus OpenCode when installed), in the order `hermes profile list` gives them. Desks are hot desks: there is one per agent and none carries a name. Character colours are derived from the agent name, so they are the same on every device. The 2D view lays out Workspace (desks and the meeting room) and Lounge for any number of agents with CSS only; no image or art assets are used.
 
 Office state is one of `Idle`, `Working`, `Reviewing`, `Collaborating` or `Unknown` (`Offline` is reserved and not produced). The precedence is:
 1. A fresh, unexpired internal explicit-state overlay can declare `Working`, `Reviewing` or `Collaborating`.
@@ -365,7 +366,7 @@ It places the station in Lounge and labels it `Idle · managed placement`. Any u
 Current task and recent activity require actor attribution. The Office only shows a Kanban task when its explicit assignee is the agent's profile name (or `opencode`). Hermes session-list metadata currently has no actor attribution, so the Activity panel labels it as unattributed session metadata and it is never assigned to a station. Failed task or activity sources keep the existing `Not Available` meaning: that is source availability, not an Office work state. Selecting a station opens an in-page, keyboard-accessible detail dialog with room, provenance and source freshness.
 
 State placement is visualized without inventing work:
-- `Working` and `Reviewing` are at a desk; `Collaborating` is at the meeting table (as many places as needed).
+- `Working` and `Reviewing` are at a desk; `Collaborating` is in the meeting room (as many places as needed).
 - `Idle` is in Lounge (in 3D, wandering the office).
 - `Unknown` is shown at a desk with a labelled neutral presence.
 
@@ -377,7 +378,7 @@ The crew snapshot counts agents, active work (`Working`/`Reviewing`/`Collaborati
 
 Every Hermes profile writes all of its work to its own `agent.log`: messaging replies (gateway), cron runs, tool calls and the agent loop. For every profile, the server reads the last 3 minutes of that log and the profile's most recent session (at most four profiles at a time, cached for 15 seconds):
 
-- Gateway message lines together with agent-loop or tool lines, or a session active in the last 3 minutes, become `Collaborating` ("Replying to a chat", at the meeting table).
+- Gateway message lines together with agent-loop or tool lines, or a session active in the last 3 minutes, become `Collaborating` ("Replying to a chat", in the meeting room).
 - `cron.*` becomes `Working` ("Running a scheduled job"); `tools.*` becomes `Working` ("Using tools"); `agent`/`run_agent` becomes `Working` ("Working on a request").
 - OpenCode is `Working` when a recent agent log line shows it being driven.
 
@@ -396,6 +397,7 @@ Each agent resolves to its own folder:
 The Hermes root follows Hermes's own rules (`HERMES_HOME`, default `~/.hermes`); `RUANG_HERMES_ROOT` overrides it.
 - A non-default agent that resolves to the Hermes root, or to a folder another agent already owns, is shown as unavailable with the reason instead of being opened.
 - When one agent's folder contains another's (the stock root holds `profiles/`), that sub-folder is hidden and cannot be read through the outer agent.
+- The Hermes `profiles/` folder is always hidden from an agent whose folder contains it (the stock `default`), even while `hermes profile list` cannot be read and the other agents are unknown, so no profile, locked or not, can be read through the root.
 - Cards and the breadcrumb show the real path.
 
 `/api/folders` lists the agents; `/api/folders/<agent>/list?path=` and `/api/folders/<agent>/file?path=` browse one folder. The safety rules:
@@ -405,3 +407,7 @@ The Hermes root follows Hermes's own rules (`HERMES_HOME`, default `~/.hermes`);
 - Text previews are capped at 256 KB and pass through the same secret redaction as logs. Binary files are not previewed.
 
 **Troubleshooting "This folder could not be read".** Ruang reads folders as the user that runs it. If a profile folder belongs to another user or has mode `700` (for example it was created by a gateway started with `sudo`/systemd as root), the card shows "No read permission for <user>" and opening it explains which user was refused. Check with `ls -ld ~/.hermes/profiles/<name>`. Fix it by giving the folder back to your user (`sudo chown -R $USER:$USER ~/.hermes/profiles/<name>`) or granting read access (`sudo setfacl -R -m u:$USER:rX ~/.hermes/profiles/<name>`).
+
+## License
+
+[MIT](LICENSE) © yugienugraha. Contributions are accepted under the same license.

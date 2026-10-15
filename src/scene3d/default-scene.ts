@@ -1,4 +1,4 @@
-import { ARCADES, BALCONY, BALCONY_DOOR, BALCONY_TABLE, BATHROOM, BEANBAGS, CARROM, COFFEE_TABLE, ENTRANCE_X, FLAG, FLOOR_HEIGHT, GAME_DOOR, GAME_ROOM, GAME_TV, HAMMOCK, LESEHAN_TABLE, LOUNGE_PARTITION_END_Z, MEETING_TABLE, PARTITION_X, PING_PONG, SOFA, STAIRS, STALL_ROTATION, TV, type OfficeLayout, type Vec3 } from '../office3d-layout.ts'
+import { ARCADES, BALCONY, BALCONY_DOOR, BALCONY_TABLE, BATHROOM, BEANBAGS, CARROM, COFFEE_TABLE, ENTRANCE_X, FLAG, FLOOR_HEIGHT, GAME_DOOR, GAME_ROOM, GAME_TV, HAMMOCK, LESEHAN_TABLE, LOUNGE_PARTITION_END_Z, MEETING_DOOR_X, PARTITION_X, PING_PONG, SOFA, STAIRS, STALL_ROTATION, TV, type OfficeLayout, type Vec3 } from '../office3d-layout.ts'
 import type { PropType, PropValue, SceneItem, SceneView, Surface } from './scene.ts'
 
 // The stock office as data, generated for the crew size in `layout`. Each call below is one element
@@ -59,7 +59,6 @@ export function defaultScene(layout: OfficeLayout): SceneItem[] {
   cut.floor('floor-main', 0.005, [(minX + maxX) / 2, (minZ + maxZ) / 2], [maxX - minX, maxZ - minZ], wood(), 0.55)
   cut.floor('floor-pantry', 0.01, [8.35, 1.4], [2.3, 5.4], tile([3, 5]), 0.35)
   cut.floor('rug-lounge', 0.012, [4.6, -2.9], [4.4, 2.8], rug('#5b7c8c', [2, 2]))
-  cut.floor('rug-meeting', 0.012, [-5.2, 2.2], [3.6, 3], rug('#8a4b3c', [2, 2]))
   both.wall('wall-back', [minX, minZ], [maxX, minZ])
   both.wall('wall-left', [minX, minZ], [minX, maxZ])
   cut.wall('wall-right-a', [maxX, minZ], [maxX, GAME_DOOR.fromZ], 1.1)
@@ -70,15 +69,32 @@ export function defaultScene(layout: OfficeLayout): SceneItem[] {
   cut.glass('glass-partition', [PARTITION_X, minZ], [PARTITION_X, LOUNGE_PARTITION_END_Z], 0.9)
   cut.wall('wall-front-a', [minX, maxZ], [4.9, maxZ], 0.55)
   cut.wall('wall-front-b', [6.7, maxZ], [maxX, maxZ], 0.55)
-  cut.wall('wall-meeting', [-3.2, 1], [-3.2, maxZ], 0.9)
-  cut.box('glass-meeting', [-3.2, 1.35, 2.6], [0.06, 0.9, 3.2], '#cfe8ee', { radius: 0.01, opacity: 0.3, roughness: 0.05 })
+  // Meeting room (layout.meetingRoom): glass-topped half walls with a door by the aisle, a long
+  // table with a chair per seat, a TV on a stand at its left end and a whiteboard at its right.
+  const room = layout.meetingRoom
+  const { table, tv } = room
+  const doorA = MEETING_DOOR_X - 0.45
+  const doorB = MEETING_DOOR_X + 0.45
+  cut.floor('rug-meeting', 0.012, [(room.minX + room.maxX) / 2, (room.minZ + room.maxZ) / 2], [room.maxX - room.minX - 0.3, room.maxZ - room.minZ - 0.3], rug('#8a4b3c', [2, 2]))
+  const halfWall = (id: string, from: P2, to: P2) => { cut.wall(`wall-${id}`, from, to, 0.9); cut.glass(`glass-${id}`, from, to, 0.9) }
+  halfWall('meeting-right', [room.maxX, room.minZ], [room.maxX, room.maxZ])
+  if (room.minX > minX + 0.1) halfWall('meeting-left', [room.minX, room.minZ], [room.minX, room.maxZ])
+  halfWall('meeting-front-a', [room.minX, room.minZ], [doorA, room.minZ])
+  halfWall('meeting-front-b', [doorB, room.minZ], [room.maxX, room.minZ])
+  cut.box('meeting-door-lintel', [MEETING_DOOR_X, WALL_HEIGHT - 0.15, room.minZ], [0.95, 0.1, 0.12], WALL_TOP, { radius: 0.02 })
   ;[1.3, 2.3, 3.3].forEach((z, index) => cut.prop(`planter-${index + 1}`, 'Plant', [0.9, 0, z], { props: { size: 0.8 } }))
   ;[-7, -3.6, 1.4, 6.6].forEach((x, index) => cut.window(`window-back-${index + 1}`, [x, 1.55, minZ + 0.14]))
-  ;[-3, 0.6].forEach((z, index) => cut.window(`window-left-${index + 1}`, [minX + 0.14, 1.55, z], Math.PI / 2, 1.6))
+  ;[-3].forEach((z, index) => cut.window(`window-left-${index + 1}`, [minX + 0.14, 1.55, z], Math.PI / 2, 1.6))
 
   // --- Lantai 1: workspace, lounge, pantry -------------------------------------------------------
   layout.desks.forEach((position, index) => cut.prop(`desk-${index + 1}`, 'WorkDesk', position, { props: { withChair: true } }))
-  cut.prop('meeting-table', 'MeetingTable', MEETING_TABLE)
+  cut.prop('meeting-table', 'LongTable', [(table.x1 + table.x2) / 2, 0, table.z], { props: { length: table.x2 - table.x1 } })
+  room.seats.filter((seat) => seat.seated).forEach(({ position, facing }, index) => cut.prop(`meeting-chair-${index + 1}`, 'OfficeChair', position, { rotation: facing }))
+  cut.box('meeting-tv-base', [tv[0], 0.03, tv[2]], [0.5, 0.05, 0.9], '#2a2f33', { radius: 0.02 })
+  cut.box('meeting-tv-pole', [tv[0] - 0.08, 0.75, tv[2]], [0.08, 1.45, 0.1], '#3a3f44', { radius: 0.02 })
+  cut.prop('meeting-tv', 'Television', [tv[0], 1.45, tv[2]], { rotation: Math.PI / 2 })
+  cut.prop('meeting-whiteboard', 'Whiteboard', room.whiteboard, { rotation: -Math.PI / 2 })
+  cut.prop('meeting-plant', 'Plant', [room.maxX - 0.4, 0, room.maxZ - 0.45], { props: { size: 0.8 } })
   cut.prop('bookshelf-1', 'Bookshelf', [minX + 0.35, 0, -0.9], { rotation: Math.PI / 2 })
   cut.prop('plant-1', 'Plant', [minX + 0.5, 0, -4.6])
   cut.prop('plant-2', 'Plant', [-0.4, 0, -4.7], { props: { size: 0.9 } })
@@ -98,7 +114,7 @@ export function defaultScene(layout: OfficeLayout): SceneItem[] {
   cut.prop('ac-2', 'AirConditioner', [TV[0], 2.3, minZ + 0.125])
   cut.prop('ac-3', 'AirConditioner', [minX + 0.125, 2.3, 2.6], { rotation: Math.PI / 2 })
   layout.desks.forEach(([x, , z], index) => cut.prop(`light-desk-${index + 1}`, 'OfficeLight', [x, 2.4, z + 0.2]))
-  cut.prop('light-meeting', 'OfficeLight', [MEETING_TABLE[0], 2.3, MEETING_TABLE[2]])
+  cut.prop('light-meeting', 'OfficeLight', [(table.x1 + table.x2) / 2, 2.4, table.z])
   cut.prop('light-coffee', 'OfficeLight', [COFFEE_TABLE[0], 2.4, COFFEE_TABLE[2] + 0.4])
   cut.prop('light-pantry', 'OfficeLight', [8.2, 2.4, 1.2])
   both.prop('stairs', 'Staircase', [STAIRS.lowX, 0, STAIRS.z], { props: { run: STAIRS.highX - STAIRS.lowX, rise: FLOOR_HEIGHT, width: STAIRS.width } })

@@ -7,7 +7,8 @@ import type { OfficeStation } from './types.ts'
 //   z -5 ┌──────────── back wall ────────────┬────┬───────────┐
 //   gang │ desks (one per agent, two rows,   │ lounge │ game room │
 //  bakso │  growing to the left)             │(TV,sofa)│          │
-//   kopi │ meeting table                     │  pantry ├──────────┘
+//   kopi │ meeting room (long table, TV,     │  pantry ├──────────┘
+//        │  whiteboard) │ stairs
 //   z  4 └── low front wall ─── entrance ───────────┘
 //        sidewalk · flag      (street food sits in the gang left of the building)
 //        road
@@ -34,7 +35,15 @@ export const CARROM: Vec3 = [10.6, 0, -0.1]
 
 /** Walkway in front of the desks; agents walk along it between areas instead of through furniture. */
 export const AISLE_Z = 0.4
-export const MEETING_TABLE: Vec3 = [-5.2, 0, 2.2]
+/** The meeting room's right wall (glass), its door in the aisle-side wall, and its table line. */
+export const MEETING_ROOM_MAX_X = -3.2
+export const MEETING_ROOM_MIN_Z = 0.95
+export const MEETING_DOOR_X = -4.15
+export const MEETING_TABLE_Z = 2.75
+/** Walking lanes inside the meeting room: behind the aisle-side chairs and behind the front ones. */
+const MEETING_BACK_LANE_Z = 1.45
+const MEETING_FRONT_LANE_Z = 3.95
+const MEETING_SEAT_PITCH = 0.8
 /** The TV hangs on the back wall; the sofa faces it (backrest towards the aisle). */
 export const TV: Vec3 = [4.6, 0, -4.8]
 export const SOFA: Vec3 = [4.6, 0, -1.3]
@@ -100,6 +109,8 @@ export interface OfficeLayout {
   baksoCart: Vec3
   kopiBike: Vec3
   gangCenterX: number
+  /** Meeting room in the front of the workspace: a long table (x1..x2) with a TV on a stand at its left end and a whiteboard at its right. */
+  meetingRoom: { minX: number; maxX: number; minZ: number; maxZ: number; table: { x1: number; x2: number; z: number }; tv: Vec3; whiteboard: Vec3; seats: Placement[] }
   camera: { target: Vec3; offset: Vec3 }
   /** How far the view may be panned (camera target bounds), so the office never leaves the screen. */
   pan: { minX: number; maxX: number; minZ: number; maxZ: number }
@@ -169,6 +180,7 @@ export function createLayout(agentCount: number): OfficeLayout {
     camera: { target: [(sceneMinX + GAME_ROOM.maxX) / 2 - 0.15, 0.6, 0.2], offset: CAMERA_OFFSET_BASE.map((value) => value * scale) as Vec3 },
     pan: { minX: sceneMinX - 0.3, maxX: 17, minZ: -7, maxZ: 11 },
     idleStops: idleStops(building, baksoCart, kopiBike, beds),
+    meetingRoom: meetingRoom(building, deskCount),
   }
 }
 
@@ -186,18 +198,38 @@ export function withMovedSeats(layout: OfficeLayout, desks: Vec3[], beds: Vec3[]
   }
 }
 
-const MEETING_RINGS = [
-  { radius: 1.4, angles: [Math.PI, 2 * Math.PI, 1.5 * Math.PI, 1.25 * Math.PI, 1.75 * Math.PI] },
-  { radius: 2.1, angles: [1.2 * Math.PI, 1.8 * Math.PI, 1.5 * Math.PI, 1.35 * Math.PI, 1.65 * Math.PI] },
-]
+/**
+ * The meeting room sits in the front of the workspace, by the aisle. Its long table has a chair for
+ * every agent but the presenter (at least six), so the room grows with the crew, up to the
+ * building's left wall: a TV on a stand at the table's left end, a whiteboard at its right.
+ */
+function meetingRoom(building: OfficeLayout['building'], agents: number): OfficeLayout['meetingRoom'] {
+  const pairs = Math.max(3, Math.ceil((agents - 1) / 2))
+  const x2 = -4.7
+  const x1 = Math.max(building.minX + 1.6, x2 - (pairs * MEETING_SEAT_PITCH + 0.5))
+  const table = { x1, x2, z: MEETING_TABLE_Z }
+  const minX = Math.max(building.minX, x1 - 1.4)
+  const whiteboard: Vec3 = [-3.75, 0, MEETING_TABLE_Z]
+  // The first agent presents at the whiteboard; the others sit along both sides, nearest the
+  // door first, alternating sides; any more stand along the lanes.
+  const columns: number[] = []
+  for (let x = table.x2 - 0.45; x >= table.x1 + 0.35; x -= MEETING_SEAT_PITCH) columns.push(x)
+  const seated = columns.flatMap((x): Placement[] => [
+    { position: [x, 0, table.z - 0.7], facing: 0, seated: true },
+    { position: [x, 0, table.z + 0.7], facing: Math.PI, seated: true },
+  ])
+  const standing = columns.flatMap((x): Placement[] => [
+    { position: [x, 0, MEETING_BACK_LANE_Z], facing: 0, seated: false },
+    { position: [x, 0, MEETING_FRONT_LANE_Z], facing: Math.PI, seated: false },
+  ])
+  const presenter: Placement = { position: [whiteboard[0] - 0.5, 0, table.z], facing: -Math.PI / 2, seated: false, label: 'Presenting at the whiteboard' }
+  return { minX, maxX: MEETING_ROOM_MAX_X, minZ: MEETING_ROOM_MIN_Z, maxZ: building.maxZ, table, tv: [x1 - 0.75, 0, table.z], whiteboard, seats: [presenter, ...seated, ...standing] }
+}
 
-/** The n-th place at the meeting table (0-based), all on the aisle side so paths never cross it. */
-export function meetingSeat(index: number): Placement {
-  const slots = MEETING_RINGS.flatMap((ring) => ring.angles.map((angle) => ({ radius: ring.radius, angle })))
-  const { radius, angle } = slots[index % slots.length]
-  const x = MEETING_TABLE[0] + radius * Math.cos(angle)
-  const z = MEETING_TABLE[2] + radius * Math.sin(angle)
-  return { position: [x, 0, z], facing: Math.atan2(MEETING_TABLE[0] - x, MEETING_TABLE[2] - z), seated: false }
+/** The n-th place in the meeting room (0-based): the whiteboard, then the chairs, then standing room. */
+export function meetingSeat(index: number, layout: OfficeLayout = DEFAULT_LAYOUT): Placement {
+  const { seats } = layout.meetingRoom
+  return seats[index % seats.length]
 }
 
 /**
@@ -210,7 +242,7 @@ export function placementFor(station: OfficeStation, layout: OfficeLayout = DEFA
     const [x, y, z] = LOUNGE_SEATS[seat % LOUNGE_SEATS.length]
     return { position: [x, y, z], facing: LOUNGE_FACING[seat % LOUNGE_SEATS.length], seated: true }
   }
-  if (station.roomPosition === 'meeting-area') return meetingSeat(meetingIndex)
+  if (station.roomPosition === 'meeting-area') return meetingSeat(meetingIndex, layout)
   const [x, y, z] = layout.desks[seat % layout.desks.length]
   return { position: [x, y, z - 0.75], facing: 0, seated: station.state === 'Working' || station.state === 'Reviewing' }
 }
@@ -234,8 +266,14 @@ function groundRoute(from: [number, number], to: [number, number], layout: Offic
   const outside = (point: [number, number]) => point[1] > building.maxZ || point[0] < building.minX || (point[0] > building.maxX && !inGameRoom(point))
   const inGang = ([x]: [number, number]) => x < building.minX
   const route: [number, number][] = [from]
+  const room = layout.meetingRoom
+  const inMeetingRoom = ([x, z]: [number, number]) => x > room.minX && x < room.maxX && z > room.minZ && z < room.maxZ
+  // In the meeting room: along the lane behind the chairs (or past the table's end) to the door.
+  const meetingExit = ([x, z]: [number, number]): [number, number][] => x > room.table.x2 ? [[MEETING_DOOR_X, z], [MEETING_DOOR_X, AISLE_Z]]
+    : z > room.table.z ? [[x, MEETING_FRONT_LANE_Z], [MEETING_DOOR_X, MEETING_FRONT_LANE_Z], [MEETING_DOOR_X, AISLE_Z]]
+      : [[x, MEETING_BACK_LANE_Z], [MEETING_DOOR_X, MEETING_BACK_LANE_Z], [MEETING_DOOR_X, AISLE_Z]]
   const toAisle = (point: [number, number]): [number, number][] => inGameRoom(point) ? [[point[0], GAME_LANE_Z], [LOUNGE_LANE_X, GAME_LANE_Z], [LOUNGE_LANE_X, AISLE_Z]]
-    : inLounge(point) ? [[LOUNGE_LANE_X, point[1]], [LOUNGE_LANE_X, AISLE_Z]] : [[point[0], AISLE_Z]]
+    : inLounge(point) ? [[LOUNGE_LANE_X, point[1]], [LOUNGE_LANE_X, AISLE_Z]] : inMeetingRoom(point) ? meetingExit(point) : [[point[0], AISLE_Z]]
   const toSidewalk = (point: [number, number]): [number, number][] => inGang(point) ? [[sideLaneX, point[1]], [sideLaneX, SIDEWALK_Z]] : [[point[0], SIDEWALK_Z]]
   if (!outside(from) && !outside(to)) {
     route.push(...toAisle(from), ...toAisle(to).reverse())

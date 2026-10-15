@@ -16,9 +16,9 @@ export const MAX_OVERRIDES = 1000
 export const SCENE_PROP_TYPES = [
   'AcOutdoorUnit', 'AirConditioner', 'ArcadeCabinet', 'Armchair', 'BaksoStall', 'BathroomFittings', 'Beanbag', 'Bed',
   'Bookshelf', 'CarromTable', 'ClothesLine', 'CoffeeTable', 'FlagPole', 'FloorCushion', 'Fridge', 'GalonDispenser',
-  'Hammock', 'KopiStall', 'LowTable', 'MeetingTable', 'Nightstand', 'OfficeLight', 'PantryCounter', 'PingPongTable',
+  'Hammock', 'KopiStall', 'LongTable', 'LowTable', 'MeetingTable', 'Nightstand', 'OfficeChair', 'OfficeLight', 'PantryCounter', 'PingPongTable',
   'Plant', 'Railing', 'RattanChair', 'SideTable', 'Sofa', 'Staircase', 'StreetLamp', 'StringLights', 'Television',
-  'Tree', 'WallClock', 'Wardrobe', 'WaterTank', 'WorkDesk',
+  'Tree', 'WallClock', 'Wardrobe', 'WaterTank', 'Whiteboard', 'WorkDesk',
 ] as const
 export const SCENE_SURFACES = ['wood', 'tile', 'carpet', 'grass', 'asphalt', 'paving']
 

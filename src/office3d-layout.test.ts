@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AISLE_Z, BUILDING, DESKS, ENTRANCE_X, GAME_DOOR, GAME_LANE_Z, GAME_ROOM, IDLE_ROUTE, IDLE_STOPS, IDLE_STOP_MS, LOUNGE_LANE_X, LOUNGE_SEATS, MEETING_TABLE, PAN_BOUNDS, createLayout, idlePlan, meetingSeat, SIDE_LANE_X, SIDEWALK_Z, clampTarget, idleStop, placementFor, walkPath, walkPath3, FLOOR_HEIGHT, STAIRS, BALCONY, floorOf, withMovedSeats, bedSpot, type Vec3 } from './office3d-layout.ts'
+import { AISLE_Z, BUILDING, DESKS, ENTRANCE_X, GAME_DOOR, GAME_LANE_Z, GAME_ROOM, IDLE_ROUTE, IDLE_STOPS, IDLE_STOP_MS, LOUNGE_LANE_X, LOUNGE_SEATS, MEETING_DOOR_X, MEETING_ROOM_MIN_Z, PAN_BOUNDS, createLayout, idlePlan, meetingSeat, SIDE_LANE_X, SIDEWALK_Z, clampTarget, idleStop, placementFor, walkPath, walkPath3, FLOOR_HEIGHT, STAIRS, BALCONY, floorOf, withMovedSeats, bedSpot, type Vec3 } from './office3d-layout.ts'
 import type { OfficeStation } from './types.ts'
 
 const station = (overrides: Partial<OfficeStation>): OfficeStation => ({
@@ -114,10 +114,42 @@ describe('office for any crew size', () => {
     expect(Math.hypot(...twelve.camera.offset)).toBeGreaterThan(Math.hypot(...createLayout(3).camera.offset))
   })
 
-  it('gives every agent at the meeting table its own place on the aisle side', () => {
-    const seats = Array.from({ length: 10 }, (_, index) => meetingSeat(index).position.join(','))
-    expect(new Set(seats).size).toBe(10)
-    for (let index = 0; index < 10; index += 1) expect(meetingSeat(index).position[2]).toBeLessThanOrEqual(MEETING_TABLE[2] + 0.001)
+  it('seats collaborators in the meeting room: one presents at the whiteboard, the rest sit, nobody shares a place', () => {
+    for (const [crew, layout] of [[3, createLayout(3)], [12, createLayout(12)]] as const) {
+      const room = layout.meetingRoom
+      // Room for the whole crew, every one in a place of their own.
+      expect(room.seats.filter((seat) => seat.seated).length).toBeGreaterThanOrEqual(crew - 1)
+      const places = Array.from({ length: room.seats.length }, (_, index) => meetingSeat(index, layout))
+      expect(new Set(places.map((place) => place.position.join(','))).size).toBe(room.seats.length)
+      expect(places[0].label).toBe('Presenting at the whiteboard')
+      expect(places[0].position[0]).toBeGreaterThan(room.table.x2)
+      expect(places.slice(1, 1 + room.seats.filter((seat) => seat.seated).length).every((place) => place.seated)).toBe(true)
+      for (const { position: [x, , z] } of places) {
+        expect(x).toBeGreaterThan(room.minX)
+        expect(x).toBeLessThan(room.maxX)
+        expect(z).toBeGreaterThan(room.minZ)
+        expect(z).toBeLessThan(room.maxZ)
+      }
+    }
+    // A bigger building has a longer table with more chairs.
+    expect(createLayout(12).meetingRoom.seats.filter((seat) => seat.seated).length).toBeGreaterThan(createLayout(3).meetingRoom.seats.filter((seat) => seat.seated).length)
+  })
+
+  it('walks into the meeting room through its door, never through its glass wall', () => {
+    const layout = createLayout(6)
+    for (let index = 0; index < 9; index += 1) {
+      const seat = meetingSeat(index, layout)
+      const path = [[DESKS[0][0], DESKS[0][2] - 0.75] as [number, number], ...walkPath([DESKS[0][0], DESKS[0][2] - 0.75], [seat.position[0], seat.position[2]], layout)]
+      // Where the path crosses the room's aisle-side wall, it is at the door.
+      for (let step = 1; step < path.length; step += 1) {
+        const [ax, az] = path[step - 1]
+        const [bx, bz] = path[step]
+        if ((az - MEETING_ROOM_MIN_Z) * (bz - MEETING_ROOM_MIN_Z) < 0) {
+          const crossX = ax + ((MEETING_ROOM_MIN_Z - az) / (bz - az)) * (bx - ax)
+          expect(Math.abs(crossX - MEETING_DOOR_X)).toBeLessThan(0.45)
+        }
+      }
+    }
   })
 
   it('never puts two idle agents on the same spot while free spots remain', () => {

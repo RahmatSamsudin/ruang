@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import express, { type NextFunction, type Request, type Response } from 'express'
-import { excludedFor, FolderError, listFolder, publicAgent, readFolderFile, resolveAgentFolders } from './folders.js'
+import { alwaysHiddenFor, excludedFor, FolderError, listFolder, publicAgent, readFolderFile, resolveAgentFolders } from './folders.js'
 import { installAccess } from './access.js'
 import { redactActivity, redactCalendar, redactDashboard, redactLogs, redactMemory, redactOffice, redactTasks, redactUsage } from './privacy.js'
 import { installProfileLock, isHidden, type Privacy } from './profile-lock.js'
@@ -86,7 +86,8 @@ async function openFolder(profile: string) {
   const folder = folders.find((item) => item.profile === profile)
   if (!folder) throw new FolderError('Unknown agent.', 404)
   if (!folder.available) throw new FolderError(folder.reason ?? 'Folder not available.', 404)
-  return { folder, excluded: excludedFor(folder, folders) }
+  // Other agents' folders inside this one are hidden, and the Hermes profiles folder always is.
+  return { folder, excluded: [...excludedFor(folder, folders), ...(await alwaysHiddenFor(folder))] }
 }
 function folderRoute(handler: (request: Request) => Promise<unknown>) {
   return async (request: Request, response: Response) => {

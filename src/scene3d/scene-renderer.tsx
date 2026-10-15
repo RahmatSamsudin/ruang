@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState, type ComponentType, type ReactNode } from 'react'
 import * as THREE from 'three'
 import { loadModel, normalizeModel } from './model-loader.ts'
-import { AcOutdoorUnit, AirConditioner, ArcadeCabinet, Armchair, BaksoStall, BathroomFittings, Beanbag, Bed, Bookshelf, CarromTable, ClothesLine, CoffeeTable, FlagPole, FloorCushion, Fridge, GalonDispenser, Hammock, KopiStall, LowTable, MeetingTable, Nightstand, OfficeLight, PantryCounter, PingPongTable, Plant, Railing, RattanChair, RBox, SideTable, Sofa, Staircase, StreetLamp, StringLights, Television, Tree, WallClock, Wardrobe, WaterTank, WorkDesk } from './props.tsx'
+import { AcOutdoorUnit, AirConditioner, ArcadeCabinet, Armchair, BaksoStall, BathroomFittings, Beanbag, Bed, Bookshelf, CarromTable, ClothesLine, CoffeeTable, FlagPole, FloorCushion, Fridge, GalonDispenser, Hammock, KopiStall, LongTable, LowTable, MeetingTable, Nightstand, OfficeChair, OfficeLight, PantryCounter, PingPongTable, Plant, Railing, RattanChair, RBox, SideTable, Sofa, Staircase, StreetLamp, StringLights, Television, Tree, WallClock, Wardrobe, WaterTank, Whiteboard, WorkDesk } from './props.tsx'
 import { visibleAt, type BoxItem, type FloorItem, type GlassItem, type ModelItem, type PropItem, type PropType, type SceneItem, type Surface, type WallItem, type WindowItem } from './scene.ts'
 import { asphalt, carpet, grass, pavingStones, tileFloor, woodFloor } from './textures.ts'
 
@@ -16,9 +16,9 @@ const THICK = 0.25
 // eslint-disable-next-line @typescript-eslint/no-explicit-any, react-refresh/only-export-components
 export const PROP_COMPONENTS: Record<PropType, ComponentType<any>> = {
   AcOutdoorUnit, AirConditioner, ArcadeCabinet, Armchair, BaksoStall, BathroomFittings, Beanbag, Bed, Bookshelf, CarromTable, ClothesLine,
-  CoffeeTable, FlagPole, FloorCushion, Fridge, GalonDispenser, Hammock, KopiStall, LowTable, MeetingTable, Nightstand, OfficeLight,
+  CoffeeTable, FlagPole, FloorCushion, Fridge, GalonDispenser, Hammock, KopiStall, LongTable, LowTable, MeetingTable, Nightstand, OfficeChair, OfficeLight,
   PantryCounter, PingPongTable, Plant, Railing, RattanChair, SideTable, Sofa, Staircase, StreetLamp, StringLights, Television, Tree,
-  WallClock, Wardrobe, WaterTank, WorkDesk,
+  WallClock, Wardrobe, WaterTank, Whiteboard, WorkDesk,
 }
 
 function surfaceTexture({ type, repeat, color }: Surface) {
