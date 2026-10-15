@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { COFFEE_TABLE, createLayout, FLOOR_HEIGHT, MEETING_TABLE, PING_PONG, SOFA, STAIRS, TV } from '../office3d-layout.ts'
+import { COFFEE_TABLE, createLayout, FLOOR_HEIGHT, PING_PONG, SOFA, STAIRS, TV } from '../office3d-layout.ts'
 import { defaultScene } from './default-scene.ts'
 import { levelsOf, seatPositions, visibleAt, type SceneItem } from './scene.ts'
 
@@ -40,7 +40,9 @@ describe('default scene', () => {
   it('keeps the stock furniture where the layout puts it', () => {
     const items = defaultScene(createLayout(3))
     expect(byId(items, 'sofa')).toMatchObject({ kind: 'prop', type: 'Sofa', position: SOFA, rotation: Math.PI, level: 0 })
-    expect(byId(items, 'meeting-table')).toMatchObject({ type: 'MeetingTable', position: MEETING_TABLE })
+    const { table, seats } = createLayout(3).meetingRoom
+    expect(byId(items, 'meeting-table')).toMatchObject({ type: 'LongTable', position: [(table.x1 + table.x2) / 2, 0, table.z], props: { length: table.x2 - table.x1 } })
+    expect(items.filter((item) => item.id.startsWith('meeting-chair-')).length).toBe(seats.filter((seat) => seat.seated).length)
     expect(byId(items, 'coffee-table')).toMatchObject({ type: 'CoffeeTable', position: COFFEE_TABLE })
     expect(byId(items, 'ping-pong')).toMatchObject({ type: 'PingPongTable', position: PING_PONG })
     expect(byId(items, 'stairs')).toMatchObject({ type: 'Staircase', position: [STAIRS.lowX, 0, STAIRS.z], view: 'both', props: { rise: FLOOR_HEIGHT, width: STAIRS.width } })
