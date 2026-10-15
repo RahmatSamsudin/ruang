@@ -2,7 +2,14 @@
 import * as THREE from 'three'
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { downloadBlob, exportSceneGlb, formatSceneGlbFilename, prepareSceneForExport } from './export-glb.ts'
+import {
+  downloadBlob,
+  exportItemGlb,
+  exportSceneGlb,
+  formatItemGlbFilename,
+  formatSceneGlbFilename,
+  prepareSceneForExport,
+} from './export-glb.ts'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -141,5 +148,29 @@ describe('export-glb', () => {
     expect(createObjectURL).toHaveBeenCalledWith(blob)
     expect(clickSpy).toHaveBeenCalled()
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:http://localhost/mock-url')
+  })
+
+  it('formats item filename as ruang-<id>.glb with unsafe chars replaced', () => {
+    expect(formatItemGlbFilename('prop-chair 1/x')).toBe('ruang-prop-chair-1-x.glb')
+  })
+
+  it('exportItemGlb returns null for an unknown item id', async () => {
+    const scene = new THREE.Scene()
+    expect(await exportItemGlb(scene, 'missing')).toBeNull()
+  })
+
+  it('exportItemGlb exports the tagged item as a GLB blob', async () => {
+    const scene = new THREE.Scene()
+    const item = new THREE.Group()
+    item.userData.itemId = 'a'
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial())
+    mesh.position.set(5, 3, 7)
+    item.add(mesh)
+    scene.add(item)
+
+    const blob = await exportItemGlb(scene, 'a')
+    expect(blob).toBeInstanceOf(Blob)
+    expect(blob!.type).toBe('model/gltf-binary')
+    expect(blob!.size).toBeGreaterThan(0)
   })
 })

@@ -19,7 +19,7 @@ import { EditorBar } from './EditorBar.tsx'
 import { ModelLibrary } from './ModelLibrary.tsx'
 import { ObjectPanel } from './ObjectPanel.tsx'
 import { PropPalette } from './PropPalette.tsx'
-import { exportSceneGlb, downloadBlob, formatSceneGlbFilename } from '../scene3d/export-glb.ts'
+import { exportSceneGlb, exportItemGlb, downloadBlob, formatSceneGlbFilename, formatItemGlbFilename } from '../scene3d/export-glb.ts'
 import { exportBundle, formatBundleFilename, importBundle } from '../scene3d/bundle.ts'
 import { clearModelCache } from '../scene3d/model-loader.ts'
 import { fetchModels } from '../models-api.ts'
@@ -490,6 +490,20 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
     }
   }
 
+  const handleExportItem = async (id: string) => {
+    setExportError(null)
+    setExportSuccess(null)
+    try {
+      const blob = sceneRef.current ? await exportItemGlb(sceneRef.current, id) : null
+      if (!blob) { setExportError('Export failed: object is not drawn in this view'); return }
+      const filename = formatItemGlbFilename(id)
+      downloadBlob(blob, filename)
+      setExportSuccess(`Exported ${filename}`)
+    } catch (err) {
+      setExportError(`Export failed: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
   const handleExportBundle = async () => {
     setExportingBundle(true)
     setBundleError(null)
@@ -704,6 +718,7 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
             levels={levels}
             canDuplicate={!limitReached}
             onDuplicate={() => editor.addWith((patchNow) => duplicateItem(patchNow, items, selected, panBounds))}
+            onExport={() => void handleExportItem(selected.id)}
             onProp={(key, value) => editor.apply((patchNow) => setItemProp(patchNow, selected, key, value))}
             onMove={(x, z) => editor.apply((patchNow) => moveItem(patchNow, selected, x, z, panBounds))}
             onRotate={(degrees) => editor.apply((patchNow) => rotateItem(patchNow, selected, (degrees * Math.PI) / 180))}
