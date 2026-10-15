@@ -312,7 +312,11 @@ export async function exportBundle(
         .map((item) => item.modelId),
       ...(options.includeModelIds ?? []),
     ]),
-  ).slice(0, MAX_BUNDLE_MODELS)
+  )
+
+  if (modelIds.length > MAX_BUNDLE_MODELS) {
+    throw new Error(`Referenced models count (${modelIds.length}) exceeds limit of ${MAX_BUNDLE_MODELS}.`)
+  }
 
   const models: BundledModel[] = []
 
@@ -327,41 +331,45 @@ export async function exportBundle(
   for (const modelId of modelIds) {
     if (options.fetchModel) {
       const result = await options.fetchModel(modelId)
-      if (result) {
-        models.push({
-          id: modelId,
-          name: result.name,
-          format: result.format,
-          dataBase64: bytesToBase64(result.bytes),
-        })
+      if (!result) {
+        throw new Error(`Failed to fetch model "${modelId}".`)
       }
+      models.push({
+        id: modelId,
+        name: result.name,
+        format: result.format,
+        dataBase64: bytesToBase64(result.bytes),
+      })
     } else {
+      let fileRes: Response
       try {
-        const fileRes = await fetch(`/api/models/${encodeURIComponent(modelId)}/file`)
-        if (!fileRes.ok) continue
-        const arrayBuffer = await fileRes.arrayBuffer()
-        const contentType = fileRes.headers.get('content-type') || ''
-        let format: 'glb' | 'gltf' = contentType.includes('json') ? 'gltf' : 'glb'
-        let name = `${modelId}.${format}`
-
-        if (modelsListPromise) {
-          const list = await modelsListPromise
-          const found = list.find((m) => m.id === modelId)
-          if (found) {
-            if (found.name) name = found.name
-            if (found.format) format = found.format
-          }
-        }
-
-        models.push({
-          id: modelId,
-          name,
-          format,
-          dataBase64: bytesToBase64(new Uint8Array(arrayBuffer)),
-        })
-      } catch {
-        // Skip model if fetch failed
+        fileRes = await fetch(`/api/models/${encodeURIComponent(modelId)}/file`)
+      } catch (err) {
+        throw new Error(`Failed to fetch model "${modelId}": ${err instanceof Error ? err.message : String(err)}`)
       }
+      if (!fileRes.ok) {
+        throw new Error(`Failed to fetch model "${modelId}" (${fileRes.status} ${fileRes.statusText || 'error'}).`)
+      }
+      const arrayBuffer = await fileRes.arrayBuffer()
+      const contentType = fileRes.headers.get('content-type') || ''
+      let format: 'glb' | 'gltf' = contentType.includes('json') ? 'gltf' : 'glb'
+      let name = `${modelId}.${format}`
+
+      if (modelsListPromise) {
+        const list = await modelsListPromise
+        const found = list.find((m) => m.id === modelId)
+        if (found) {
+          if (found.name) name = found.name
+          if (found.format) format = found.format
+        }
+      }
+
+      models.push({
+        id: modelId,
+        name,
+        format,
+        dataBase64: bytesToBase64(new Uint8Array(arrayBuffer)),
+      })
     }
   }
 

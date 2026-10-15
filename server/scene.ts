@@ -192,7 +192,7 @@ export function createSceneRouter(
         const availableIds = new Set(available.map((m) => m.id))
         const missing = requiredIds.filter((id) => !availableIds.has(id))
         if (missing.length > 0) {
-          throw new SceneError(`Missing model(s) in library: ${missing.join(', ')}`, 400, { missing, missingModelIds: missing })
+          throw new SceneError(`Missing model(s) in library: ${missing.join(', ')}`, 400, { missing })
         }
       }
       await store.write(patch)

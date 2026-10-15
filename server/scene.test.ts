@@ -320,9 +320,10 @@ describe('scene api routes', () => {
     const patchWithMissing = { version: 2, overrides: {}, added: [validModel] }
     const rejected = await put(patchWithMissing)
     expect(rejected.status).toBe(400)
-    const errorBody = (await rejected.json()) as { error: string; missing: string[] }
+    const errorBody = (await rejected.json()) as { error: string; missing: string[]; missingModelIds?: unknown }
     expect(errorBody.error).toContain('m-0123456789ab')
     expect(errorBody.missing).toEqual(['m-0123456789ab'])
+    expect(errorBody.missingModelIds).toBeUndefined()
 
     // 2. Add model to ModelStore index -> PUT succeeds with 200
     const modelsDir = join(tmp, 'data', 'models')

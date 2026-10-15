@@ -715,4 +715,67 @@ describe('bundle', () => {
     expect(progressReports.length).toBe(12)
     expect(uploadModel).toHaveBeenCalledTimes(12)
   })
+
+  it('throws when referenced models exceed MAX_BUNDLE_MODELS', async () => {
+    const glbBytes = createMinimalGlb()
+    const fetchModel = vi.fn().mockImplementation(async (id: string) => {
+      return { name: `${id}.glb`, format: 'glb' as const, bytes: glbBytes }
+    })
+    const added: ModelItem[] = Array.from({ length: 21 }, (_, i) => ({
+      kind: 'model',
+      id: `item-${i}`,
+      level: 0,
+      modelId: `m-${String(i).padStart(12, '0')}`,
+      position: [i, 0, 0],
+    }))
+    const patch: ScenePatch = {
+      version: 2,
+      overrides: {},
+      added,
+    }
+
+    await expect(exportBundle(patch, { fetchModel })).rejects.toThrow(
+      'Referenced models count (21) exceeds limit of 20.',
+    )
+    expect(fetchModel).not.toHaveBeenCalled()
+  })
+
+  it('throws and never emits partial bundle when a model fetch fails', async () => {
+    const fetchModel = vi.fn().mockImplementation(async (id: string) => {
+      if (id === 'm-fail') return null
+      return { name: `${id}.glb`, format: 'glb' as const, bytes: createMinimalGlb() }
+    })
+    const patch: ScenePatch = {
+      version: 2,
+      overrides: {},
+      added: [
+        { kind: 'model', id: 'item-1', level: 0, modelId: 'm-good', position: [0, 0, 0] },
+        { kind: 'model', id: 'item-2', level: 0, modelId: 'm-fail', position: [1, 0, 0] },
+      ],
+    }
+
+    await expect(exportBundle(patch, { fetchModel })).rejects.toThrow(
+      'Failed to fetch model "m-fail".',
+    )
+  })
+
+  it('throws when HTTP model fetch fails', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+      if (String(url).includes('/api/models/m-httpfail/file')) {
+        return { ok: false, status: 404, statusText: 'Not Found' } as Response
+      }
+      return { ok: true, json: async () => ({ models: [] }) } as Response
+    })
+
+    const patch: ScenePatch = {
+      version: 2,
+      overrides: {},
+      added: [
+        { kind: 'model', id: 'item-1', level: 0, modelId: 'm-httpfail', position: [0, 0, 0] },
+      ],
+    }
+
+    await expect(exportBundle(patch)).rejects.toThrow('Failed to fetch model "m-httpfail" (404 Not Found).')
+    fetchSpy.mockRestore()
+  })
 })

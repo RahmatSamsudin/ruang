@@ -456,18 +456,6 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
     }
   }, [])
 
-  useEffect(() => {
-    const handleModelDeleted = (e: Event) => {
-      const id = (e as CustomEvent<{ id: string }>).detail?.id
-      if (id) {
-        clearModelCache(id)
-        editor.purgeModel(id)
-      }
-    }
-    window.addEventListener('ruang:model-deleted', handleModelDeleted)
-    return () => window.removeEventListener('ruang:model-deleted', handleModelDeleted)
-  }, [editor])
-
   const handleExportGlb = async () => {
     if (!sceneRef.current) {
       setExportError('Export failed: 3D scene not ready')
@@ -738,11 +726,6 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
           editor.purgeModel(deletedId)
         }}
         onModelsChange={(updated) => {
-          const removed = models.filter((m) => !updated.some((u) => u.id === m.id))
-          for (const m of removed) {
-            clearModelCache(m.id)
-            editor.purgeModel(m.id)
-          }
           setModels(updated)
           if (typeof placing === 'string' && placing.startsWith('model:') && !updated.some((m) => `model:${m.id}` === placing)) {
             editor.stopPlacing()
