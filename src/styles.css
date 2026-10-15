@@ -1126,6 +1126,6 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
 .office-3d-objpanel-presets { align-items: center; display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
 .office-3d-objpanel-presets button { font-size: 11px; padding: 2px 6px; }
 .office-3d-objpanel-meta { color: #b7c9bf; font-size: 11px; margin: 2px 0; }
-.office-3d-input-error { border-color: #ff9b94 !important; outline: 1px solid #ff9b94; }
-.office-3d-field-error { color: #ff9b94; font-size: 10px; line-height: 1.2; }
-@media (max-width: 700px) { .office-3d-editbar, .office-3d-objpanel, .office-3d-palette, .office-3d-tools .edit-toggle { display: none; } }
+.office-3d-input-error { border-color: var(--c-ff9d8f) !important; outline: 1px solid var(--c-ff9d8f); }
+.office-3d-field-error { color: var(--c-ff9d8f); font-size: 10px; line-height: 1.2; }
+
