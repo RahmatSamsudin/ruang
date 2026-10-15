@@ -104,6 +104,37 @@ export async function exportSceneGlb(
   })
 }
 
+/** Find the editor wrapper tagged with `userData.itemId` (see edit-layer.tsx). */
+function findItemNode(scene: THREE.Object3D, id: string): THREE.Object3D | undefined {
+  let found: THREE.Object3D | undefined
+  scene.traverse((o) => { if (!found && o.userData?.itemId === id) found = o })
+  return found
+}
+
+/**
+ * Export one scene item as a GLB, re-centred so its footprint centre sits on the origin and its base on y=0.
+ * Returns null when the item is not drawn (other floor or view).
+ */
+export async function exportItemGlb(scene: THREE.Object3D, id: string): Promise<Blob | null> {
+  const node = findItemNode(scene, id)
+  if (!node) return null
+  scene.updateMatrixWorld(true)
+  const box = new THREE.Box3().setFromObject(node)
+  if (box.isEmpty()) return null
+  const center = box.getCenter(new THREE.Vector3())
+  const clone = node.clone(true)
+  // ponytail: ignores transforms above the item wrapper (it sits at the scene root today); bake the world matrix if that changes.
+  clone.position.set(-center.x, -box.min.y, -center.z)
+  const holder = new THREE.Group()
+  holder.add(clone)
+  return exportSceneGlb(holder)
+}
+
+/** `ruang-<id>.glb`, with anything that is not filename-safe replaced. */
+export function formatItemGlbFilename(id: string): string {
+  return `ruang-${id.replace(/[^a-zA-Z0-9._-]+/g, '-')}.glb`
+}
+
 /**
  * Trigger browser file download for a Blob.
  */

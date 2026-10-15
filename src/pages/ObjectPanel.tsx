@@ -104,6 +104,7 @@ export interface ObjectPanelProps {
   onDuplicate: () => void
   onProp: (key: string, value: number | string) => void
   onDelete: () => void
+  onExport?: () => void
   onView?: (view?: SceneView) => void
   onScale?: (scale: number) => void
   onViewChange?: (view?: SceneView) => void
@@ -115,7 +116,7 @@ export interface ObjectPanelProps {
   onBoxProps?: (size: Vec3, color: string, options?: { radius?: number; roughness?: number; opacity?: number; shadow?: boolean; position?: Vec3 }) => void
 }
 
-function FloorPanel({ item, levels, canDuplicate, onMove, onLevel, onDuplicate, onProp, onDelete, onView, onViewChange, onFloorBounds, onFloorSurface, onSurfaceChange }: ObjectPanelProps & { item: FloorItem }) {
+function FloorPanel({ item, levels, canDuplicate, onMove, onLevel, onDuplicate, onProp, onDelete, onExport, onView, onViewChange, onFloorBounds, onFloorSurface, onSurfaceChange }: ObjectPanelProps & { item: FloorItem }) {
   const width = Math.max(0.1, item.max[0] - item.min[0])
   const depth = Math.max(0.1, item.max[1] - item.min[1])
   const cx = (item.min[0] + item.max[0]) / 2
@@ -168,12 +169,13 @@ function FloorPanel({ item, levels, canDuplicate, onMove, onLevel, onDuplicate, 
     <ViewSelector value={item.view} onChange={handleView}/>
     <div className="office-3d-objpanel-actions">
       <button type="button" disabled={!canDuplicate} onClick={onDuplicate}>Duplicate</button>
+      <button type="button" disabled={!onExport} title="Download this object as a .glb" onClick={onExport}>Export GLB</button>
       <button type="button" className="danger" disabled={!deletable} onClick={onDelete}>Delete</button>
     </div>
   </>
 }
 
-function WallPanel({ item, levels, canDuplicate, onRotate, onLevel, onDuplicate, onDelete, onView, onViewChange, onWallGeometry }: ObjectPanelProps & { item: WallItem }) {
+function WallPanel({ item, levels, canDuplicate, onRotate, onLevel, onDuplicate, onDelete, onExport, onView, onViewChange, onWallGeometry }: ObjectPanelProps & { item: WallItem }) {
   const deletable = canDelete(item)
   const len = Math.hypot(item.to[0] - item.from[0], item.to[1] - item.from[1])
   const angle = Math.round((Math.atan2(item.to[1] - item.from[1], item.to[0] - item.from[0]) * 180) / Math.PI)
@@ -205,12 +207,13 @@ function WallPanel({ item, levels, canDuplicate, onRotate, onLevel, onDuplicate,
     <div className="office-3d-objpanel-actions">
       <button type="button" onClick={() => onRotate(90)} title="Rotate wall 90°">Rotate 90°</button>
       <button type="button" disabled={!canDuplicate} onClick={onDuplicate}>Duplicate</button>
+      <button type="button" disabled={!onExport} title="Download this object as a .glb" onClick={onExport}>Export GLB</button>
       <button type="button" className="danger" disabled={!deletable} onClick={onDelete}>Delete</button>
     </div>
   </>
 }
 
-function GlassPanel({ item, levels, canDuplicate, onRotate, onLevel, onDuplicate, onDelete, onView, onViewChange, onGlassGeometry }: ObjectPanelProps & { item: GlassItem }) {
+function GlassPanel({ item, levels, canDuplicate, onRotate, onLevel, onDuplicate, onDelete, onExport, onView, onViewChange, onGlassGeometry }: ObjectPanelProps & { item: GlassItem }) {
   const deletable = canDelete(item)
   const height = item.top - item.bottom
   const handleView = onViewChange ?? onView
@@ -235,12 +238,13 @@ function GlassPanel({ item, levels, canDuplicate, onRotate, onLevel, onDuplicate
     <div className="office-3d-objpanel-actions">
       <button type="button" onClick={() => onRotate(90)} title="Rotate glass 90°">Rotate 90°</button>
       <button type="button" disabled={!canDuplicate} onClick={onDuplicate}>Duplicate</button>
+      <button type="button" disabled={!onExport} title="Download this object as a .glb" onClick={onExport}>Export GLB</button>
       <button type="button" className="danger" disabled={!deletable} onClick={onDelete}>Delete</button>
     </div>
   </>
 }
 
-function BoxPanel({ item, levels, canDuplicate, onMove, onLevel, onDuplicate, onDelete, onView, onViewChange, onBoxProps }: ObjectPanelProps & { item: BoxItem }) {
+function BoxPanel({ item, levels, canDuplicate, onMove, onLevel, onDuplicate, onDelete, onExport, onView, onViewChange, onBoxProps }: ObjectPanelProps & { item: BoxItem }) {
   const deletable = canDelete(item)
   const handleView = onViewChange ?? onView
 
@@ -279,12 +283,13 @@ function BoxPanel({ item, levels, canDuplicate, onMove, onLevel, onDuplicate, on
     <ViewSelector value={item.view} onChange={handleView}/>
     <div className="office-3d-objpanel-actions">
       <button type="button" disabled={!canDuplicate} onClick={onDuplicate}>Duplicate</button>
+      <button type="button" disabled={!onExport} title="Download this object as a .glb" onClick={onExport}>Export GLB</button>
       <button type="button" className="danger" disabled={!deletable} onClick={onDelete}>Delete</button>
     </div>
   </>
 }
 
-function ModelPanel({ item, levels, canDuplicate, onMove, onRotate, onScale, onLevel, onDuplicate, onDelete, onView }: ObjectPanelProps & { item: ModelItem }) {
+function ModelPanel({ item, levels, canDuplicate, onMove, onRotate, onScale, onLevel, onDuplicate, onDelete, onExport, onView }: ObjectPanelProps & { item: ModelItem }) {
   const x = item.position[0]
   const z = item.position[2]
   const deletable = canDelete(item)
@@ -300,6 +305,7 @@ function ModelPanel({ item, levels, canDuplicate, onMove, onRotate, onScale, onL
     <ViewSelector value={item.view} onChange={onView}/>
     <div className="office-3d-objpanel-actions">
       <button type="button" disabled={!canDuplicate} title={canDuplicate ? 'Duplicate (Ctrl/Cmd+D)' : 'Limit reached (500 added objects)'} onClick={onDuplicate}>Duplicate</button>
+      <button type="button" disabled={!onExport} title="Download this object as a .glb" onClick={onExport}>Export GLB</button>
       <button type="button" className="danger" disabled={!deletable} onClick={onDelete}>Delete</button>
     </div>
   </>
@@ -307,7 +313,7 @@ function ModelPanel({ item, levels, canDuplicate, onMove, onRotate, onScale, onL
 
 /** Position, rotation, floor, properties, duplicate and delete for the selected object. */
 export function ObjectPanel(props: ObjectPanelProps) {
-  const { item, levels, canDuplicate, onMove, onRotate, onLevel, onDuplicate, onProp, onDelete, onView, onViewChange } = props
+  const { item, levels, canDuplicate, onMove, onRotate, onLevel, onDuplicate, onProp, onDelete, onExport, onView, onViewChange } = props
   const handleView = onViewChange ?? onView
 
   if (!item) {
@@ -337,7 +343,9 @@ export function ObjectPanel(props: ObjectPanelProps) {
     <PropFields item={item} onProp={onProp}/>
     <div className="office-3d-objpanel-actions">
       <button type="button" disabled={!canDuplicate} title={canDuplicate ? 'Duplicate (Ctrl/Cmd+D)' : 'Limit reached (500 added objects)'} onClick={onDuplicate}>Duplicate</button>
+      <button type="button" disabled={!onExport} title="Download this object as a .glb" onClick={onExport}>Export GLB</button>
       <button type="button" className="danger" disabled={!deletable} title={deletable ? 'Delete (Del)' : 'Desks and beds follow the number of agents'} onClick={onDelete}>Delete</button>
     </div>
   </aside>
 }
+

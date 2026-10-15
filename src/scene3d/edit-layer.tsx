@@ -199,7 +199,7 @@ export function EditTarget({ item, edit, children }: { item: EditableItem; edit:
   }
 
   return <>
-    <group ref={group} onPointerDown={onPointerDown}
+    <group ref={group} userData={{ itemId: item.id }} onPointerDown={onPointerDown}
       onPointerOver={(event) => {
         event.stopPropagation()
         // Not while a button is held (an orbit drag crossing this object): the camera must not stop mid-drag.
