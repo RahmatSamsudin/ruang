@@ -175,7 +175,7 @@ Import your own 3D models into the office, manage them in a library, and export 
 
 - *Export* on a model card: the original `.glb` or `.gltf` file, unchanged.
 - *Export scene (.glb)*: the whole office as one binary `.glb` (`ruang-scene-<yyyymmdd-hhmm>.glb`). Items marked `userData.noExport` are left out.
-- *Export Bundle*: a `ruang-bundle` JSON file (`ruang-bundle-<yyyymmdd-hhmm>.json`) with the scene patch and the models it uses, base64-encoded.
+- *Export Bundle*: a `ruang-bundle` JSON file (`ruang-bundle-<yyyymmdd-hhmm>.json`) with the scene patch and the models it uses, base64-encoded. If the scene references more than 20 distinct models (`MAX_BUNDLE_MODELS`) or any model fetch fails, export aborts with a visible error and downloads nothing.
 
 **Import Bundle.** *Import bundle* in the toolbar takes a `.json` bundle. Rules:
 

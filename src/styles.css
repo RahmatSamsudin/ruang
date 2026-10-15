@@ -911,7 +911,7 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
 .office-3d-editbar { align-items: center; background: rgba(18, 26, 24, 0.86); border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 8px; color: #f4efe6; display: grid; font-size: 12px; gap: 4px; justify-items: center; left: 50%; padding: 6px 10px; position: absolute; top: 10px; transform: translateX(-50%); z-index: 3; }
 .office-stage .office-3d-editbar { top: 58px; }
 .office-3d-editbar-row { align-items: center; display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
-.office-3d-editbar button, .office-3d-objpanel button { background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 6px; color: inherit; cursor: pointer; font: inherit; padding: 4px 9px; }
+.office-3d-editbar button, .office-3d-objpanel button, .office-3d-import-bundle-btn { background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 6px; color: inherit; cursor: pointer; font: inherit; padding: 4px 9px; }
 .office-3d-editbar button:disabled, .office-3d-objpanel button:disabled { cursor: not-allowed; opacity: .45; }
 .office-3d-editstate { color: var(--c-9ea79e); }
 .office-3d-editstate.unsaved { color: var(--c-f2c58a); }
@@ -924,7 +924,7 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
 .office-3d-export-glb-btn .btn-label-full,
 .office-3d-export-bundle-btn .btn-label-full,
 .office-3d-import-bundle-btn .btn-label-full { display: inline; }
-.office-3d-import-bundle-btn { align-items: center; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 6px; color: inherit; cursor: pointer; display: inline-flex; font: inherit; padding: 4px 9px; user-select: none; }
+.office-3d-import-bundle-btn { align-items: center; display: inline-flex; user-select: none; }
 .office-3d-import-bundle-btn.disabled { cursor: not-allowed; opacity: .45; pointer-events: none; }
 .office-3d-editprogress, .office-3d-editbar .office-3d-editprogress { color: var(--c-f2c58a); }
 @media (max-width: 520px) {
@@ -941,7 +941,7 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
 .office-3d-objpanel-grid { display: grid; gap: 6px; grid-template-columns: 1fr 1fr; }
 .office-3d-objpanel label { color: #b7c9bf; display: grid; gap: 2px; }
 .office-3d-objpanel input, .office-3d-objpanel select { background: #101815; border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 4px; color: #f4efe6; font: inherit; padding: 3px 5px; width: 100%; }
-.office-3d-objpanel button.danger { border-color: #d9534f; color: #ff9b94; }
+.office-3d-objpanel button.danger { border-color: var(--c-d9695a); color: var(--c-ff9d8f); }
 .office-stage:has(.office-panel) .office-3d-objpanel { max-height: calc(100% - 160px); right: min(424px, calc(100% - 12px)); top: 150px; }
 .office-stage:has(.office-panel) .office-3d-editbar { left: auto; right: min(424px, calc(100% - 12px)); transform: none; }
 .office-3d-palette { background: rgba(18, 26, 24, 0.86); border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 8px; color: #f4efe6; display: flex; flex-direction: column; font-size: 12px; gap: 6px; left: 10px; max-height: calc(100% - 170px); overflow: hidden; overscroll-behavior: contain; padding: 8px; position: absolute; top: 150px; width: 210px; z-index: 3; }
@@ -984,8 +984,8 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
 .model-library-toolbar input[type="search"] { background: #101815; border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 4px; color: #f4efe6; flex: 1; font: inherit; padding: 4px 8px; }
 .model-upload-btn { background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 6px; color: inherit; cursor: pointer; font: inherit; font-size: 12px; padding: 4px 10px; white-space: nowrap; }
 .model-upload-btn:hover { background: rgba(255, 255, 255, 0.15); }
-.model-library-error { background: rgba(217, 83, 79, 0.15); border: 1px solid #d9534f; border-radius: 4px; color: var(--c-ff9d8f); font-size: 12px; padding: 6px 10px; }
-.model-library-fetch-error { align-items: center; background: rgba(217, 83, 79, 0.15); border: 1px solid #d9534f; border-radius: 4px; color: var(--c-ff9d8f); display: flex; font-size: 12px; justify-content: space-between; padding: 6px 10px; }
+.model-library-error { background: var(--c-4a231f); border: 1px solid var(--c-d9695a); border-radius: 4px; color: var(--c-ff9d8f); font-size: 12px; padding: 6px 10px; }
+.model-library-fetch-error { align-items: center; background: var(--c-4a231f); border: 1px solid var(--c-d9695a); border-radius: 4px; color: var(--c-ff9d8f); display: flex; font-size: 12px; justify-content: space-between; padding: 6px 10px; }
 .model-library-retry { background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 4px; color: inherit; cursor: pointer; font: inherit; font-size: 11px; padding: 2px 8px; }
 .model-library-grid { display: grid; gap: 8px; max-height: 400px; overflow-y: auto; }
 .model-library-loading, .model-library-empty { color: #b7c9bf; font-style: italic; margin: 16px 0; text-align: center; }
@@ -996,10 +996,10 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
 .model-card-format { background: rgba(255, 255, 255, 0.08); border-radius: 3px; font-size: 10px; font-weight: 600; padding: 1px 4px; }
 .model-card-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
 .model-card-actions button, .model-card-actions a { background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 4px; color: inherit; cursor: pointer; font: inherit; font-size: 11px; padding: 2px 8px; text-decoration: none; }
-.model-card-actions button.confirm-delete, .model-card-actions button.danger { background: #d9534f; border-color: #d9534f; color: #fff; }
+.model-card-actions button.confirm-delete, .model-card-actions button.danger { background: var(--c-d9695a); border-color: var(--c-d9695a); color: #fff; }
 .model-card-confirm { align-items: center; display: flex; flex-wrap: wrap; gap: 6px; }
-.confirm-prompt { color: #ff9b94; font-size: 11px; font-weight: 500; }
-.model-card-blocked { align-items: center; background: rgba(217, 83, 79, 0.15); border: 1px solid #d9534f; border-radius: 4px; color: #ff9b94; display: flex; gap: 6px; font-size: 11px; padding: 4px 8px; }
+.confirm-prompt { color: var(--c-ff9d8f); font-size: 11px; font-weight: 500; }
+.model-card-blocked { align-items: center; background: var(--c-4a231f); border: 1px solid var(--c-d9695a); border-radius: 4px; color: var(--c-ff9d8f); display: flex; gap: 6px; font-size: 11px; padding: 4px 8px; }
 
 /* Light mode overrides for Office3D editor and ModelLibrary */
 :root[data-theme="light"] .office-3d-palette,
@@ -1021,6 +1021,7 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
 :root[data-theme="light"] .model-library-toolbar input[type="search"] { background: #ffffff; border-color: rgba(0, 0, 0, 0.22); color: #1a211c; }
 :root[data-theme="light"] .office-3d-palette-list button,
 :root[data-theme="light"] .office-3d-editbar button,
+:root[data-theme="light"] .office-3d-import-bundle-btn,
 :root[data-theme="light"] .office-3d-objpanel button,
 :root[data-theme="light"] .model-upload-btn,
 :root[data-theme="light"] .model-card-actions button,
@@ -1031,12 +1032,8 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
 :root[data-theme="light"] .office-3d-upload-btn:hover:not(.disabled) { background: rgba(0, 0, 0, 0.08); border-color: rgba(0, 0, 0, 0.4); color: #1a211c; }
 :root[data-theme="light"] .office-3d-palette-manage-btn { border-color: rgba(0, 0, 0, 0.2); color: #5c655d; }
 :root[data-theme="light"] .office-3d-palette-manage-btn:hover { background: rgba(0, 0, 0, 0.05); color: #1a211c; }
-:root[data-theme="light"] .model-library-error { background: rgba(201, 42, 42, 0.1); border-color: #c92a2a; color: #c92a2a; }
-:root[data-theme="light"] .model-library-fetch-error { background: rgba(201, 42, 42, 0.1); border-color: #c92a2a; color: #c92a2a; }
 :root[data-theme="light"] .model-library-retry { background: rgba(0, 0, 0, 0.05); border-color: rgba(0, 0, 0, 0.18); color: #1a211c; }
 :root[data-theme="light"] .model-library-loading { color: #5c655d; }
-:root[data-theme="light"] .confirm-prompt { color: #c92a2a; }
-:root[data-theme="light"] .model-card-blocked { background: rgba(201, 42, 42, 0.1); border-color: #c92a2a; color: #c92a2a; }
 :root[data-theme="light"] .model-library-card { background: rgba(0, 0, 0, 0.02); border-color: rgba(0, 0, 0, 0.1); }
 
 @media (max-width: 600px) {
@@ -1129,6 +1126,6 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
 .office-3d-objpanel-presets { align-items: center; display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
 .office-3d-objpanel-presets button { font-size: 11px; padding: 2px 6px; }
 .office-3d-objpanel-meta { color: #b7c9bf; font-size: 11px; margin: 2px 0; }
-.office-3d-input-error { border-color: #ff9b94 !important; outline: 1px solid #ff9b94; }
-.office-3d-field-error { color: #ff9b94; font-size: 10px; line-height: 1.2; }
-@media (max-width: 700px) { .office-3d-editbar, .office-3d-objpanel, .office-3d-palette, .office-3d-tools .edit-toggle { display: none; } }
+.office-3d-input-error { border-color: var(--c-ff9d8f) !important; outline: 1px solid var(--c-ff9d8f); }
+.office-3d-field-error { color: var(--c-ff9d8f); font-size: 10px; line-height: 1.2; }
+
