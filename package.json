@@ -2,6 +2,7 @@
   "name": "ruang",
   "version": "0.2.0",
   "description": "Ruang: a 3D virtual office and read-only mission control for your Hermes Agent and OpenCode crew",
+  "license": "MIT",
   "type": "module",
   "repository": {
     "type": "git",

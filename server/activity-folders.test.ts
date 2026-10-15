@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { excludedFor, FolderError, fsError, hermesRoot, listFolder, publicAgent, readFolderFile, resolveAgentFolders, safeRelativePath } from './folders.js'
+import { alwaysHiddenFor, excludedFor, FolderError, fsError, hermesRoot, listFolder, publicAgent, readFolderFile, resolveAgentFolders, safeRelativePath } from './folders.js'
 import { buildOfficeSnapshot, collectAgentActivity, CommandError, parseRecentActivity, profileActivityPaths, type AgentActivitySnapshot, type StatFn } from './mission-control.js'
 
 const at = '2026-09-27T12:00:00.000Z'
@@ -344,5 +344,31 @@ describe('agent roster', () => {
     const folders = await resolveAgentFolders(['default', 'sales'], {}, bare)
     expect(folders.map((folder) => folder.profile)).toEqual(['default', 'sales'])
     rmSync(bare, { recursive: true, force: true })
+  })
+})
+
+describe('the Hermes profiles folder', () => {
+  const put = (file: string, content: string) => { mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, content) }
+  it('stays hidden from the root agent even when the profile list cannot be read', async () => {
+    const stock = mkdtempSync(path.join(tmpdir(), 'mc-unlisted-'))
+    try {
+      put(path.join(stock, '.hermes', 'SOUL.md'), 'root soul')
+      put(path.join(stock, '.hermes', 'profiles', 'coder', 'memories', 'MEMORY.md'), 'private memory')
+      // A failed `hermes profile list` leaves only `default` (the Hermes root): coder is unknown,
+      // so excludedFor cannot hide it. The profiles folder must stay hidden anyway, or a locked
+      // agent's files could be read through the root agent.
+      const folders = await resolveAgentFolders([], {}, stock)
+      const root = folders.find((folder) => folder.profile === 'default')!
+      const hidden = [...excludedFor(root, folders), ...(await alwaysHiddenFor(root, {}, stock))]
+      expect(hidden).toHaveLength(1)
+      expect((await listFolder(root, '', hidden)).entries.map((entry) => entry.name)).toEqual(['SOUL.md'])
+      await expect(listFolder(root, 'profiles', hidden)).rejects.toMatchObject({ status: 404 })
+      await expect(readFolderFile(root, 'profiles/coder/memories/MEMORY.md', hidden)).rejects.toMatchObject({ status: 404 })
+      // A profile's own folder is not affected.
+      const [coder] = await resolveAgentFolders(['coder'], {}, stock)
+      expect(await alwaysHiddenFor(coder, {}, stock)).toEqual([])
+    } finally {
+      rmSync(stock, { recursive: true, force: true })
+    }
   })
 })

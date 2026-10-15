@@ -20,7 +20,8 @@ export function redactOffice(office: OfficeSnapshot, privacy: Privacy): OfficeSn
     stations: office.stations.map((station) => {
       if (!isHidden(privacy, station.id)) return privacy.locked.has(station.id) ? { ...station, privacy: 'unlocked' as const } : station
       const busy = station.state !== 'Idle' && station.state !== 'Offline' && station.state !== 'Unknown'
-      return { ...station, privacy: 'locked' as const, currentTask: '🔒 Private', recentActivity: '🔒 Private', activity: busy && station.activity ? `🔒 ${station.state}` : station.state === 'Idle' ? 'On a break' : '' }
+      // Provenance names the kind of live activity (chat, cron, tools…), so it is withheld too.
+      return { ...station, privacy: 'locked' as const, currentTask: '🔒 Private', recentActivity: '🔒 Private', provenance: '🔒 Private (profile lock)', activity: busy && station.activity ? `🔒 ${station.state}` : station.state === 'Idle' ? 'On a break' : '' }
     }),
   }
 }

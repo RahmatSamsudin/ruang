@@ -76,14 +76,41 @@ export function WorkDesk({ position, active, withChair = true }: { position: Vec
   </Group>
 }
 
-export function MeetingTable({ position }: { position: Vec3 }) {
+/** Long meeting table along x (`length` long), with laptops, notebooks and drinks along it. */
+export function LongTable({ position, length }: { position: Vec3; length: number }) {
+  const places = Math.max(1, Math.floor(length / 0.8))
   return <Group position={position}>
-    <Cyl position={[0, 0.74, 0]} radius={1.05} height={0.08} color="#7a4f33" roughness={0.45} segments={40}/>
-    <Cyl position={[0, 0.37, 0]} radius={0.12} height={0.72} color="#2a2f33"/>
-    <Cyl position={[0, 0.03, 0]} radius={0.5} height={0.05} color="#2a2f33"/>
-    {/* A plate of gorengan for the meeting */}
-    <Cyl position={[0.2, 0.8, 0.1]} radius={0.22} height={0.03} color="#f4efe6"/>
-    {[0, 1, 2, 3].map((index) => <RBox key={index} position={[0.12 + (index % 2) * 0.14, 0.84, 0.02 + Math.floor(index / 2) * 0.14]} size={[0.12, 0.05, 0.08]} radius={0.02} color="#c98a3c" roughness={0.9}/>)}
+    <RBox position={[0, 0.74, 0]} size={[length, 0.07, 1.1]} radius={0.03} color="#6e4a30" roughness={0.4}/>
+    {[-length / 2 + 0.35, length / 2 - 0.35].map((x) => <RBox key={x} position={[x, 0.37, 0]} size={[0.12, 0.72, 0.8]} radius={0.02} color="#2a2f33"/>)}
+    <RBox position={[0, 0.08, 0]} size={[length - 0.5, 0.06, 0.12]} radius={0.02} color="#2a2f33"/>
+    {Array.from({ length: places }, (_, index) => {
+      const x = -length / 2 + 0.4 + index * ((length - 0.8) / Math.max(1, places - 1))
+      const side = index % 2 === 0 ? -1 : 1
+      return <group key={index}>
+        {index % 3 === 0 ? <><RBox position={[x, 0.79, side * 0.3]} size={[0.34, 0.02, 0.24]} radius={0.01} color="#c9ced3" metalness={0.4}/><RBox position={[x, 0.9, side * 0.42]} rotation={[side * 0.35, 0, 0]} size={[0.34, 0.22, 0.015]} radius={0.01} color="#2a2f33"/></>
+          : <RBox position={[x, 0.785, side * 0.32]} size={[0.22, 0.015, 0.3]} radius={0.005} color={index % 3 === 1 ? '#f4f1ea' : '#e9c46a'}/>}
+        <Cyl position={[x + 0.25, 0.83, side * 0.18]} radius={0.04} height={0.1} color={index % 2 ? '#ffffff' : '#c62828'}/>
+      </group>
+    })}
+  </Group>
+}
+
+/** Mobile whiteboard on legs, facing +z, with a sketch, sticky notes and a marker tray. */
+export function Whiteboard({ position, rotation = 0 }: { position: Vec3; rotation?: number }) {
+  return <Group position={position} rotation={rotation}>
+    {[-0.82, 0.82].map((x) => <group key={x}>
+      <RBox position={[x, 0.85, 0]} size={[0.05, 1.7, 0.05]} radius={0.01} color="#9aa2a6" metalness={0.5}/>
+      <RBox position={[x, 0.04, 0]} size={[0.06, 0.04, 0.5]} radius={0.01} color="#6d7479" metalness={0.5}/>
+    </group>)}
+    <RBox position={[0, 1.3, 0.03]} size={[1.6, 1.0, 0.04]} radius={0.015} color="#c9ced3" metalness={0.3}/>
+    <mesh position={[0, 1.3, 0.052]}><planeGeometry args={[1.5, 0.9]}/><meshStandardMaterial color="#fbfbf8" roughness={0.25}/></mesh>
+    {/* A flow sketch: boxes and arrows in marker colours */}
+    {[[-0.5, 1.5, '#2f6fb5'], [0, 1.5, '#2f6fb5'], [0.5, 1.5, '#2a9d8f'], [-0.25, 1.15, '#c62828']].map(([x, y, color]) => <RBox key={`${x}${y}`} position={[x as number, y as number, 0.056]} size={[0.3, 0.16, 0.004]} radius={0.004} color={color as string} opacity={0.85} shadow={false}/>)}
+    {[[-0.25, 1.5], [0.25, 1.5]].map(([x, y]) => <RBox key={`a${x}`} position={[x, y, 0.056]} size={[0.2, 0.012, 0.004]} radius={0.002} color="#1c1f24" shadow={false}/>)}
+    <RBox position={[-0.1, 1.32, 0.056]} rotation={[0, 0, -0.7]} size={[0.3, 0.012, 0.004]} radius={0.002} color="#1c1f24" shadow={false}/>
+    {[[0.45, 1.12, '#f4d35e'], [0.6, 1.0, '#f4a3b8'], [0.38, 0.98, '#8fd18a']].map(([x, y, color]) => <RBox key={`n${x}`} position={[x as number, y as number, 0.058]} size={[0.12, 0.12, 0.004]} radius={0.004} color={color as string} shadow={false}/>)}
+    <RBox position={[0, 0.82, 0.09]} size={[1.2, 0.03, 0.08]} radius={0.01} color="#9aa2a6" metalness={0.5}/>
+    {['#1c1f24', '#c62828', '#2f6fb5'].map((color, index) => <Cyl key={color} position={[-0.2 + index * 0.15, 0.85, 0.1]} rotation={[0, 0, Math.PI / 2]} radius={0.012} height={0.12} color={color}/>)}
   </Group>
 }
 

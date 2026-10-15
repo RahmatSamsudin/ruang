@@ -110,13 +110,14 @@ describe('profile lock', () => {
 
 describe('private data of locked agents', () => {
   const privacy: Privacy = { hidden: new Set(['coder', 'default']), locked: new Set(['coder', 'default', 'writer']), all: false }
-  const station = (id: string, extra: Partial<OfficeStation> = {}): OfficeStation => ({ id, name: id, role: 'Hermes profile', room: 'Workspace', roomPosition: 'assigned-desk', state: 'Working', currentTask: 'Secret plan', recentActivity: 'Replying to a chat', activity: 'Kanban: Secret plan', seat: 1, provenance: '', freshness: '', ...extra })
+  const station = (id: string, extra: Partial<OfficeStation> = {}): OfficeStation => ({ id, name: id, role: 'Hermes profile', room: 'Workspace', roomPosition: 'assigned-desk', state: 'Working', currentTask: 'Secret plan', recentActivity: 'Replying to a chat', activity: 'Kanban: Secret plan', seat: 1, provenance: 'live activity (hermes -p coder logs/sessions, last 3m): chat', freshness: '', ...extra })
 
   it('keeps locked agents in the office without their task or activity', () => {
     const office: OfficeSnapshot = { stations: [station('coder'), station('writer'), station('research')], summary: { declared: 3, active: 3, idle: 0, offline: 0, unknown: 0, gatewaysReachable: 0, gatewaysDeclared: 0 }, fetchedAt: '' }
     const [coder, writer, research] = redactOffice(office, privacy).stations
     expect(coder).toMatchObject({ id: 'coder', state: 'Working', privacy: 'locked', currentTask: '🔒 Private', activity: '🔒 Working' })
     expect(JSON.stringify(coder)).not.toContain('Secret plan')
+    expect(coder.provenance).toBe('🔒 Private (profile lock)')
     expect(writer).toMatchObject({ privacy: 'unlocked', currentTask: 'Secret plan' })
     expect(research.privacy).toBeUndefined()
   })

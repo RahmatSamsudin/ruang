@@ -265,6 +265,18 @@ export function excludedFor(folder: AgentFolder, folders: AgentFolder[]): string
   return folders.filter((other) => other.available && other.profile !== folder.profile).map((other) => other.directory)
 }
 
+/**
+ * Folders hidden from this agent whatever `hermes profile list` says: the Hermes profiles folder,
+ * when it sits inside this agent's folder (the stock layout's `default`, which is the Hermes root).
+ * Every profile lives there, so the root agent never shows another agent's files, even while the
+ * profile list cannot be read and the other agents (locked ones included) are not known.
+ */
+export async function alwaysHiddenFor(folder: Pick<AgentFolder, 'directory'>, env: NodeJS.ProcessEnv = process.env, home = homedir()): Promise<string[]> {
+  const profiles = path.join(hermesRoot(env, home), 'profiles')
+  const real = await realpath(profiles).catch(() => undefined)
+  return real && real !== folder.directory && insideAny(real, [folder.directory]) ? [real] : []
+}
+
 export function publicAgent({ directory: _directory, ...agent }: AgentFolder): FolderAgent {
   void _directory
   return agent
