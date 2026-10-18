@@ -1,5 +1,5 @@
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type MutableRefObject } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type MutableRefObject } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { officeStateBadge } from '../office-state.ts'
@@ -7,6 +7,7 @@ import { clampTarget, createLayout, FLOOR_HEIGHT, GAME_ROOM, idlePlan, placement
 import { defaultScene } from '../scene3d/default-scene.ts'
 import { levelName } from '../scene3d/level-names.ts'
 import { applyPatch, deskSeatNumber, isStructureType, levelAt, levelsOf, MAX_ADDED, seatPositions, visibleAt, type PropType, type SceneItem } from '../scene3d/scene.ts'
+import { agentCameraPose, type PovMode } from '../scene3d/agent-camera.ts'
 import { EditTarget, PlacementLayer, type EditHandlers } from '../scene3d/edit-layer.tsx'
 import { addModelItem, addProp, addStorey, addStructureItem, canDelete, deleteItem, dragPreviewItem, duplicateItem, editKeyAction, isEditable, moveItem, rotateBy, rotateItem, ROTATION_STEP, setBoxProps, setFloorBounds, setFloorSurface, setGlassGeometry, setItemLevel, setItemProp, setItemScale, setItemView, setWallGeometry, type EditKeyAction, type StructureKind } from '../scene3d/scene-edit.ts'
 import { SceneRenderer } from '../scene3d/scene-renderer.tsx'
@@ -44,6 +45,11 @@ function outdoors(x: number, z: number, layout: OfficeLayout): boolean {
   return x < minX || z > maxZ || (x > maxX && !inGameRoom)
 }
 
+export interface CharacterAgentState {
+  group: THREE.Group
+  isSeated: () => boolean
+}
+
 function Character({
   station,
   placement,
@@ -53,6 +59,8 @@ function Character({
   onSelect,
   anchor,
   skinVersion,
+  isFollowedFirstPerson,
+  onRegisterAgent,
 }: {
   station: OfficeStation
   placement: Placement
@@ -62,6 +70,8 @@ function Character({
   onSelect: (station: OfficeStation, trigger: HTMLElement | null) => void
   anchor: (object: THREE.Object3D | null) => void
   skinVersion?: string
+  isFollowedFirstPerson?: boolean
+  onRegisterAgent?: (name: string, entry: CharacterAgentState | null) => void
 }) {
   const root = useRef<THREE.Group>(null)
   const body = useRef<THREE.Group>(null)
@@ -69,6 +79,7 @@ function Character({
   const rightLeg = useRef<THREE.Mesh>(null)
   const leftArm = useRef<THREE.Mesh>(null)
   const rightArm = useRef<THREE.Mesh>(null)
+  const seatedRef = useRef(false)
   const offline = station.state === 'Offline'
   const unknown = station.state === 'Unknown'
   const { texture, hasOverlay } = useSkinTexture(station.id, skinVersion)
@@ -129,7 +140,11 @@ function Character({
     }
     // Only the level in view is drawn; from higher levels the agents outside on the ground stay visible.
     const standingOn = levelAt(levels, group.position.y)
-    group.visible = standingOn === level || (standingOn < level && outdoors(group.position.x, group.position.z, layout))
+    if (isFollowedFirstPerson) {
+      group.visible = false
+    } else {
+      group.visible = standingOn === level || (standingOn < level && outdoors(group.position.x, group.position.z, layout))
+    }
     if (!walking) group.rotation.y += Math.atan2(Math.sin(placement.facing - group.rotation.y), Math.cos(placement.facing - group.rotation.y)) * 0.12
     const swing = walking ? Math.sin(time * 10) * 0.6 : 0
     const arrived = !walking && path.current.length === 0
@@ -138,6 +153,7 @@ function Character({
     // In bed (or the hammock) the body lines up with it exactly, not wherever the walk left it.
     if (lying) group.rotation.y = placement.facing
     const seated = !walking && (placement.seated || onFloor)
+    seatedRef.current = seated
     if (leftLeg.current && rightLeg.current) {
       leftLeg.current.rotation.x = lying ? 0 : seated ? -Math.PI / 2.2 : swing
       rightLeg.current.rotation.x = lying ? 0 : seated ? -Math.PI / 2.2 : -swing
@@ -157,7 +173,46 @@ function Character({
     }
   })
 
-  return <group ref={root} position={start}>
+  useEffect(() => {
+    if (!isFollowedFirstPerson && root.current) {
+      const group = root.current
+      const standingOn = levelAt(levels, group.position.y)
+      group.visible = standingOn === level || (standingOn < level && outdoors(group.position.x, group.position.z, layout))
+    }
+    return () => {
+      if (root.current) {
+        root.current.visible = true
+      }
+    }
+  }, [isFollowedFirstPerson, levels, level, layout])
+
+  const setRoot = useCallback((node: THREE.Group | null) => {
+    root.current = node
+    if (onRegisterAgent) {
+      if (node) {
+        onRegisterAgent(station.name, {
+          group: node,
+          isSeated: () => seatedRef.current,
+        })
+      } else {
+        onRegisterAgent(station.name, null)
+      }
+    }
+  }, [station.name, onRegisterAgent])
+
+  useEffect(() => {
+    if (root.current && onRegisterAgent) {
+      onRegisterAgent(station.name, {
+        group: root.current,
+        isSeated: () => seatedRef.current,
+      })
+    }
+    return () => {
+      onRegisterAgent?.(station.name, null)
+    }
+  }, [station.name, onRegisterAgent])
+
+  return <group ref={setRoot} position={start}>
     <group ref={body} onClick={(event) => { event.stopPropagation(); onSelect(station, null) }} onPointerOver={() => { document.body.style.cursor = 'pointer' }} onPointerOut={() => { document.body.style.cursor = '' }}>
       <mesh ref={leftLeg} position={[-0.11, 0.66, 0]} castShadow geometry={rightLegBaseGeometry} material={baseMaterial}>
         {hasOverlay && <mesh geometry={rightLegOverlayGeometry} material={overlayMaterial}/>}
@@ -247,10 +302,22 @@ function LabelProjector({ anchors, labels }: { anchors: Registry<THREE.Object3D>
 
 export interface ViewHandle { reset: () => void }
 
+export interface ControlsProps {
+  panMode: boolean
+  keyTarget: HTMLElement | null
+  layout: OfficeLayout
+  elevation: number
+  enabled: boolean
+  locked?: boolean
+}
+
 /** Orbit (drag), pan (right-drag, two fingers, arrow keys or pan mode) and zoom, kept in bounds. */
-const Controls = forwardRef<ViewHandle, { panMode: boolean; keyTarget: HTMLElement | null; layout: OfficeLayout; elevation: number; enabled: boolean }>(function Controls({ panMode, keyTarget, layout, elevation, enabled }, handle) {
+export const Controls = forwardRef<ViewHandle, ControlsProps>(function Controls({ panMode, keyTarget, layout, elevation, enabled, locked = false }, handle) {
   const { camera, gl, size } = useThree()
   const controls = useRef<OrbitControls | null>(null)
+  const wasLocked = useRef(locked)
+  const lockedRef = useRef(locked)
+  lockedRef.current = locked
   const { target: cameraTarget, offset: cameraOffset } = layout.camera
   const target = useMemo(() => new THREE.Vector3(...cameraTarget), [cameraTarget])
   const frame = useMemo(() => () => {
@@ -281,17 +348,46 @@ const Controls = forwardRef<ViewHandle, { panMode: boolean; keyTarget: HTMLEleme
     orbit.maxPolarAngle = 1.32
     orbit.keyPanSpeed = 25
     controls.current = orbit
-    frame()
+    if (locked) {
+      orbit.enabled = false
+      orbit.enableRotate = false
+      orbit.enablePan = false
+      orbit.enableZoom = false
+    } else {
+      frame()
+    }
     return () => { orbit.dispose(); controls.current = null }
     // frame() only sets the initial view; re-running it on resize is handled below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [camera, gl])
+
+  useEffect(() => {
+    const orbit = controls.current
+    if (!orbit) return
+    if (locked) {
+      orbit.enabled = false
+      orbit.enableRotate = false
+      orbit.enablePan = false
+      orbit.enableZoom = false
+      orbit.stopListenToKeyEvents()
+    } else {
+      orbit.enabled = true
+      orbit.enableRotate = enabled
+      orbit.enablePan = enabled
+      orbit.enableZoom = true
+      if (wasLocked.current) {
+        frame()
+      }
+    }
+    wasLocked.current = locked
+  }, [locked, enabled, frame])
+
   useEffect(() => {
     const orbit = controls.current
     // Rotate and pan only: the wheel keeps zooming while the pointer is over furniture in Edit mode.
-    if (orbit) { orbit.enableRotate = enabled; orbit.enablePan = enabled }
-  }, [enabled])
-  useEffect(() => { frame() }, [frame])
+    if (orbit && !locked) { orbit.enableRotate = enabled; orbit.enablePan = enabled }
+  }, [enabled, locked])
+  useEffect(() => { if (!locked) frame() }, [frame, locked])
   useEffect(() => {
     const orbit = controls.current
     if (!orbit) return
@@ -301,15 +397,15 @@ const Controls = forwardRef<ViewHandle, { panMode: boolean; keyTarget: HTMLEleme
   }, [panMode])
   useEffect(() => {
     const orbit = controls.current
-    if (!orbit || !keyTarget) return
+    if (!orbit || !keyTarget || locked) return
     orbit.listenToKeyEvents(keyTarget)
     return () => orbit.stopListenToKeyEvents()
-  }, [keyTarget])
+  }, [keyTarget, locked])
   useImperativeHandle(handle, () => ({ reset: frame }), [frame])
 
   useFrame(() => {
     const orbit = controls.current
-    if (!orbit) return
+    if (!orbit || lockedRef.current) return
     orbit.update()
     const [x, z] = clampTarget(orbit.target.x, orbit.target.z, layout.pan)
     if (x !== orbit.target.x || z !== orbit.target.z) {
@@ -320,6 +416,63 @@ const Controls = forwardRef<ViewHandle, { panMode: boolean; keyTarget: HTMLEleme
   })
   return null
 })
+
+export function PovCamera({
+  pov,
+  agents,
+  levels,
+  onLevelChange,
+}: {
+  pov?: { name: string; mode: PovMode } | null
+  agents: MutableRefObject<Map<string, CharacterAgentState>>
+  levels: number[]
+  onLevelChange: (levelIndex: number) => void
+}) {
+  const { camera } = useThree()
+  const currentLookAt = useRef(new THREE.Vector3())
+  const initialized = useRef(false)
+  const lastPovKey = useRef('')
+
+  useFrame(() => {
+    if (!pov) return
+    const agent = agents.current.get(pov.name)
+    if (!agent || !agent.group) return
+
+    const group = agent.group
+    const pos: [number, number, number] = [group.position.x, group.position.y, group.position.z]
+    const facing = group.rotation.y
+    const seated = agent.isSeated()
+
+    const targetElevation = levelAt(levels, group.position.y)
+    const targetLevelIndex = levels.indexOf(targetElevation)
+    if (targetLevelIndex !== -1) {
+      onLevelChange(targetLevelIndex)
+    }
+
+    const targetPose = agentCameraPose(pov.mode, pos, facing, seated)
+    const targetPos = new THREE.Vector3(...targetPose.position)
+    const targetLook = new THREE.Vector3(...targetPose.lookAt)
+
+    const povKey = `${pov.name}:${pov.mode}`
+    if (!initialized.current || lastPovKey.current !== povKey || camera.position.distanceTo(targetPos) > 2) {
+      camera.position.copy(targetPos)
+      currentLookAt.current.copy(targetLook)
+      camera.lookAt(currentLookAt.current)
+      initialized.current = true
+      lastPovKey.current = povKey
+    } else {
+      camera.position.lerp(targetPos, 0.25)
+      currentLookAt.current.lerp(targetLook, 0.25)
+      camera.lookAt(currentLookAt.current)
+    }
+  })
+
+  useEffect(() => {
+    initialized.current = false
+  }, [pov?.name, pov?.mode])
+
+  return null
+}
 
 function register<T>(registry: Registry<T>, key: string) {
   return (value: T | null) => { if (value) registry.current.set(key, value); else registry.current.delete(key) }
@@ -395,9 +548,51 @@ function useLevelIndex(count: number): [number, (index: number) => void] {
   }]
 }
 
-export default function Office3D({ stations, onSelect, onDirtyChange }: { stations: OfficeStation[]; onSelect: (station: OfficeStation, trigger: HTMLElement | null) => void; onDirtyChange?: (dirty: boolean) => void }) {
+export interface Office3DProps {
+  stations: OfficeStation[]
+  onSelect: (station: OfficeStation, trigger: HTMLElement | null) => void
+  onDirtyChange?: (dirty: boolean) => void
+  pov?: { name: string; mode: PovMode } | null
+  onPovChange?: (next: { name: string; mode: PovMode } | null) => void
+  onOpenDetail?: (name: string) => void
+}
+
+export default function Office3D({ stations, onSelect, onDirtyChange, pov, onPovChange, onOpenDetail }: Office3DProps) {
   const anchors = useRef(new Map<string, THREE.Object3D>())
   const labels = useRef(new Map<string, HTMLElement>())
+  const agents = useRef(new Map<string, CharacterAgentState>())
+  const [, setAgentGroupsVersion] = useState(0)
+  const povRef = useRef(pov)
+  povRef.current = pov
+
+  const registerAgent = useCallback((name: string, entry: CharacterAgentState | null) => {
+    if (entry) {
+      agents.current.set(name, entry)
+    } else {
+      agents.current.delete(name)
+    }
+    if (povRef.current && povRef.current.name === name) {
+      setAgentGroupsVersion((v) => v + 1)
+    }
+  }, [])
+
+  const followedStation = pov ? stations.find((s) => s.name === pov.name) : undefined
+  const hasFollowedGroup = Boolean(followedStation && agents.current.has(followedStation.name))
+  const povActive = Boolean(followedStation && hasFollowedGroup)
+  const showHud = Boolean(pov && followedStation)
+
+  const handleDetailClick = () => {
+    if (pov) {
+      onOpenDetail?.(pov.name)
+    }
+  }
+
+  useEffect(() => {
+    if (pov && !stations.some((s) => s.name === pov.name)) {
+      onPovChange?.(null)
+    }
+  }, [pov, stations, onPovChange])
+
   const view = useRef<ViewHandle>(null)
   const [panMode, setPanMode] = useState(false)
   const [keyTarget, setKeyTarget] = useState<HTMLElement | null>(null)
@@ -571,7 +766,26 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
     editor.addWith((patchNow) => addStorey(patchNow, items, layout.building))
     setLevelIndex(levels.length)
   }
-  const selectAgent: typeof onSelect = editingActive ? () => {} : onSelect
+  const selectAgent: typeof onSelect = editingActive || povActive ? () => {} : onSelect
+
+  const levelIndexRef = useRef(levelIndex)
+  levelIndexRef.current = levelIndex
+
+  const handlePovLevelChange = useCallback((targetIndex: number) => {
+    if (levelIndexRef.current !== targetIndex) {
+      levelIndexRef.current = targetIndex
+      setLevelIndex(targetIndex)
+    }
+  }, [setLevelIndex])
+
+  const prevPovActive = useRef(false)
+  useEffect(() => {
+    if (prevPovActive.current && !povActive) {
+      view.current?.reset()
+    }
+    prevPovActive.current = povActive
+  }, [povActive])
+
   const runEditAction = (action: EditKeyAction) => {
     if (action === 'undo') editor.undo()
     else if (action === 'redo') editor.redo()
@@ -619,7 +833,7 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
       const action = editKeyAction(event)
       if (action) { event.preventDefault(); runEditAction(action); return }
     }
-    if (event.key === 'PageUp' || event.key === 'PageDown') { event.preventDefault(); setLevelIndex(Math.min(Math.max(levelIndex + (event.key === 'PageUp' ? 1 : -1), 0), levels.length - 1)) }
+    if (!povActive && (event.key === 'PageUp' || event.key === 'PageDown')) { event.preventDefault(); setLevelIndex(Math.min(Math.max(levelIndex + (event.key === 'PageUp' ? 1 : -1), 0), levels.length - 1)) }
   }}>
     <Canvas shadows dpr={[1, 2]} camera={{ position: [-3, 13, 16], fov: 40, near: 0.5, far: 150 }} gl={{ antialias: true }} onPointerMissed={editingActive && !placing ? () => editor.select(null) : undefined}>
       <SceneCapture onScene={(scene) => { sceneRef.current = scene }} />
@@ -635,9 +849,38 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
           editor.addWith((patchNow) => addProp(patchNow, items, placing as PropType, x, z, level, panBounds))
         }
       }} onExit={editor.stopPlacing}/>}
-      {stations.map((station) => <Character key={station.id} station={station} placement={placement(station)} layout={layout} level={level} levels={levels} onSelect={selectAgent} anchor={register(anchors, `agent-${station.id}`)} skinVersion={skins?.[station.id]?.version}/>)}
+      {stations.map((station) => (
+        <Character
+          key={station.id}
+          station={station}
+          placement={placement(station)}
+          layout={layout}
+          level={level}
+          levels={levels}
+          onSelect={selectAgent}
+          anchor={register(anchors, `agent-${station.id}`)}
+          skinVersion={skins?.[station.id]?.version}
+          isFollowedFirstPerson={povActive && pov?.name === station.name && pov?.mode === 'first'}
+          onRegisterAgent={registerAgent}
+        />
+      ))}
       <LabelProjector anchors={anchors} labels={labels}/>
-      <Controls key={layout.deskCount} ref={view} panMode={panMode} keyTarget={keyTarget} layout={layout} elevation={level} enabled={!(editingActive && (hovering || dragging))}/>
+      <Controls
+        key={layout.deskCount}
+        ref={view}
+        panMode={panMode}
+        keyTarget={keyTarget}
+        layout={layout}
+        elevation={level}
+        enabled={!(editingActive && (hovering || dragging))}
+        locked={povActive}
+      />
+      <PovCamera
+        pov={povActive ? pov : undefined}
+        agents={agents}
+        levels={levels}
+        onLevelChange={handlePovLevelChange}
+      />
     </Canvas>
     <div className="office-3d-labels">
       {stations.map((station) => {
@@ -672,6 +915,50 @@ export default function Office3D({ stations, onSelect, onDirtyChange }: { statio
       <button type="button" className={panMode ? 'active' : ''} aria-pressed={panMode} onClick={() => setPanMode((value) => !value)} title="Drag moves the view instead of rotating it">✥ Geser</button>
       <button type="button" onClick={() => view.current?.reset()} title="Back to the starting view">↺ Reset view</button>
     </div>
+    {showHud && pov && followedStation && (
+      <aside className="office-pov-hud" aria-label="Agent POV controls">
+        <div className="office-pov-info">
+          <span className="office-pov-mode">
+            {pov.mode === 'first' ? `👁 1st Person: ${pov.name}` : `🎥 3rd Person: ${pov.name}`}
+          </span>
+          <span className="office-pov-lock" role="status">
+            Kamera terkunci / Locked POV
+          </span>
+        </div>
+        <div className="office-pov-actions" role="toolbar" aria-label="POV options">
+          <button
+            type="button"
+            className={`office-pov-btn${pov.mode === 'first' ? ' active' : ''}`}
+            aria-pressed={pov.mode === 'first'}
+            onClick={() => onPovChange?.({ name: pov.name, mode: 'first' })}
+          >
+            1st Person
+          </button>
+          <button
+            type="button"
+            className={`office-pov-btn${pov.mode === 'third' ? ' active' : ''}`}
+            aria-pressed={pov.mode === 'third'}
+            onClick={() => onPovChange?.({ name: pov.name, mode: 'third' })}
+          >
+            3rd Person
+          </button>
+          <button
+            type="button"
+            className="office-pov-btn"
+            onClick={handleDetailClick}
+          >
+            Detail
+          </button>
+          <button
+            type="button"
+            className="office-pov-btn office-pov-exit"
+            onClick={() => onPovChange?.(null)}
+          >
+            ✕ Exit View
+          </button>
+        </div>
+      </aside>
+    )}
     {editor.editing && (
       <div className="office-3d-editor-stack">
         <EditorBar

@@ -15,6 +15,7 @@ import { formatCost } from '../usage.ts'
 import { RelockBar } from '../ProfileLock.tsx'
 import { TokenUsage } from './TokenUsage.tsx'
 import { SkinTab } from './SkinTab.tsx'
+import type { PovMode } from '../scene3d/agent-camera.ts'
 
 // The 3D view (three.js) is only downloaded when someone switches to it.
 const Office3D = lazy(() => import('./Office3D.tsx'))
@@ -76,7 +77,13 @@ function AgentTokens({ agent }: { agent: string }) {
 type DetailTab = 'Overview' | 'Folder' | 'Memory' | 'Skin'
 const DETAIL_TABS: DetailTab[] = ['Overview', 'Folder', 'Memory', 'Skin']
 
-export function OfficeDetail({ station, onClose }: { station: OfficeStation; onClose: () => void }) {
+export interface OfficeDetailProps {
+  station: OfficeStation
+  onClose: () => void
+  onPov?: (mode: PovMode) => void
+}
+
+export function OfficeDetail({ station, onClose, onPov }: OfficeDetailProps) {
   const closeRef = useRef<HTMLButtonElement>(null)
   const dialogRef = useRef<HTMLElement>(null)
   const [tab, setTab] = useState<DetailTab>('Overview')
@@ -99,7 +106,35 @@ export function OfficeDetail({ station, onClose }: { station: OfficeStation; onC
   return <div className="office-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
     <section className={`office-detail${tab === 'Overview' ? '' : ' wide'}`} ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="office-detail-title" onKeyDown={onKeyDown}>
       <button className="office-close" ref={closeRef} onClick={onClose} aria-label={`Close ${station.name} details`}>Close</button>
-      <div className="detail-head"><div className="detail-avatar"><PixelCharacter agent={station.id}/></div><div><p className="eyebrow">STATION DETAIL</p><h2 id="office-detail-title">{station.name}</h2><span className={`badge ${badge.tone}`}>{officeStateLabel(station)}</span>{station.privacy === 'locked' && <span className="badge muted">🔒 Locked</span>}</div></div>
+      <div className="detail-head">
+        <div className="detail-avatar"><PixelCharacter agent={station.id}/></div>
+        <div>
+          <p className="eyebrow">STATION DETAIL</p>
+          <h2 id="office-detail-title">{station.name}</h2>
+          <span className={`badge ${badge.tone}`}>{officeStateLabel(station)}</span>
+          {station.privacy === 'locked' && <span className="badge muted">🔒 Locked</span>}
+          {onPov && (
+            <div className="detail-pov-actions">
+              <button
+                type="button"
+                className="detail-pov-btn"
+                onClick={() => onPov('first')}
+                aria-label={`View as ${station.name} in first person`}
+              >
+                👁 1st Person
+              </button>
+              <button
+                type="button"
+                className="detail-pov-btn"
+                onClick={() => onPov('third')}
+                aria-label={`View as ${station.name} in third person`}
+              >
+                🎥 3rd Person
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
       {profile && <div className="detail-tabs" role="tablist" aria-label={`${station.name} details`}>{DETAIL_TABS.map((item) => <button type="button" role="tab" key={item} aria-selected={tab === item} className={tab === item ? 'active' : ''} onClick={() => setTab(item)}>{item}</button>)}</div>}
       <div role="tabpanel" aria-label={tab} className="detail-body">
         {tab === 'Overview' && <>{station.privacy === 'locked' && <p className="file-notice">🔒 {station.name} is locked: its task, activity, memory and files are private. Open the Folder or Memory tab to enter the PIN.</p>}
@@ -165,6 +200,7 @@ export function Office({ dashboard, dashboardPending = false, onNavigate }: { da
   const [chosenRoom, setChosenRoom] = useState<OfficeRoom | undefined>()
   const [view, setView] = useState<OfficeView>(() => typeof window === 'undefined' ? '2d' : storedView())
   const [webgl] = useState(() => typeof document === 'undefined' || webglAvailable())
+  const [pov, setPov] = useState<{ name: string; mode: PovMode } | null>(null)
   const [panel, setPanel] = useState<PanelTab | undefined>(() => typeof window === 'undefined' ? undefined : storedPanel())
   const [overlay, setOverlay] = useState<OverlayKind | undefined>()
   const choosePanel = (next: PanelTab | undefined) => {
@@ -174,6 +210,9 @@ export function Office({ dashboard, dashboardPending = false, onNavigate }: { da
   const editDirty = useRef(false)
   const chooseView = (next: OfficeView) => {
     if (next !== view && editDirty.current && !window.confirm('Discard unsaved changes?')) return
+    if (next !== '3d') {
+      setPov(null)
+    }
     setView(next)
     try { window.localStorage.setItem('mc.officeView', next) } catch { /* storage may be blocked */ }
   }
@@ -191,6 +230,32 @@ export function Office({ dashboard, dashboardPending = false, onNavigate }: { da
     setSelectedName(undefined)
     selectedTrigger.current?.focus()
   }
+
+  const handleStartPov = (mode: PovMode) => {
+    if (!selected) return
+    if (view !== '3d') {
+      chooseView('3d')
+    }
+    setPov({ name: selected.name, mode })
+    closeDetail()
+  }
+
+  useEffect(() => {
+    if (pov && office && !office.stations.some((s) => s.name === pov.name)) {
+      setPov(null)
+    }
+  }, [pov, office])
+
+  useEffect(() => {
+    if (!pov) return
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      if (selectedName || document.querySelector('.office-backdrop, .office-detail, [role="dialog"]')) return
+      setPov(null)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [pov, selectedName])
   if (snapshot.status === 'pending') return <LoadingState message="Reading office state..."/>
   const hud = hudItems(office, dashboard)
   // Hot desking: one unlabeled desk per agent.
@@ -205,7 +270,7 @@ export function Office({ dashboard, dashboardPending = false, onNavigate }: { da
       <button type="button" className={`panel-toggle${panel ? ' active' : ''}`} aria-expanded={Boolean(panel)} aria-controls="office-panel" onClick={() => choosePanel(panel ? undefined : 'Crew')}>◧ Panel</button>
     </div>
     <div className="office-canvas">
-      {show3d ? <SceneBoundary fallback={<section className="empty-state"><h2>3D view unavailable</h2><p>The 3D office could not start on this device. Switch back to 2D.</p></section>}><Suspense fallback={<LoadingState message="Loading the 3D office..."/>}><Office3D stations={office?.stations ?? []} onSelect={select3d} onDirtyChange={setEditDirty}/></Suspense></SceneBoundary> : <>{view === '3d' && !webgl && <p className="muted office-note">3D needs WebGL, which this browser does not provide. Showing 2D.</p>}<div className="room-tabs" role="tablist" aria-label="Office rooms">{ROOMS.map((item) => <button role="tab" aria-selected={room === item} className={room === item ? 'active' : ''} onClick={() => setChosenRoom(item)} key={item}>{item} <span className="room-count">{counts[item]}</span></button>)}</div>
+      {show3d ? <SceneBoundary fallback={<section className="empty-state"><h2>3D view unavailable</h2><p>The 3D office could not start on this device. Switch back to 2D.</p></section>}><Suspense fallback={<LoadingState message="Loading the 3D office..."/>}><Office3D stations={office?.stations ?? []} onSelect={select3d} onDirtyChange={setEditDirty} pov={pov} onPovChange={setPov} onOpenDetail={setSelectedName}/></Suspense></SceneBoundary> : <>{view === '3d' && !webgl && <p className="muted office-note">3D needs WebGL, which this browser does not provide. Showing 2D.</p>}<div className="room-tabs" role="tablist" aria-label="Office rooms">{ROOMS.map((item) => <button role="tab" aria-selected={room === item} className={room === item ? 'active' : ''} onClick={() => setChosenRoom(item)} key={item}>{item} <span className="room-count">{counts[item]}</span></button>)}</div>
         <div className="room-scroll"><section className={`pixel-room flow ${room.toLowerCase()}`} aria-label={`${room} room`}><div className="room-label"><span>{room}</span><small>{room === 'Workspace' ? `${deskCount} HOT DESK${deskCount === 1 ? '' : 'S'} + MEETING ROOM` : 'QUIET BREAK AREA'}</small></div>
           {room === 'Workspace' ? <>
             <div className="flow-desks">{Array.from({ length: deskCount }, (_, index) => {
@@ -240,6 +305,6 @@ export function Office({ dashboard, dashboardPending = false, onNavigate }: { da
       </div>
     </aside>}
     {overlay && <OfficeOverlay kind={overlay} onClose={() => setOverlay(undefined)} onNavigate={onNavigate}/>}
-    {selected && <OfficeDetail station={selected} onClose={closeDetail}/>}
+    {selected && <OfficeDetail station={selected} onClose={closeDetail} onPov={webgl ? handleStartPov : undefined}/>}
   </section>
 }
