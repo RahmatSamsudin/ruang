@@ -2,7 +2,7 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Office3D } from './Office3D.tsx'
+import Office3D from './Office3D.tsx'
 import type { OfficeStation } from '../types.ts'
 
 vi.mock('@react-three/fiber', () => ({
@@ -112,11 +112,10 @@ describe('Office3D floating POV HUD', () => {
     })
     expect(onPovChange).toHaveBeenCalledWith({ name: 'coder', mode: 'third' })
 
-    // Clicking Detail invokes onSelect and onOpenDetail
+    // Clicking Detail invokes onOpenDetail
     await act(async () => {
       detailBtn?.click()
     })
-    expect(onSelect).toHaveBeenCalledWith(sampleStation, detailBtn)
     expect(onOpenDetail).toHaveBeenCalledWith('coder')
 
     // Clicking Exit View clears pov
@@ -161,62 +160,6 @@ describe('Office3D floating POV HUD', () => {
       firstBtn?.click()
     })
     expect(onPovChange).toHaveBeenCalledWith({ name: 'coder', mode: 'first' })
-
-    await act(async () => {
-      root.unmount()
-    })
-  })
-
-  it('exits POV on Escape key press when dialog is not open', async () => {
-    const onPovChange = vi.fn()
-    const host = document.body.appendChild(document.createElement('div'))
-    const root = createRoot(host)
-
-    await act(async () => {
-      root.render(
-        <Office3D
-          stations={[sampleStation]}
-          onSelect={vi.fn()}
-          pov={{ name: 'coder', mode: 'first' }}
-          onPovChange={onPovChange}
-        />
-      )
-    })
-
-    await act(async () => {
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
-    })
-    expect(onPovChange).toHaveBeenCalledWith(null)
-
-    await act(async () => {
-      root.unmount()
-    })
-  })
-
-  it('does NOT exit POV on Escape key press when OfficeDetail dialog is open', async () => {
-    const onPovChange = vi.fn()
-    const host = document.body.appendChild(document.createElement('div'))
-    const dialog = document.body.appendChild(document.createElement('div'))
-    dialog.className = 'office-detail'
-    dialog.setAttribute('role', 'dialog')
-
-    const root = createRoot(host)
-
-    await act(async () => {
-      root.render(
-        <Office3D
-          stations={[sampleStation]}
-          onSelect={vi.fn()}
-          pov={{ name: 'coder', mode: 'first' }}
-          onPovChange={onPovChange}
-        />
-      )
-    })
-
-    await act(async () => {
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
-    })
-    expect(onPovChange).not.toHaveBeenCalled()
 
     await act(async () => {
       root.unmount()

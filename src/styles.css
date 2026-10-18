@@ -1130,15 +1130,12 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
 .office-3d-field-error { color: var(--c-ff9d8f); font-size: 10px; line-height: 1.2; }
 
 /* Agent POV Detail Actions */
-.detail-actions,
 .detail-pov-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 8px;
 }
-.detail-actions button,
-.detail-actions .button,
 .detail-pov-actions button,
 .detail-pov-btn {
   align-items: center;
@@ -1154,8 +1151,6 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
   min-height: 28px;
   padding: 4px 10px;
 }
-.detail-actions button:hover,
-.detail-actions .button:hover,
 .detail-pov-actions button:hover,
 .detail-pov-btn:hover {
   border-color: var(--accent);
@@ -1189,12 +1184,17 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
   display: flex;
   gap: 8px;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .office-pov-mode {
   color: var(--text);
   font: 600 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   letter-spacing: .02em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .office-pov-lock {
   align-items: center;
@@ -1203,6 +1203,7 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
   border-radius: 4px;
   color: var(--accent);
   display: inline-flex;
+  flex-shrink: 0;
   font: 10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   letter-spacing: .04em;
   padding: 2px 6px;

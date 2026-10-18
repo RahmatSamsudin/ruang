@@ -171,7 +171,7 @@ describe('agentCameraPose', () => {
   describe('third person mode', () => {
     it('calculates standing and seated pose at heading 0', () => {
       const standing = agentCameraPose('third', origin, 0, false)
-      expect(standing.position[0]).toBeCloseTo(0.35, 5)
+      expect(standing.position[0]).toBeCloseTo(-0.35, 5)
       expect(standing.position[1]).toBeCloseTo(1.8, 5)
       expect(standing.position[2]).toBeCloseTo(-2.2, 5)
 
@@ -188,7 +188,7 @@ describe('agentCameraPose', () => {
       const { position, lookAt } = agentCameraPose('third', origin, Math.PI / 2, false)
       expect(position[0]).toBeCloseTo(-2.2, 5)
       expect(position[1]).toBeCloseTo(1.8, 5)
-      expect(position[2]).toBeCloseTo(-0.35, 5)
+      expect(position[2]).toBeCloseTo(0.35, 5)
 
       expect(lookAt[0]).toBeCloseTo(5, 5)
       expect(lookAt[1]).toBeCloseTo(1.2, 5)
@@ -197,7 +197,7 @@ describe('agentCameraPose', () => {
 
     it('calculates pose at heading PI', () => {
       const { position, lookAt } = agentCameraPose('third', origin, Math.PI, false)
-      expect(position[0]).toBeCloseTo(-0.35, 5)
+      expect(position[0]).toBeCloseTo(0.35, 5)
       expect(position[1]).toBeCloseTo(1.8, 5)
       expect(position[2]).toBeCloseTo(2.2, 5)
 
@@ -208,7 +208,7 @@ describe('agentCameraPose', () => {
 
     it('accounts for base position and floor elevation', () => {
       const { position, lookAt } = agentCameraPose('third', offsetPos, 0, false)
-      expect(position[0]).toBeCloseTo(2 + 0.35, 5)
+      expect(position[0]).toBeCloseTo(2 - 0.35, 5)
       expect(position[1]).toBeCloseTo(1.5 + 1.8, 5)
       expect(position[2]).toBeCloseTo(-3 - 2.2, 5)
 

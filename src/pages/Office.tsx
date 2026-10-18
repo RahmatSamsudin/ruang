@@ -210,6 +210,9 @@ export function Office({ dashboard, dashboardPending = false, onNavigate }: { da
   const editDirty = useRef(false)
   const chooseView = (next: OfficeView) => {
     if (next !== view && editDirty.current && !window.confirm('Discard unsaved changes?')) return
+    if (next !== '3d') {
+      setPov(null)
+    }
     setView(next)
     try { window.localStorage.setItem('mc.officeView', next) } catch { /* storage may be blocked */ }
   }

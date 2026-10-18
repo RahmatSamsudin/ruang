@@ -24,8 +24,8 @@ export function agentCameraPose(
     return { position, lookAt }
   }
 
-  const rightX = Math.cos(facing)
-  const rightZ = -Math.sin(facing)
+  const rightX = -Math.cos(facing)
+  const rightZ = Math.sin(facing)
 
   const position: [number, number, number] = [
     pos[0] - forwardX * 2.2 + rightX * 0.35,

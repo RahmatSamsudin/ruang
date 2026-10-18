@@ -581,10 +581,7 @@ export default function Office3D({ stations, onSelect, onDirtyChange, pov, onPov
   const povActive = Boolean(followedStation && hasFollowedGroup)
   const showHud = Boolean(pov && followedStation)
 
-  const handleDetailClick = (event: React.MouseEvent<HTMLButtonElement>) => {
-    if (followedStation) {
-      onSelect(followedStation, event.currentTarget)
-    }
+  const handleDetailClick = () => {
     if (pov) {
       onOpenDetail?.(pov.name)
     }
@@ -595,18 +592,6 @@ export default function Office3D({ stations, onSelect, onDirtyChange, pov, onPov
       onPovChange?.(null)
     }
   }, [pov, stations, onPovChange])
-
-  useEffect(() => {
-    if (!pov) return
-    const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      // Ignore if OfficeDetail dialog is open so Escape closes the dialog first
-      if (document.querySelector('.office-backdrop, .office-detail, [role="dialog"]')) return
-      onPovChange?.(null)
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [pov, onPovChange])
 
   const view = useRef<ViewHandle>(null)
   const [panMode, setPanMode] = useState(false)
@@ -1053,5 +1038,3 @@ export default function Office3D({ stations, onSelect, onDirtyChange, pov, onPov
     )}
   </div>
 }
-
-export { Office3D }
