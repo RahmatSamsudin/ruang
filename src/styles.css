@@ -1129,3 +1129,156 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
 .office-3d-input-error { border-color: var(--c-ff9d8f) !important; outline: 1px solid var(--c-ff9d8f); }
 .office-3d-field-error { color: var(--c-ff9d8f); font-size: 10px; line-height: 1.2; }
 
+/* Agent POV Detail Actions */
+.detail-actions,
+.detail-pov-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.detail-actions button,
+.detail-actions .button,
+.detail-pov-actions button,
+.detail-pov-btn {
+  align-items: center;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  color: var(--text);
+  cursor: pointer;
+  display: inline-flex;
+  font: 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  gap: 6px;
+  justify-content: center;
+  min-height: 28px;
+  padding: 4px 10px;
+}
+.detail-actions button:hover,
+.detail-actions .button:hover,
+.detail-pov-actions button:hover,
+.detail-pov-btn:hover {
+  border-color: var(--accent);
+}
+
+/* Agent POV Floating HUD overlay */
+.office-pov-hud {
+  align-items: center;
+  backdrop-filter: blur(8px);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  border: 1px solid var(--border-strong);
+  border-radius: 9999px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  box-sizing: border-box;
+  display: flex;
+  gap: 12px;
+  left: 50%;
+  max-width: calc(100% - 24px);
+  padding: 6px 14px;
+  pointer-events: auto;
+  position: absolute;
+  top: 12px;
+  transform: translateX(-50%);
+  z-index: 3;
+}
+.office-stage .office-pov-hud {
+  top: 58px;
+}
+.office-pov-info {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.office-pov-mode {
+  color: var(--text);
+  font: 600 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: .02em;
+}
+.office-pov-lock {
+  align-items: center;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 4px;
+  color: var(--accent);
+  display: inline-flex;
+  font: 10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: .04em;
+  padding: 2px 6px;
+  text-transform: uppercase;
+}
+.office-pov-actions {
+  align-items: center;
+  display: flex;
+  gap: 4px;
+}
+.office-pov-btn {
+  align-items: center;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  font: 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  gap: 4px;
+  justify-content: center;
+  min-height: 28px;
+  padding: 4px 9px;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.office-pov-btn:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.office-pov-btn.active,
+.office-pov-btn[aria-pressed="true"] {
+  background: var(--active-bg);
+  border-color: var(--active-border);
+  color: var(--active-text);
+  font-weight: 600;
+}
+.office-pov-btn.office-pov-exit:hover {
+  border-color: var(--c-ff9d8f, #ff9d8f);
+  color: var(--c-ff9d8f, #ff9d8f);
+}
+
+@media (max-width: 700px) {
+  .office-stage .office-pov-hud {
+    top: 92px;
+  }
+}
+
+@media (max-width: 480px) {
+  .office-pov-hud {
+    border-radius: 12px;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 10px;
+    width: calc(100% - 16px);
+    max-width: calc(100% - 16px);
+  }
+  .office-pov-info {
+    justify-content: space-between;
+    width: 100%;
+  }
+  .office-pov-actions {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    width: 100%;
+    gap: 4px;
+  }
+  .office-pov-btn {
+    min-height: 40px;
+    padding: 6px 4px;
+    font-size: 11px;
+    text-align: center;
+  }
+  .office-stage:has(.office-pov-hud) .office-3d-floors {
+    top: 180px;
+  }
+}
+
+

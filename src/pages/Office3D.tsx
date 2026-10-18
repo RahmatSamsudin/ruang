@@ -423,7 +423,7 @@ export function PovCamera({
   levels,
   onLevelChange,
 }: {
-  pov?: { name: string; mode: PovMode }
+  pov?: { name: string; mode: PovMode } | null
   agents: MutableRefObject<Map<string, CharacterAgentState>>
   levels: number[]
   onLevelChange: (levelIndex: number) => void
@@ -552,10 +552,12 @@ export interface Office3DProps {
   stations: OfficeStation[]
   onSelect: (station: OfficeStation, trigger: HTMLElement | null) => void
   onDirtyChange?: (dirty: boolean) => void
-  pov?: { name: string; mode: PovMode }
+  pov?: { name: string; mode: PovMode } | null
+  onPovChange?: (next: { name: string; mode: PovMode } | null) => void
+  onOpenDetail?: (name: string) => void
 }
 
-export default function Office3D({ stations, onSelect, onDirtyChange, pov }: Office3DProps) {
+export default function Office3D({ stations, onSelect, onDirtyChange, pov, onPovChange, onOpenDetail }: Office3DProps) {
   const anchors = useRef(new Map<string, THREE.Object3D>())
   const labels = useRef(new Map<string, HTMLElement>())
   const agents = useRef(new Map<string, CharacterAgentState>())
@@ -577,6 +579,34 @@ export default function Office3D({ stations, onSelect, onDirtyChange, pov }: Off
   const followedStation = pov ? stations.find((s) => s.name === pov.name) : undefined
   const hasFollowedGroup = Boolean(followedStation && agents.current.has(followedStation.name))
   const povActive = Boolean(followedStation && hasFollowedGroup)
+  const showHud = Boolean(pov && followedStation)
+
+  const handleDetailClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    if (followedStation) {
+      onSelect(followedStation, event.currentTarget)
+    }
+    if (pov) {
+      onOpenDetail?.(pov.name)
+    }
+  }
+
+  useEffect(() => {
+    if (pov && !stations.some((s) => s.name === pov.name)) {
+      onPovChange?.(null)
+    }
+  }, [pov, stations, onPovChange])
+
+  useEffect(() => {
+    if (!pov) return
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      // Ignore if OfficeDetail dialog is open so Escape closes the dialog first
+      if (document.querySelector('.office-backdrop, .office-detail, [role="dialog"]')) return
+      onPovChange?.(null)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [pov, onPovChange])
 
   const view = useRef<ViewHandle>(null)
   const [panMode, setPanMode] = useState(false)
@@ -900,6 +930,50 @@ export default function Office3D({ stations, onSelect, onDirtyChange, pov }: Off
       <button type="button" className={panMode ? 'active' : ''} aria-pressed={panMode} onClick={() => setPanMode((value) => !value)} title="Drag moves the view instead of rotating it">✥ Geser</button>
       <button type="button" onClick={() => view.current?.reset()} title="Back to the starting view">↺ Reset view</button>
     </div>
+    {showHud && pov && followedStation && (
+      <aside className="office-pov-hud" aria-label="Agent POV controls">
+        <div className="office-pov-info">
+          <span className="office-pov-mode">
+            {pov.mode === 'first' ? `👁 1st Person: ${pov.name}` : `🎥 3rd Person: ${pov.name}`}
+          </span>
+          <span className="office-pov-lock" role="status">
+            Kamera terkunci / Locked POV
+          </span>
+        </div>
+        <div className="office-pov-actions" role="toolbar" aria-label="POV options">
+          <button
+            type="button"
+            className={`office-pov-btn${pov.mode === 'first' ? ' active' : ''}`}
+            aria-pressed={pov.mode === 'first'}
+            onClick={() => onPovChange?.({ name: pov.name, mode: 'first' })}
+          >
+            1st Person
+          </button>
+          <button
+            type="button"
+            className={`office-pov-btn${pov.mode === 'third' ? ' active' : ''}`}
+            aria-pressed={pov.mode === 'third'}
+            onClick={() => onPovChange?.({ name: pov.name, mode: 'third' })}
+          >
+            3rd Person
+          </button>
+          <button
+            type="button"
+            className="office-pov-btn"
+            onClick={handleDetailClick}
+          >
+            Detail
+          </button>
+          <button
+            type="button"
+            className="office-pov-btn office-pov-exit"
+            onClick={() => onPovChange?.(null)}
+          >
+            ✕ Exit View
+          </button>
+        </div>
+      </aside>
+    )}
     {editor.editing && (
       <div className="office-3d-editor-stack">
         <EditorBar
@@ -979,3 +1053,5 @@ export default function Office3D({ stations, onSelect, onDirtyChange, pov }: Off
     )}
   </div>
 }
+
+export { Office3D }
